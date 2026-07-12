@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Proactive·AI palette — from scope document mockups */
+  --cream: #faf7f0;
+  --cream-deep: #f3ecdf;
+  --card: #fdfbf6;
+  --ink: #2b2118;
+  --ink-soft: #5c4d3d;
+  --bronze: #8a5a34;
+  --bronze-deep: #6f4e2e;
+  --ember: #b4552d;
+  --sand: #e8dfd0;
+  --tan: #b9a68f;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.font-serif-display {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.02em;
+}
+
+/* subtle grid texture like the landing mockup */
+.hero-grid {
+  background-image: linear-gradient(var(--sand) 1px, transparent 1px),
+    linear-gradient(90deg, var(--sand) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: center;
+}
+
+/* TipTap document editor */
+.doc-editor .tiptap {
+  outline: none;
+  min-height: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 6rem;
+  line-height: 1.75;
+  color: var(--ink);
+}
+.doc-editor .tiptap h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.75rem;
+}
+.doc-editor .tiptap h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 1.25rem 0 0.5rem;
+}
+.doc-editor .tiptap h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem;
+}
+.doc-editor .tiptap p {
+  margin: 0.5rem 0;
+}
+.doc-editor .tiptap ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.doc-editor .tiptap ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.doc-editor .tiptap blockquote {
+  border-left: 3px solid var(--tan);
+  padding-left: 1rem;
+  color: var(--ink-soft);
+  margin: 0.75rem 0;
+}
+.doc-editor .tiptap code {
+  background: var(--cream-deep);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.9em;
+}
+.doc-editor .tiptap pre {
+  background: var(--ink);
+  color: var(--cream);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+.doc-editor .tiptap pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.doc-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--tan);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
