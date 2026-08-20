@@ -131,7 +131,7 @@ export class RepeatedErrorDetector {
       }
     }
 
-    for (const signature of this.errors.keys()) {
+    for (const signature of Array.from(this.errors.keys())) {
       if (!current.has(signature)) this.errors.delete(signature);
     }
 
@@ -228,13 +228,13 @@ export class StuckDetectorEngine {
 
   private combine(signal: DetectorSignal | null, timestamp: number): StuckMetadata | null {
     if (signal) this.activeSignals.set(signal.type, signal);
-    for (const [type, active] of this.activeSignals) {
+    for (const [type, active] of Array.from(this.activeSignals.entries())) {
       if (timestamp - active.observedAt > this.config.combinationWindowMs) {
         this.activeSignals.delete(type);
       }
     }
 
-    const signals = [...this.activeSignals.values()];
+    const signals = Array.from(this.activeSignals.values());
     const score = signals.reduce((total, active) => total + active.score, 0);
     if (
       signals.length < 2 ||
