@@ -1,5 +1,8 @@
 "use client";
 
+import type { StuckDetectionConfig } from "@/lib/stuck-config";
+import type { StuckMetadata } from "@/lib/stuck-detectors";
+
 // The API now lives in same-origin Next.js route handlers (/api/*),
 // so requests are relative — no external base URL needed.
 
@@ -14,8 +17,10 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
 };
 
 export interface Suggestion {
+  id: string;
   explanation: string;
   snippet: string;
+  reason: string;
 }
 
 export interface SuggestResult {
@@ -29,6 +34,7 @@ export async function fetchSuggestion(body: {
   fileName: string;
   kind: "code" | "doc";
   content: string;
+  stuck?: StuckMetadata;
 }): Promise<SuggestResult> {
   try {
     const res = await fetch(`/api/suggest`, {
@@ -44,6 +50,30 @@ export async function fetchSuggestion(body: {
   } catch {
     return { error: "Cannot reach the server. Is the backend running?" };
   }
+}
+
+export async function fetchStuckSettings(): Promise<StuckDetectionConfig | null> {
+  try {
+    const res = await fetch("/api/stuck-settings");
+    if (!res.ok) return null;
+    return (await res.json()).config as StuckDetectionConfig;
+  } catch {
+    return null;
+  }
+}
+
+export function recordSuggestionOutcome(
+  suggestionId: string,
+  outcome: "accepted" | "dismissed"
+): void {
+  void fetch(`/api/suggestions/${suggestionId}/outcome`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ outcome }),
+    keepalive: true,
+  }).catch(() => {
+    // Outcome persistence must never delay or block the editor interaction.
+  });
 }
 
 export async function saveApiKey(

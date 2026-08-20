@@ -4,12 +4,14 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { decrypt } from "@/lib/server/crypto";
 import { getSuggestion, ProviderError, Provider } from "@/lib/server/providers";
+import { StuckMetadataSchema } from "@/lib/server/stuck";
 
 const Body = z.object({
   provider: z.enum(["gemini", "deepseek", "openai", "anthropic", "demo"]),
   fileName: z.string().max(255).default("untitled"),
   kind: z.enum(["code", "doc"]).default("code"),
   content: z.string().min(1, "Nothing to review yet.").max(100_000),
+  stuck: StuckMetadataSchema.optional(),
 });
 
 const ENV_KEY: Record<Exclude<Provider, "demo">, string | undefined> = {
@@ -35,7 +37,13 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  const { provider, fileName, kind, content } = parsed.data;
+  const { provider, fileName, kind, content, stuck } = parsed.data;
+  if (kind === "code" && !stuck) {
+    return NextResponse.json(
+      { error: "Code suggestions require stuck detector metadata." },
+      { status: 400 }
+    );
+  }
 
   // Resolve the key: the user's own stored key wins; the server-wide env key
   // is the fallback. Keys are read with the service client (bypasses RLS) and
@@ -67,6 +75,7 @@ export async function POST(req: Request) {
       fileName,
       kind,
       content,
+      stuck,
     });
     if (!suggestion.explanation) {
       return NextResponse.json(
@@ -74,7 +83,30 @@ export async function POST(req: Request) {
         { status: 502 }
       );
     }
-    return NextResponse.json({ suggestion, provider });
+    const detectorMetadata =
+      stuck ?? { detectorTypes: [], signals: [], score: 0, threshold: 0, detectedAt: Date.now() };
+    const { data: saved, error: saveError } = await supabase
+      .from("suggestions")
+      .insert({
+        user_id: user.id,
+        provider,
+        file_name: fileName,
+        detector_metadata: detectorMetadata,
+        score: stuck?.score ?? 0,
+        explanation: suggestion.explanation,
+        snippet: suggestion.snippet,
+        reason: suggestion.reason,
+      })
+      .select("id")
+      .single();
+    if (saveError) {
+      console.error("[suggest] persist:", saveError.message);
+      return NextResponse.json(
+        { error: "The suggestion was generated but could not be saved." },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({ suggestion: { ...suggestion, id: saved.id }, provider });
   } catch (err) {
     const pe = err as ProviderError;
     console.error(`[suggest] ${provider}:`, pe.message);
