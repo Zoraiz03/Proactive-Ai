@@ -1,7 +1,6 @@
 "use client";
 
-import type { StuckDetectionConfig } from "@/lib/stuck-config";
-import type { StuckMetadata } from "@/lib/stuck-detectors";
+import type { ManualSuggestionRequest } from "@/lib/manual-suggestion";
 
 // The API now lives in same-origin Next.js route handlers (/api/*),
 // so requests are relative — no external base URL needed.
@@ -29,18 +28,9 @@ export interface SuggestResult {
   needsKey?: boolean;
 }
 
-export interface StuckSettingsResult {
-  config: StuckDetectionConfig;
-  proactiveHelpEnabled: boolean;
-}
-
-export async function fetchSuggestion(body: {
-  provider: Provider;
-  fileName: string;
-  kind: "code" | "doc";
-  content: string;
-  stuck?: StuckMetadata;
-}): Promise<SuggestResult> {
+export async function fetchSuggestion(
+  body: ManualSuggestionRequest & { provider: Provider }
+): Promise<SuggestResult> {
   try {
     const res = await fetch(`/api/suggest`, {
       method: "POST",
@@ -57,37 +47,10 @@ export async function fetchSuggestion(body: {
   }
 }
 
-export async function fetchStuckSettings(): Promise<StuckSettingsResult | null> {
-  try {
-    const res = await fetch("/api/stuck-settings");
-    if (!res.ok) return null;
-    const data = await res.json();
-    return {
-      config: data.config as StuckDetectionConfig,
-      proactiveHelpEnabled: data.proactiveHelpEnabled !== false,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function saveProactiveHelpEnabled(enabled: boolean): Promise<boolean> {
-  try {
-    const res = await fetch("/api/stuck-settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ proactiveHelpEnabled: enabled }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 export async function recordSuggestionOutcome(
   suggestionId: string,
   outcome: "accepted" | "dismissed"
-): Promise<StuckDetectionConfig | null> {
+): Promise<void> {
   try {
     const res = await fetch(`/api/suggestions/${suggestionId}/outcome`, {
       method: "POST",
@@ -95,11 +58,10 @@ export async function recordSuggestionOutcome(
       body: JSON.stringify({ outcome }),
       keepalive: true,
     });
-    if (!res.ok) return null;
-    return ((await res.json()).config as StuckDetectionConfig | null) ?? null;
+    if (!res.ok) return;
   } catch {
     // Outcome persistence must never delay or block the editor interaction.
-    return null;
+    return;
   }
 }
 

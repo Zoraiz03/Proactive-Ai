@@ -11,20 +11,16 @@ import { useWorkspace } from "@/lib/store";
 import { kindOf } from "@/lib/files";
 import { getSession, signOut, Session } from "@/lib/auth";
 import {
-  fetchStuckSettings,
   fetchSuggestion,
   Provider,
   recordSuggestionOutcome,
-  saveProactiveHelpEnabled,
   Suggestion,
 } from "@/lib/suggest";
-import { resolveStuckConfig, StuckDetectionConfig } from "@/lib/stuck-config";
-import type { StuckMetadata } from "@/lib/stuck-detectors";
 import {
-  createProactiveHelpNudge,
-  metadataForNudgeAction,
-  ProactiveHelpNudge,
-} from "@/lib/proactive-help";
+  createManualSuggestionRequest,
+  EditorRequestContext,
+  hasMeaningfulContent,
+} from "@/lib/manual-suggestion";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), {
   ssr: false,
@@ -32,8 +28,6 @@ const CodeEditor = dynamic(() => import("@/components/CodeEditor"), {
 const DocEditor = dynamic(() => import("@/components/DocEditor"), {
   ssr: false,
 });
-
-const MIN_CONTENT_LENGTH = 20;
 
 function SaveStatus() {
   const lastSavedAt = useWorkspace((s) => s.lastSavedAt);
@@ -90,7 +84,6 @@ export default function WorkspacePage() {
   const { files, activeFileId, updateContent } = useWorkspace();
   const [hydrated, setHydrated] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
-  const [sessionLoaded, setSessionLoaded] = useState(false);
 
   // Observer state
   const [status, setStatus] = useState<ObserverStatus>("signedout");
@@ -98,102 +91,33 @@ export default function WorkspacePage() {
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsKey, setNeedsKey] = useState(false);
-  const [retryNonce, setRetryNonce] = useState(0);
-  const [proactiveHelpEnabled, setProactiveHelpEnabled] = useState(true);
-  const [proactiveHelpLoaded, setProactiveHelpLoaded] = useState(false);
-  const [proactiveHelpSaving, setProactiveHelpSaving] = useState(false);
-  const [nudge, setNudge] = useState<ProactiveHelpNudge | null>(null);
-  const [detectionConfig, setDetectionConfig] = useState<StuckDetectionConfig>(
-    () => resolveStuckConfig()
-  );
+  const [editorContext, setEditorContext] = useState<EditorRequestContext>({});
   const requestInFlight = useRef(false);
-  const pendingStuck = useRef<StuckMetadata | null>(null);
-  const nudgeFileId = useRef<string | null>(null);
-  // Content the observer has already handled — don't re-suggest for it
-  const lastHandledContent = useRef<string | null>(null);
 
   useEffect(() => setHydrated(true), []);
   useEffect(() => {
     getSession().then((s) => {
       setSession(s);
-      setSessionLoaded(true);
       setStatus(s ? "idle" : "signedout");
-      if (s) {
-        void fetchStuckSettings().then((settings) => {
-          if (settings) {
-            setDetectionConfig(settings.config);
-            setProactiveHelpEnabled(settings.proactiveHelpEnabled);
-          }
-          setProactiveHelpLoaded(true);
-        });
-      }
     });
   }, []);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? null;
-  const pauseMs = (session?.pauseSeconds ?? 5) * 1000;
-  const contentTooShort =
-    !!activeFile && activeFile.content.length < MIN_CONTENT_LENGTH;
+  const activeKind = activeFile ? kindOf(activeFile.name) : null;
+  const meaningfulContent =
+    !!activeFile && !!activeKind && hasMeaningfulContent(activeKind, activeFile.content);
 
   useEffect(() => {
-    if (nudgeFileId.current && nudgeFileId.current !== activeFileId) {
-      nudgeFileId.current = null;
-      setNudge(null);
-      setStatus(session ? "idle" : "signedout");
-    }
-  }, [activeFileId, session]);
+    setEditorContext({});
+  }, [activeFileId]);
 
-  // Document files retain the original pause-based suggestion behavior.
-  // Monaco code files are triggered only by the detector engine below.
-  useEffect(() => {
-    if (!sessionLoaded || !session || !activeFile) return;
-    if (kindOf(activeFile.name) === "code") return;
-    if (activeFile.content.length < MIN_CONTENT_LENGTH) return;
-    if (activeFile.content === lastHandledContent.current) return;
-
-    setStatus("watching");
-    const timer = setTimeout(async () => {
-      const requested = activeFile.content;
-      requestInFlight.current = true;
-      setStatus("thinking");
-      const result = await fetchSuggestion({
-        provider,
-        fileName: activeFile.name,
-        kind: kindOf(activeFile.name),
-        content: requested,
-      });
-      lastHandledContent.current = requested;
-      requestInFlight.current = false;
-      if (result.suggestion) {
-        setSuggestion(result.suggestion);
-        setStatus("ready");
-      } else {
-        setError(result.error ?? "Something went wrong.");
-        setNeedsKey(Boolean(result.needsKey));
-        setStatus("error");
-      }
-    }, pauseMs);
-
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeFile?.content,
-    activeFile?.id,
-    provider,
-    pauseMs,
-    session,
-    sessionLoaded,
-    retryNonce,
-  ]);
-
-  const requestCodeSuggestion = useCallback(
-    async (stuck: StuckMetadata) => {
+  const askObserver = useCallback(
+    async () => {
       if (
-        !proactiveHelpEnabled ||
         !session ||
         !activeFile ||
-        kindOf(activeFile.name) !== "code" ||
-        activeFile.content.length < MIN_CONTENT_LENGTH ||
+        !activeKind ||
+        !hasMeaningfulContent(activeKind, activeFile.content) ||
         requestInFlight.current ||
         suggestion
       ) {
@@ -201,94 +125,41 @@ export default function WorkspacePage() {
       }
 
       requestInFlight.current = true;
-      pendingStuck.current = stuck;
-      nudgeFileId.current = null;
-      setNudge(null);
       setError(null);
       setNeedsKey(false);
       setStatus("thinking");
       const requestedFileId = activeFile.id;
+      const request = createManualSuggestionRequest(
+        activeFile.name,
+        activeKind,
+        activeFile.content,
+        editorContext
+      );
       const result = await fetchSuggestion({
         provider,
-        fileName: activeFile.name,
-        kind: "code",
-        content: activeFile.content,
-        stuck,
+        ...request,
       });
       requestInFlight.current = false;
 
-      if (requestedFileId !== useWorkspace.getState().activeFileId) return;
+      if (requestedFileId !== useWorkspace.getState().activeFileId) {
+        setStatus(session ? "idle" : "signedout");
+        return;
+      }
       if (result.suggestion) {
-        pendingStuck.current = null;
         setSuggestion(result.suggestion);
         setStatus("ready");
       } else {
-        if (!result.needsKey) pendingStuck.current = null;
         setError(result.error ?? "Something went wrong.");
         setNeedsKey(Boolean(result.needsKey));
         setStatus("error");
       }
     },
-    [activeFile, proactiveHelpEnabled, provider, session, suggestion]
+    [activeFile, activeKind, editorContext, provider, session, suggestion]
   );
-
-  const handleStuck = useCallback(
-    (stuck: StuckMetadata) => {
-      if (!session || !activeFile || requestInFlight.current || suggestion || nudge) {
-        return;
-      }
-      const nextNudge = createProactiveHelpNudge({
-        enabled: proactiveHelpLoaded && proactiveHelpEnabled,
-        isCodeFile: kindOf(activeFile.name) === "code",
-        contentLength: activeFile.content.length,
-        minimumContentLength: MIN_CONTENT_LENGTH,
-        metadata: stuck,
-      });
-      if (!nextNudge) return;
-
-      nudgeFileId.current = activeFile.id;
-      setError(null);
-      setNeedsKey(false);
-      setNudge(nextNudge);
-      setStatus("nudge");
-    },
-    [
-      activeFile,
-      nudge,
-      proactiveHelpEnabled,
-      proactiveHelpLoaded,
-      session,
-      suggestion,
-    ]
-  );
-
-  const getHelp = () => {
-    if (!nudge) return;
-    const metadata = metadataForNudgeAction(nudge, "get_help");
-    if (metadata) void requestCodeSuggestion(metadata);
-  };
-
-  const hideNudge = () => {
-    nudgeFileId.current = null;
-    setNudge(null);
-    setStatus(session ? "idle" : "signedout");
-  };
-
-  const toggleProactiveHelp = async (enabled: boolean) => {
-    const previous = proactiveHelpEnabled;
-    setProactiveHelpEnabled(enabled);
-    if (!enabled && nudge) hideNudge();
-    setProactiveHelpSaving(true);
-    const saved = await saveProactiveHelpEnabled(enabled);
-    setProactiveHelpSaving(false);
-    if (!saved) setProactiveHelpEnabled(previous);
-  };
 
   const acceptSuggestion = () => {
     if (!activeFile || !suggestion?.snippet) return;
-    void recordSuggestionOutcome(suggestion.id, "accepted").then((config) => {
-      if (config) setDetectionConfig(config);
-    });
+    void recordSuggestionOutcome(suggestion.id, "accepted");
     const next =
       kindOf(activeFile.name) === "code"
         ? `${activeFile.content.replace(/\n$/, "")}\n\n${suggestion.snippet}\n`
@@ -296,7 +167,6 @@ export default function WorkspacePage() {
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")}</pre>`;
     updateContent(activeFile.id, next);
-    lastHandledContent.current = next;
     setSuggestion(null);
     setStatus("idle");
   };
@@ -308,23 +178,15 @@ export default function WorkspacePage() {
     setNeedsKey(false);
     setStatus(session ? "idle" : "signedout");
     if (dismissedId) {
-      void recordSuggestionOutcome(dismissedId, "dismissed").then((config) => {
-        if (config) setDetectionConfig(config);
-      });
+      void recordSuggestionOutcome(dismissedId, "dismissed");
     }
   };
 
   const retryAfterKeySaved = () => {
-    const stuck = pendingStuck.current;
-    lastHandledContent.current = null;
     setError(null);
     setNeedsKey(false);
     setStatus("idle");
-    if (stuck) {
-      setTimeout(() => void requestCodeSuggestion(stuck), 0);
-    } else {
-      setRetryNonce((n) => n + 1);
-    }
+    setTimeout(() => void askObserver(), 0);
   };
 
   if (!hydrated) {
@@ -362,14 +224,14 @@ export default function WorkspacePage() {
                 fileName={activeFile.name}
                 value={activeFile.content}
                 onChange={(v) => updateContent(activeFile.id, v)}
-                detectionConfig={detectionConfig}
-                onStuck={handleStuck}
+                onContextChange={setEditorContext}
               />
             ) : (
               <DocEditor
                 fileId={activeFile.id}
                 value={activeFile.content}
                 onChange={(v) => updateContent(activeFile.id, v)}
+                onContextChange={setEditorContext}
               />
             )
           ) : (
@@ -385,24 +247,19 @@ export default function WorkspacePage() {
         <ObserverPanel
           status={status}
           suggestion={suggestion}
-          nudge={nudge}
           error={error}
           needsKey={needsKey}
-          contentTooShort={contentTooShort}
-          isCodeFile={!!activeFile && kindOf(activeFile.name) === "code"}
-          proactiveHelpEnabled={proactiveHelpEnabled}
-          proactiveHelpSaving={proactiveHelpSaving}
-          proactiveHelpLoaded={proactiveHelpLoaded}
+          hasMeaningfulContent={meaningfulContent}
+          askDisabled={
+            !session || !meaningfulContent || status === "thinking" || !!suggestion
+          }
           provider={provider}
           onProviderChange={(p) => {
             setProvider(p);
-            lastHandledContent.current = null;
           }}
+          onAsk={() => void askObserver()}
           onAccept={acceptSuggestion}
           onDismiss={dismissSuggestion}
-          onGetHelp={getHelp}
-          onNotNow={hideNudge}
-          onProactiveHelpChange={(enabled) => void toggleProactiveHelp(enabled)}
           onKeySaved={retryAfterKeySaved}
         />
       </div>

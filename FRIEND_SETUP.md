@@ -134,9 +134,9 @@ http://localhost:3000
 That's it — there is no separate backend server to start. The API runs inside
 Next.js.
 
-Create an account on the sign-up page and open a file. Document suggestions
-appear after a typing pause. Code suggestions appear when at least two stuck
-signals combine, such as repeated same-region edits plus an unresolved error.
+Create an account on the sign-up page and open a file. Write or select some
+content, then click **Ask Observer** (or press Ctrl/Cmd+Enter) to request a
+suggestion.
 
 ## 6. Making Changes
 

@@ -8,14 +8,11 @@ import AuthShowcase from "@/components/AuthShowcase";
 import AuthField from "@/components/AuthField";
 import { signUp } from "@/lib/auth";
 
-const PAUSE_OPTIONS = [3, 5, 8, 12];
-
 export default function SignupPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [pauseSeconds, setPauseSeconds] = useState(5);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -27,7 +24,7 @@ export default function SignupPage() {
     }
     setBusy(true);
     setError(null);
-    const err = await signUp(name, email, password, pauseSeconds);
+    const err = await signUp(name, email, password);
     setBusy(false);
     if (err) {
       setError(err);
@@ -44,7 +41,7 @@ export default function SignupPage() {
         <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-12">
           <h1 className="font-serif-display text-5xl">Create account.</h1>
           <p className="mt-2 text-sm text-ink-soft">
-            Your observer starts watching in under a minute.
+            Your Observer is ready whenever you ask.
           </p>
 
           <form onSubmit={submit} className="mt-9 space-y-5">
@@ -76,31 +73,6 @@ export default function SignupPage() {
               autoComplete="new-password"
             />
 
-            <div>
-              <span className="text-xs font-medium text-ink-soft">
-                ⏱ Suggest after a typing pause of
-              </span>
-              <div className="mt-1.5 grid grid-cols-4 gap-2">
-                {PAUSE_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setPauseSeconds(s)}
-                    className={`rounded-lg border py-2 text-sm transition ${
-                      pauseSeconds === s
-                        ? "border-bronze-deep bg-bronze-deep font-medium text-cream"
-                        : "border-sand bg-[#fffdf5] text-ink-soft hover:border-bronze"
-                    }`}
-                  >
-                    {s}s
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1.5 text-[11px] text-tan">
-                You can change this any time in preferences.
-              </p>
-            </div>
-
             {error && (
               <p className="rounded-lg border border-ember/30 bg-ember/5 px-3 py-2 text-sm text-ember">
                 {error}
@@ -127,8 +99,8 @@ export default function SignupPage() {
 
       <AuthShowcase
         eyebrow="Observer mode — Standby"
-        quote="Stop asking. Start typing. The workspace"
-        accent="watches with you."
+        quote="Write, select, and ask. The workspace"
+        accent="keeps help close by."
       />
     </div>
   );

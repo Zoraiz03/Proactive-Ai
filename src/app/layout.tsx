@@ -16,7 +16,7 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "Proactive·AI Workspace",
   description:
-    "The AI that watches, not the one you ask — proactive suggestions for code and documents.",
+    "User-triggered AI suggestions for code and documents, directly in your workspace.",
 };
 
 export default function RootLayout({

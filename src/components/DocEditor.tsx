@@ -3,12 +3,14 @@
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import type { EditorRequestContext } from "@/lib/manual-suggestion";
 
 interface Props {
   fileId: string;
   value: string;
   onChange: (html: string) => void;
+  onContextChange: (context: EditorRequestContext) => void;
 }
 
 function ToolbarButton({
@@ -38,7 +40,25 @@ function ToolbarButton({
   );
 }
 
-export default function DocEditor({ fileId, value, onChange }: Props) {
+export default function DocEditor({
+  fileId,
+  value,
+  onChange,
+  onContextChange,
+}: Props) {
+  const onContextChangeRef = useRef(onContextChange);
+  useEffect(() => {
+    onContextChangeRef.current = onContextChange;
+  }, [onContextChange]);
+
+  const emitContext = (editor: NonNullable<ReturnType<typeof useEditor>>) => {
+    const { from, to } = editor.state.selection;
+    onContextChangeRef.current({
+      selectedText:
+        from === to ? undefined : editor.state.doc.textBetween(from, to, " "),
+    });
+  };
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -46,7 +66,11 @@ export default function DocEditor({ fileId, value, onChange }: Props) {
     ],
     content: value,
     immediatelyRender: false,
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
+      emitContext(editor);
+    },
+    onSelectionUpdate: ({ editor }) => emitContext(editor),
   });
 
   // Swap content when the active file changes

@@ -45,10 +45,10 @@ function WorkspacePreview() {
         <div className="w-44 shrink-0 space-y-3 border-l border-sand bg-cream p-3">
           <p className="flex items-center justify-between text-[10px] font-semibold">
             <span>◉ Observer</span>
-            <span className="font-mono font-normal text-tan">watching…</span>
+            <span className="font-mono font-normal text-tan">ready</span>
           </p>
           <div className="rounded-md border border-dashed border-tan bg-card p-2 text-[10px] leading-relaxed text-ink-soft">
-            Suggestions appear after a 5-second typing pause.
+            Select code, then click Ask Observer for focused help.
           </div>
           <div className="rounded-md border border-sand bg-card p-2 text-[10px] text-ink-soft">
             🌐 Web context: “Dynamic Programming — Wikipedia”
@@ -92,16 +92,16 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-14 px-6 py-20 lg:flex-row lg:gap-10">
           <div className="max-w-xl">
             <h1 className="font-serif-display text-5xl leading-[1.08] md:text-6xl">
-              The AI that <span className="italic text-ember">Watches.</span>
+              The AI that <span className="italic text-ember">Helps.</span>
               <br />
-              Not the one you ask.
+              When you ask.
             </h1>
             <p className="mt-6 max-w-md text-[15px] leading-relaxed text-ink-soft">
-              Proactive AI Workspace inverts the request-response loop. A
-              combination of editing signals detects when you are stuck in{" "}
-              <strong className="text-ink">code</strong>, while pauses trigger
-              help in <strong className="text-ink">documents</strong>. Free and
-              paid models stay one dropdown away — so it never burns your budget.
+              Proactive AI Workspace keeps focused help beside your{" "}
+              <strong className="text-ink">code</strong> and{" "}
+              <strong className="text-ink">documents</strong>. Select what matters
+              and ask when you want a review, with free and paid models one
+              dropdown away.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link

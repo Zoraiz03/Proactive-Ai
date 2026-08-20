@@ -2,7 +2,7 @@
 
 // Auth client backed by Supabase Auth. Sessions live in Supabase's cookies;
 // the browser never handles raw tokens or password hashes. The exported
-// interface is unchanged, so the login/signup/workspace pages don't change.
+// interface keeps auth details small and never exposes raw tokens.
 
 import { createClient } from "@/lib/supabase/client";
 
@@ -11,22 +11,20 @@ export interface Session {
   name: string;
   email: string;
   role: "user" | "admin";
-  pauseSeconds?: number;
 }
 
 /** Returns an error message, or null on success. */
 export async function signUp(
   name: string,
   email: string,
-  password: string,
-  pauseSeconds: number
+  password: string
 ): Promise<string | null> {
   const supabase = createClient();
   const { error } = await supabase.auth.signUp({
     email,
     password,
     // Consumed by the handle_new_user() trigger to seed the profile row.
-    options: { data: { name, pause_seconds: pauseSeconds } },
+    options: { data: { name } },
   });
   return error ? error.message : null;
 }
@@ -54,7 +52,7 @@ export async function getSession(): Promise<Session | null> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("name, role, pause_seconds")
+    .select("name, role")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -63,7 +61,6 @@ export async function getSession(): Promise<Session | null> {
     email: user.email ?? "",
     name: profile?.name ?? "",
     role: (profile?.role as "user" | "admin") ?? "user",
-    pauseSeconds: profile?.pause_seconds ?? 5,
   };
 }
 

@@ -2,39 +2,28 @@
 
 import Editor, { OnMount } from "@monaco-editor/react";
 import { useEffect, useRef } from "react";
-import type { editor as MonacoEditor, Uri } from "monaco-editor";
 import { monacoLanguageOf } from "@/lib/files";
-import type { StuckDetectionConfig } from "@/lib/stuck-config";
-import {
-  StuckDetectorEngine,
-  StuckMetadata,
-} from "@/lib/stuck-detectors";
+import type { EditorRequestContext } from "@/lib/manual-suggestion";
 
 interface Props {
   fileName: string;
   value: string;
   onChange: (value: string) => void;
-  detectionConfig: StuckDetectionConfig;
-  onStuck: (metadata: StuckMetadata) => void;
+  onContextChange: (context: EditorRequestContext) => void;
 }
 
 export default function CodeEditor({
   fileName,
   value,
   onChange,
-  detectionConfig,
-  onStuck,
+  onContextChange,
 }: Props) {
-  const engineRef = useRef(new StuckDetectorEngine(detectionConfig));
-  const onStuckRef = useRef(onStuck);
+  const onContextChangeRef = useRef(onContextChange);
   const disposablesRef = useRef<Array<{ dispose: () => void }>>([]);
 
   useEffect(() => {
-    engineRef.current = new StuckDetectorEngine(detectionConfig);
-  }, [detectionConfig]);
-  useEffect(() => {
-    onStuckRef.current = onStuck;
-  }, [onStuck]);
+    onContextChangeRef.current = onContextChange;
+  }, [onContextChange]);
   useEffect(
     () => () => {
       disposablesRef.current.forEach((disposable) => disposable.dispose());
@@ -43,64 +32,37 @@ export default function CodeEditor({
     []
   );
 
-  const handleMount: OnMount = (editor, monaco) => {
+  const handleMount: OnMount = (editor) => {
     disposablesRef.current.forEach((disposable) => disposable.dispose());
-    engineRef.current = new StuckDetectorEngine(detectionConfig);
     const model = editor.getModel();
     if (!model) return;
 
-    const emit = (metadata: StuckMetadata | null) => {
-      if (metadata) onStuckRef.current(metadata);
-    };
-    const observeMarkers = () => {
-      const markers = monaco.editor
-        .getModelMarkers({ resource: model.uri })
-        .filter(
-          (marker: MonacoEditor.IMarker) =>
-            marker.severity === monaco.MarkerSeverity.Error
-        )
-        .map((marker: MonacoEditor.IMarker) => ({
-          message: marker.message,
-          startLine: marker.startLineNumber,
-          endLine: marker.endLineNumber,
-          severity: marker.severity,
-        }));
-      emit(engineRef.current.recordMarkers(markers, Date.now()));
+    const emitContext = () => {
+      const selection = editor.getSelection();
+      const cursorLine = editor.getPosition()?.lineNumber ?? 1;
+      const startLine = Math.max(1, cursorLine - 3);
+      const endLine = Math.min(model.getLineCount(), cursorLine + 3);
+      const selectedText =
+        selection && !selection.isEmpty()
+          ? model.getValueInRange(selection)
+          : undefined;
+      onContextChangeRef.current({
+        selectedText,
+        cursorLine,
+        nearbyContent: model.getValueInRange({
+          startLineNumber: startLine,
+          startColumn: 1,
+          endLineNumber: endLine,
+          endColumn: model.getLineMaxColumn(endLine),
+        }),
+      });
     };
 
     disposablesRef.current = [
-      editor.onDidChangeModelContent((event) => {
-        for (const change of event.changes) {
-          emit(
-            engineRef.current.recordEdit({
-              startLine: change.range.startLineNumber,
-              endLine: Math.max(
-                change.range.endLineNumber,
-                change.range.startLineNumber + change.text.split("\n").length - 1
-              ),
-              removedTextLength: change.rangeLength,
-              insertedText: change.text,
-              timestamp: Date.now(),
-            })
-          );
-        }
-      }),
-      editor.onDidChangeCursorPosition((event) => {
-        emit(
-          engineRef.current.recordCursor(event.position.lineNumber, Date.now())
-        );
-      }),
-      monaco.editor.onDidChangeMarkers((resources: readonly Uri[]) => {
-        if (
-          resources.some(
-            (resource: Uri) => resource.toString() === model.uri.toString()
-          )
-        ) {
-          observeMarkers();
-        }
-      }),
+      editor.onDidChangeModelContent(emitContext),
+      editor.onDidChangeCursorSelection(emitContext),
     ];
-    observeMarkers();
+    emitContext();
   };
 
   return (

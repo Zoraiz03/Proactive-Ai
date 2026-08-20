@@ -7,13 +7,10 @@ import {
   Suggestion,
   saveApiKey,
 } from "@/lib/suggest";
-import type { ProactiveHelpNudge } from "@/lib/proactive-help";
 
 export type ObserverStatus =
   | "signedout"
   | "idle"
-  | "watching"
-  | "nudge"
   | "thinking"
   | "ready"
   | "error";
@@ -21,29 +18,21 @@ export type ObserverStatus =
 interface Props {
   status: ObserverStatus;
   suggestion: Suggestion | null;
-  nudge: ProactiveHelpNudge | null;
   error: string | null;
   needsKey: boolean;
-  contentTooShort: boolean;
-  isCodeFile: boolean;
-  proactiveHelpEnabled: boolean;
-  proactiveHelpSaving: boolean;
-  proactiveHelpLoaded: boolean;
+  hasMeaningfulContent: boolean;
+  askDisabled: boolean;
   provider: Provider;
   onProviderChange: (provider: Provider) => void;
+  onAsk: () => void;
   onAccept: () => void;
   onDismiss: () => void;
-  onGetHelp: () => void;
-  onNotNow: () => void;
-  onProactiveHelpChange: (enabled: boolean) => void;
   onKeySaved: () => void;
 }
 
 const STATUS_PILL: Record<ObserverStatus, { label: string; pulse: boolean }> = {
   signedout: { label: "Signed out", pulse: false },
-  idle: { label: "Observing", pulse: true },
-  watching: { label: "Watching", pulse: true },
-  nudge: { label: "Help available", pulse: false },
+  idle: { label: "Ready", pulse: false },
   thinking: { label: "Thinking…", pulse: true },
   ready: { label: "Suggestion", pulse: false },
   error: { label: "Paused", pulse: false },
@@ -101,35 +90,37 @@ function KeyForm({
 export default function ObserverPanel({
   status,
   suggestion,
-  nudge,
   error,
   needsKey,
-  contentTooShort,
-  isCodeFile,
-  proactiveHelpEnabled,
-  proactiveHelpSaving,
-  proactiveHelpLoaded,
+  hasMeaningfulContent,
+  askDisabled,
   provider,
   onProviderChange,
+  onAsk,
   onAccept,
   onDismiss,
-  onGetHelp,
-  onNotNow,
-  onProactiveHelpChange,
   onKeySaved,
 }: Props) {
   const pill = STATUS_PILL[status];
 
   useEffect(() => {
-    if (!nudge && (status !== "ready" || !suggestion)) return;
+    if (status !== "ready" || !suggestion) return;
     const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (nudge) onNotNow();
-      else onDismiss();
+      if (event.key === "Escape") onDismiss();
     };
     window.addEventListener("keydown", dismissOnEscape);
     return () => window.removeEventListener("keydown", dismissOnEscape);
-  }, [nudge, onDismiss, onNotNow, status, suggestion]);
+  }, [onDismiss, status, suggestion]);
+
+  useEffect(() => {
+    const askWithShortcut = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || (!event.ctrlKey && !event.metaKey)) return;
+      event.preventDefault();
+      if (!askDisabled) onAsk();
+    };
+    window.addEventListener("keydown", askWithShortcut, true);
+    return () => window.removeEventListener("keydown", askWithShortcut, true);
+  }, [askDisabled, onAsk]);
 
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-l border-sand bg-card">
@@ -149,37 +140,6 @@ export default function ObserverPanel({
       </div>
 
       <div className="border-b border-sand px-4 py-2.5">
-        <div className="mb-2.5 flex items-center justify-between gap-3">
-          <span>
-            <span className="block text-xs font-medium text-ink">
-              Proactive Help
-            </span>
-            <span className="block text-[10px] text-tan">
-              Offer help when code looks stuck
-            </span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={proactiveHelpEnabled}
-            disabled={
-              status === "signedout" ||
-              proactiveHelpSaving ||
-              !proactiveHelpLoaded
-            }
-            onClick={() => onProactiveHelpChange(!proactiveHelpEnabled)}
-            className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-              proactiveHelpEnabled ? "bg-bronze-deep" : "bg-sand"
-            }`}
-            aria-label="Proactive Help"
-          >
-            <span
-              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-                proactiveHelpEnabled ? "translate-x-[18px]" : "translate-x-0.5"
-              }`}
-            />
-          </button>
-        </div>
         <label className="block text-[10px] font-semibold uppercase tracking-widest text-tan">
           AI model
         </label>
@@ -194,6 +154,18 @@ export default function ObserverPanel({
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={onAsk}
+          disabled={askDisabled}
+          className="mt-2.5 w-full rounded-md bg-bronze-deep py-2 text-xs font-semibold text-cream shadow-sm hover:bg-bronze disabled:cursor-not-allowed disabled:opacity-50"
+          title="Ask Observer (Ctrl+Enter or Cmd+Enter)"
+        >
+          ✳ Ask Observer
+        </button>
+        <p className="mt-1.5 text-center font-mono text-[10px] text-tan">
+          Ctrl/⌘ + Enter
+        </p>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -203,25 +175,18 @@ export default function ObserverPanel({
           </div>
         )}
 
-        {(status === "idle" || status === "watching") &&
-          (contentTooShort ? (
+        {status === "idle" &&
+          (!hasMeaningfulContent ? (
             <div className="rounded-lg border border-dashed border-tan bg-cream p-3 text-xs leading-relaxed text-ink-soft">
-              ✎ Keep typing — the observer starts suggesting once the file has
-              a little more content.
+              Write something first, then ask the Observer for help.
             </div>
           ) : (
             <>
               <div className="rounded-lg border border-dashed border-tan bg-cream p-3 text-xs leading-relaxed text-ink-soft">
-                {isCodeFile
-                  ? "Suggestions appear when multiple editing patterns indicate you may be stuck."
-                  : "Suggestions appear automatically after you pause typing."}
+                Select text for focused feedback, or ask about the current file.
               </div>
               <p className="px-1 font-mono text-[11px] text-tan">
-                {isCodeFile
-                  ? "watching edits, diagnostics, and cursor movement…"
-                  : status === "watching"
-                    ? "typing detected — waiting for a pause…"
-                    : "watching for a pause…"}
+                waiting for you to ask…
               </p>
             </>
           ))}
@@ -230,33 +195,6 @@ export default function ObserverPanel({
           <div className="rounded-lg border border-sand bg-cream p-3 text-xs leading-relaxed text-ink-soft">
             <span className="mr-2 inline-block animate-spin">✳</span>
             Reviewing your work…
-          </div>
-        )}
-
-        {status === "nudge" && nudge && (
-          <div className="rounded-lg border border-bronze/40 bg-cream p-3">
-            <p className="text-xs font-medium text-ink">
-              You may be stuck around lines {nudge.startLine}–{nudge.endLine}.
-            </p>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-ink-soft">
-              Reason: {nudge.reason}
-            </p>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={onGetHelp}
-                className="flex-1 rounded-md bg-bronze-deep py-1.5 text-xs font-medium text-cream hover:bg-bronze"
-              >
-                Get help
-              </button>
-              <button
-                type="button"
-                onClick={onNotNow}
-                className="flex-1 rounded-md border border-sand py-1.5 text-xs text-ink-soft hover:border-bronze"
-              >
-                Not now
-              </button>
-            </div>
           </div>
         )}
 

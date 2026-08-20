@@ -9,7 +9,7 @@ const SEED_FILES: WorkspaceFile[] = [
     id: "seed-welcome",
     name: "welcome.md",
     content:
-      "<h1>Welcome to Proactive AI Workspace</h1><p>This workspace watches while you type — when you pause, the observer panel on the right will offer a suggestion. No prompting, no tab-switching.</p><p>Try it out:</p><ul><li>Create a file from the sidebar (a <code>.py</code> or <code>.js</code> file opens the code editor)</li><li>Everything auto-saves as you type</li><li>Pick your AI model from the dropdown in the observer panel</li></ul>",
+      "<h1>Welcome to Proactive AI Workspace</h1><p>Write or select something, then click <strong>Ask Observer</strong> for focused help. You can also press Ctrl+Enter or Cmd+Enter.</p><p>Try it out:</p><ul><li>Create a file from the sidebar (a <code>.py</code> or <code>.js</code> file opens the code editor)</li><li>Everything auto-saves as you type</li><li>Pick your AI model from the dropdown in the observer panel</li></ul>",
     updatedAt: 0,
   },
   {
