@@ -20,7 +20,7 @@ implementation and its verification evidence in the changelog.
 |---|---|---|
 | Phase 1 | Complete | Secure Electron application shell |
 | Phase 2 | Complete | Local projects, file explorer, Monaco editing, and saving |
-| Phase 3 | Not Started | Complete file explorer and editor workflow |
+| Phase 3 | In Progress | Complete file explorer and editor workflow |
 | Phase 4 | Not Started | Terminal, task output, and diagnostics |
 | Phase 5 | Not Started | Authenticated Observer AI integration |
 | Phase 6 | Not Started | Documentation editing and preview |
@@ -198,11 +198,36 @@ Phase 2C required verification:
 
 **Goal:** Provide the core multi-file workflow expected from a desktop editor.
 
-- [ ] **Not Started** — Add file and folder creation.
-- [ ] **Not Started** — Add rename and delete operations with clear confirmation for
+### Phase 3A — Editor tabs and basic workspace file operations
+
+- [x] **Complete** — Keep opened files in tabs with active and dirty states.
+- [x] **Complete** — Close tabs safely with Save, Discard, or Cancel for dirty
+  buffers.
+- [x] **Complete** — Create validated files and folders inside the workspace.
+- [x] **Complete** — Rename validated files and folders while updating affected
+  open-tab paths without losing dirty buffers.
+- [x] **Complete** — Delete files and empty folders only after explicit target
+  confirmation; refuse recursive directory deletion.
+- [x] **Complete** — Keep all new operations behind minimal typed, root-confined
+  preload IPC methods.
+
+Phase 3A required verification:
+
+- [x] **Complete** — Tab switching, dirty states, closing, and save protection
+  behave correctly.
+- [x] **Complete** — File/folder create, rename, and allowed delete operations
+  succeed and refresh/reveal the Explorer result.
+- [x] **Complete** — Traversal, invalid names, duplicates, external symlinks, and
+  non-empty folder deletion are rejected.
+- [x] **Complete** — Focused tests and desktop TypeScript/build checks pass.
+- [x] **Complete** — Electron launches with the existing secure flags.
+- [x] **Complete** — Existing web lint, tests, and production build pass.
+
+- [x] **Complete** — Add file and folder creation.
+- [x] **Complete** — Add rename and delete operations with clear confirmation for
   destructive actions.
-- [ ] **Not Started** — Add editor tabs and active-tab navigation.
-- [ ] **Not Started** — Preserve dirty buffers when switching files.
+- [x] **Complete** — Add editor tabs and active-tab navigation.
+- [x] **Complete** — Preserve dirty buffers when switching files.
 - [ ] **Not Started** — Add Save, Save As, and Save All commands.
 - [ ] **Not Started** — Detect external file changes and offer reload/compare choices.
 - [ ] **Not Started** — Add workspace refresh and filesystem watching.
@@ -361,6 +386,12 @@ Required verification:
     then opens with `r+` so a save cannot create a missing file.
 14. **Bundle Monaco locally.** Monaco and its workers live only in the isolated
     desktop package and are loaded from the application bundle, not a CDN.
+15. **Use explicit, non-recursive workspace mutations.** Phase 3A adds three typed
+    renderer capabilities only: create one entry, rename one entry, and delete one
+    file or empty directory. The main process validates every name and path again.
+16. **Keep dirty buffers independent of paths.** Open tabs own their in-memory
+    drafts. Renaming a file or parent directory rewrites the affected tab paths but
+    preserves drafts, saved baselines, and modification timestamps.
 
 ## Security rules
 
@@ -384,6 +415,11 @@ Required verification:
 - Permit writes only to an existing supported regular file inside the selected
   root. Enforce the 2 MiB limit, reject stale modification timestamps, and never
   expose a general-purpose write, create, rename, or delete API.
+- Create files exclusively with `wx`; reject duplicate names, path separators,
+  reserved names, ignored generated directories, and unsupported new-file types.
+- Refuse rename/delete operations on the workspace root and symbolic links. Never
+  replace an existing rename destination, and delete directories with empty-only
+  removal rather than recursive deletion.
 - Do not read or transmit files until the user explicitly selects a project and,
   for AI context, explicitly asks for help.
 - Do not place Supabase service-role credentials, server encryption secrets, or AI
@@ -397,6 +433,63 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 3A complete
+
+Changed files:
+
+- `apps/desktop/src/shared/workspace.ts` and `workspace-paths.ts` — added typed
+  create/rename/delete contracts and deterministic open-tab path replacement.
+- `apps/desktop/src/main/workspace-files.ts` and `workspace-ipc.ts` — added
+  validated, root-confined file/folder creation, collision-safe rename checks, and
+  file/empty-folder deletion with safe typed errors.
+- `apps/desktop/src/preload/index.ts` — exposed only three new typed mutation
+  methods without raw IPC or Node APIs.
+- `apps/desktop/src/renderer/src/App.tsx` — replaced the single active buffer with
+  persistent Monaco tabs, per-tab dirty/save state, safe close behavior, and
+  rename/delete reconciliation.
+- `apps/desktop/src/renderer/src/Explorer.tsx` and `styles.css` — added selected
+  entries, create/rename/delete actions, exact-target confirmation, dirty-delete
+  warnings, tree refresh/reveal behavior, and tab styling.
+- `apps/desktop/src/main/index.ts` — generalized the native close warning for
+  multiple dirty tabs.
+- `apps/desktop/src/main/workspace-files.test.ts` — expanded focused coverage from
+  13 to 20 tests.
+- Desktop README and this roadmap — documented Phase 3A scope and results.
+
+Security decisions:
+
+- Names must be one safe portable path segment and may not use traversal,
+  separators, reserved device names, ignored generated names, or surrounding
+  whitespace.
+- New files use exclusive creation and supported text/code extensions so they can
+  open through the existing protected Monaco read/write path.
+- Rename and delete re-resolve the canonical root and target, refuse symlink
+  mutation, and never allow mutation of the workspace root.
+- Directory deletion uses empty-only `rmdir`; recursive deletion is not exposed.
+- Deleting open files requires an exact-target confirmation that reports how many
+  open and dirty tabs will be discarded.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 20/20 tests passed for existing read/write
+  behavior, name validation, exclusive creation, duplicates, rename collisions,
+  tab-path replacement, file deletion, empty-directory deletion, traversal,
+  external symlinks, and blocked non-empty-directory deletion.
+- `npm --prefix apps/desktop run build` — strict main/preload/renderer TypeScript
+  checks and the production Electron Vite build passed.
+- `npm --prefix apps/desktop run dev` — Electron launched and the Phase 3A shell
+  rendered; runtime logged `contextIsolation=true`, `nodeIntegration=false`, and
+  `sandbox=true`.
+- `npm run lint`, `npm test`, and `npm run build` — the unchanged web application
+  passed lint, its focused harness, and its production Next.js build.
+
+### 2026-08-20 — Phase 3A started
+
+- Marked editor tabs and basic workspace mutations **In Progress** before
+  implementation.
+- Explicitly deferred recursive deletion, terminal, AI, Supabase, authentication,
+  Git, rich documents, and automatic proactive features.
 
 ### 2026-08-20 — Phase 2C complete
 
@@ -621,14 +714,17 @@ Verification:
 | 2026-08-20 | Phase 2C secure save tests | Complete | 13/13 read, language-map, versioned-write, boundary, and no-create tests passed. |
 | 2026-08-20 | Phase 2C desktop checks | Complete | TypeScript/build and production Electron launch passed with secure flags. |
 | 2026-08-20 | Phase 2C web regression | Complete | Existing lint, tests, and Next.js build passed unchanged. |
+| 2026-08-20 | Phase 3A operation tests | Complete | 20/20 file security, mutation, and tab-path tests passed. |
+| 2026-08-20 | Phase 3A desktop checks | Complete | TypeScript/build and secure Electron launch passed. |
+| 2026-08-20 | Phase 3A web regression | Complete | Existing lint, tests, and Next.js build passed unchanged. |
 
 ## Recommended next task
 
-Add **editor tabs and basic file operations** as Phase 3's first small slice:
+Add **external file-change refresh and polished Explorer behavior**:
 
-1. Preserve one dirty buffer per open tab and add keyboard tab navigation.
-2. Add narrowly scoped, root-confined create and rename operations.
-3. Design delete as an explicit, recoverable, confirmed action.
-4. Add Save All and external-change handling before filesystem watching.
-5. Continue to defer terminal, AI, Supabase, authentication, and documentation
+1. Detect external changes to open files and offer Reload or Keep Editor Content.
+2. Add an explicit Explorer refresh action while preserving expanded folders.
+3. Improve keyboard navigation, focus management, and inline operation feedback.
+4. Add Save All before introducing filesystem watching.
+5. Continue to defer terminal, AI, Supabase, authentication, Git, and documentation
    features.

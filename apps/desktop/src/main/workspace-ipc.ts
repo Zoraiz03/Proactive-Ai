@@ -6,15 +6,20 @@ import {
   type FileWriteResult,
   type OpenWorkspace,
   type WorkspaceEntry,
+  type WorkspaceMutationResult,
 } from "../shared/workspace";
 import {
   prepareWorkspaceRoot,
+  createWorkspaceEntry,
+  deleteWorkspaceEntry,
   readWorkspaceDirectory,
   readWorkspaceTextFile,
+  renameWorkspaceEntry,
   writeWorkspaceTextFile,
   WorkspaceAccessError,
   WorkspaceFileError,
   WorkspaceFileWriteError,
+  WorkspaceMutationError,
 } from "./workspace-files";
 
 let workspaceAuthorization: {
@@ -73,6 +78,24 @@ function publicFileWriteError(error: unknown): FileWriteResult {
     ok: false,
     error: "The file could not be saved.",
     code: "write_error",
+  };
+}
+
+function publicMutationError<T>(error: unknown): WorkspaceMutationResult<T> {
+  if (error instanceof WorkspaceMutationError) {
+    return { ok: false, error: error.message, code: error.code };
+  }
+  if (error instanceof WorkspaceAccessError) {
+    return {
+      ok: false,
+      error: "This operation is outside the selected workspace or is unavailable.",
+      code: "access_denied",
+    };
+  }
+  return {
+    ok: false,
+    error: "The workspace operation could not be completed.",
+    code: "operation_error",
   };
 }
 
@@ -199,6 +222,63 @@ export function registerWorkspaceIpc(
         };
       } catch (error) {
         return publicFileWriteError(error);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    WORKSPACE_CHANNELS.createEntry,
+    async (event, request: unknown): Promise<WorkspaceMutationResult<WorkspaceEntry>> => {
+      if (!isTrustedSender(event, getMainWindow)) {
+        return { ok: false, error: "Workspace request was rejected.", code: "access_denied" };
+      }
+      const rootPath = authorizedRoot(event);
+      if (!rootPath) {
+        return { ok: false, error: "Open a project folder first.", code: "access_denied" };
+      }
+      try {
+        return { ok: true, value: await createWorkspaceEntry(rootPath, request) };
+      } catch (error) {
+        return publicMutationError(error);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    WORKSPACE_CHANNELS.renameEntry,
+    async (event, request: unknown): Promise<WorkspaceMutationResult<WorkspaceEntry>> => {
+      if (!isTrustedSender(event, getMainWindow)) {
+        return { ok: false, error: "Workspace request was rejected.", code: "access_denied" };
+      }
+      const rootPath = authorizedRoot(event);
+      if (!rootPath) {
+        return { ok: false, error: "Open a project folder first.", code: "access_denied" };
+      }
+      try {
+        return { ok: true, value: await renameWorkspaceEntry(rootPath, request) };
+      } catch (error) {
+        return publicMutationError(error);
+      }
+    }
+  );
+
+  ipcMain.handle(
+    WORKSPACE_CHANNELS.deleteEntry,
+    async (
+      event,
+      relativePath: unknown
+    ): Promise<WorkspaceMutationResult<{ relativePath: string }>> => {
+      if (!isTrustedSender(event, getMainWindow)) {
+        return { ok: false, error: "Workspace request was rejected.", code: "access_denied" };
+      }
+      const rootPath = authorizedRoot(event);
+      if (!rootPath) {
+        return { ok: false, error: "Open a project folder first.", code: "access_denied" };
+      }
+      try {
+        return { ok: true, value: await deleteWorkspaceEntry(rootPath, relativePath) };
+      } catch (error) {
+        return publicMutationError(error);
       }
     }
   );

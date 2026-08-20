@@ -5,15 +5,24 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import {
   isSupportedWorkspaceTextFile,
+  createWorkspaceEntry,
+  deleteWorkspaceEntry,
   normalizeWorkspaceRelativePath,
   readWorkspaceDirectory,
   readWorkspaceTextFile,
+  renameWorkspaceEntry,
   resolveWorkspacePath,
   WorkspaceFileError,
   WorkspaceFileWriteError,
+  WorkspaceMutationError,
+  validateWorkspaceEntryName,
   writeWorkspaceTextFile,
 } from "./workspace-files.ts";
 import { monacoLanguageForFile } from "../shared/languages.ts";
+import {
+  replaceWorkspaceEntryPath,
+  workspaceEntryContainsPath,
+} from "../shared/workspace-paths.ts";
 
 let temporaryDirectory = "";
 let workspaceRoot = "";
@@ -26,6 +35,11 @@ before(async () => {
 
   await mkdir(join(workspaceRoot, "src", "nested"), { recursive: true });
   await mkdir(join(workspaceRoot, "folder.txt"));
+  await mkdir(join(workspaceRoot, "operations", "non-empty"), { recursive: true });
+  await mkdir(join(workspaceRoot, "operations", "empty-folder"));
+  await mkdir(join(workspaceRoot, "operations", "rename-folder", "nested"), {
+    recursive: true,
+  });
   await mkdir(join(workspaceRoot, "node_modules"));
   await mkdir(join(workspaceRoot, ".git"));
   await mkdir(join(workspaceRoot, "dist"));
@@ -37,6 +51,14 @@ before(async () => {
   await writeFile(join(workspaceRoot, "empty.txt"), "");
   await writeFile(join(workspaceRoot, "editable.ts"), "const value = 1;\n");
   await writeFile(join(workspaceRoot, "stale.ts"), "const stale = false;\n");
+  await writeFile(join(workspaceRoot, "operations", "delete-me.ts"), "delete me\n");
+  await writeFile(join(workspaceRoot, "operations", "rename-me.ts"), "rename me\n");
+  await writeFile(join(workspaceRoot, "operations", "duplicate.ts"), "duplicate\n");
+  await writeFile(join(workspaceRoot, "operations", "non-empty", "child.txt"), "child\n");
+  await writeFile(
+    join(workspaceRoot, "operations", "rename-folder", "nested", "kept.txt"),
+    "kept\n"
+  );
   await writeFile(join(workspaceRoot, "unsupported.png"), "not an image");
   await writeFile(join(workspaceRoot, "binary.txt"), Buffer.from([0x41, 0x00, 0x42]));
   await writeFile(join(workspaceRoot, "invalid.txt"), Buffer.from([0xc3, 0x28]));
@@ -246,4 +268,155 @@ test("rejects file writes outside the selected workspace", async () => {
     })
   );
   assert.equal(await readFile(join(outsideDirectory, "secret.txt"), "utf8"), "outside");
+});
+
+test("validates portable single-segment workspace names", () => {
+  assert.equal(validateWorkspaceEntryName("safe-name.ts"), "safe-name.ts");
+  for (const name of ["", " file.ts", "file.ts ", ".", "..", "a/b.ts", "a\\b.ts", "bad?.ts", "CON", ".git"]) {
+    assert.throws(
+      () => validateWorkspaceEntryName(name),
+      (error: unknown) =>
+        error instanceof WorkspaceMutationError && error.code === "invalid_name"
+    );
+  }
+});
+
+test("creates supported files and folders exclusively inside an existing parent", async () => {
+  const folder = await createWorkspaceEntry(workspaceRoot, {
+    parentRelativePath: "operations",
+    name: "created-folder",
+    kind: "directory",
+  });
+  const file = await createWorkspaceEntry(workspaceRoot, {
+    parentRelativePath: folder.relativePath,
+    name: "created.ts",
+    kind: "file",
+  });
+
+  assert.deepEqual(folder, {
+    name: "created-folder",
+    relativePath: "operations/created-folder",
+    kind: "directory",
+    isSymbolicLink: false,
+  });
+  assert.equal(file.relativePath, "operations/created-folder/created.ts");
+  assert.equal(await readFile(join(workspaceRoot, file.relativePath), "utf8"), "");
+});
+
+test("rejects duplicate, unsupported, invalid, and escaping creates", async () => {
+  const rejectsWithMutationCode = async (
+    request: unknown,
+    code: WorkspaceMutationError["code"]
+  ) => {
+    await assert.rejects(
+      createWorkspaceEntry(workspaceRoot, request),
+      (error: unknown) => error instanceof WorkspaceMutationError && error.code === code
+    );
+  };
+
+  await rejectsWithMutationCode(
+    { parentRelativePath: "operations", name: "duplicate.ts", kind: "file" },
+    "duplicate"
+  );
+  await rejectsWithMutationCode(
+    { parentRelativePath: "operations", name: "image.png", kind: "file" },
+    "unsupported"
+  );
+  await rejectsWithMutationCode(
+    { parentRelativePath: "operations", name: "../escape.ts", kind: "file" },
+    "invalid_name"
+  );
+  await assert.rejects(
+    createWorkspaceEntry(workspaceRoot, {
+      parentRelativePath: "outside-link",
+      name: "escape.ts",
+      kind: "file",
+    })
+  );
+});
+
+test("renames supported files and folders without replacing duplicates", async () => {
+  const file = await renameWorkspaceEntry(workspaceRoot, {
+    relativePath: "operations/rename-me.ts",
+    newName: "renamed.ts",
+  });
+  const folder = await renameWorkspaceEntry(workspaceRoot, {
+    relativePath: "operations/rename-folder",
+    newName: "renamed-folder",
+  });
+
+  assert.equal(file.relativePath, "operations/renamed.ts");
+  assert.equal(folder.relativePath, "operations/renamed-folder");
+  assert.equal(
+    await readFile(join(workspaceRoot, "operations", "renamed-folder", "nested", "kept.txt"), "utf8"),
+    "kept\n"
+  );
+  await assert.rejects(
+    renameWorkspaceEntry(workspaceRoot, {
+      relativePath: "operations/renamed.ts",
+      newName: "duplicate.ts",
+    }),
+    (error: unknown) => error instanceof WorkspaceMutationError && error.code === "duplicate"
+  );
+});
+
+test("rejects unsafe, unsupported, root, and symlink renames", async () => {
+  await assert.rejects(
+    renameWorkspaceEntry(workspaceRoot, {
+      relativePath: "operations/renamed.ts",
+      newName: "../escape.ts",
+    }),
+    (error: unknown) => error instanceof WorkspaceMutationError && error.code === "invalid_name"
+  );
+  await assert.rejects(
+    renameWorkspaceEntry(workspaceRoot, {
+      relativePath: "operations/renamed.ts",
+      newName: "renamed.png",
+    }),
+    (error: unknown) => error instanceof WorkspaceMutationError && error.code === "unsupported"
+  );
+  await assert.rejects(renameWorkspaceEntry(workspaceRoot, { relativePath: "", newName: "root" }));
+  await assert.rejects(
+    renameWorkspaceEntry(workspaceRoot, { relativePath: "safe-link", newName: "moved-link" }),
+    (error: unknown) => error instanceof WorkspaceMutationError && error.code === "unsupported"
+  );
+});
+
+test("deletes files and empty folders but refuses non-empty folders and symlinks", async () => {
+  await deleteWorkspaceEntry(workspaceRoot, "operations/delete-me.ts");
+  await deleteWorkspaceEntry(workspaceRoot, "operations/empty-folder");
+  await assert.rejects(access(join(workspaceRoot, "operations", "delete-me.ts")));
+  await assert.rejects(access(join(workspaceRoot, "operations", "empty-folder")));
+
+  await assert.rejects(
+    deleteWorkspaceEntry(workspaceRoot, "operations/non-empty"),
+    (error: unknown) => error instanceof WorkspaceMutationError && error.code === "not_empty"
+  );
+  await assert.rejects(
+    deleteWorkspaceEntry(workspaceRoot, "outside-link"),
+    (error: unknown) => error instanceof WorkspaceMutationError && error.code === "unsupported"
+  );
+  assert.equal(
+    await readFile(join(workspaceRoot, "operations", "non-empty", "child.txt"), "utf8"),
+    "child\n"
+  );
+});
+
+test("updates only affected open-tab paths after file and folder renames", () => {
+  const renamedFolder = {
+    name: "lib",
+    relativePath: "src/lib",
+    kind: "directory" as const,
+    isSymbolicLink: false,
+  };
+  assert.equal(workspaceEntryContainsPath("src/utils/file.ts", "src/utils", "directory"), true);
+  assert.equal(workspaceEntryContainsPath("src/utils.ts", "src/utils", "directory"), false);
+  assert.equal(
+    replaceWorkspaceEntryPath("src/utils/nested/file.ts", "src/utils", renamedFolder),
+    "src/lib/nested/file.ts"
+  );
+  assert.equal(
+    replaceWorkspaceEntryPath("src/other.ts", "src/utils", renamedFolder),
+    "src/other.ts"
+  );
 });

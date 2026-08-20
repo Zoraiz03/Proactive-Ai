@@ -36,8 +36,8 @@ function createMainWindow(): BrowserWindow {
       cancelId: 1,
       noLink: true,
       title: "Unsaved changes",
-      message: "The active file has unsaved changes.",
-      detail: "Close the desktop IDE and discard those changes?",
+      message: "One or more open files have unsaved changes.",
+      detail: "Close the desktop IDE and discard all unsaved changes?",
     });
     if (choice === 0) event.preventDefault();
   });

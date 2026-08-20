@@ -1,6 +1,10 @@
 import Editor from "@monaco-editor/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { monacoLanguageForFile } from "../../shared/languages";
+import {
+  replaceWorkspaceEntryPath,
+  workspaceEntryContainsPath,
+} from "../../shared/workspace-paths";
 import type {
   FileReadErrorCode,
   WorkspaceEntry,
@@ -10,16 +14,16 @@ import Explorer from "./Explorer";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
-type EditorState =
+interface EditorTab {
+  file: WorkspaceTextFile;
+  draft: string;
+  saving: boolean;
+  saveStatus: SaveStatus | null;
+}
+
+type EditorSurface =
   | { status: "idle" }
   | { status: "loading"; name: string; relativePath: string }
-  | {
-      status: "ready";
-      file: WorkspaceTextFile;
-      draft: string;
-      saving: boolean;
-      saveStatus: SaveStatus | null;
-    }
   | {
       status: "error";
       name: string;
@@ -29,6 +33,17 @@ type EditorState =
     };
 
 type UnsavedChoice = "save" | "discard" | "cancel";
+
+interface UnsavedPrompt {
+  title: string;
+  message: string;
+  saveLabel: string;
+  resolve: (choice: UnsavedChoice) => void;
+}
+
+function isDirty(tab: EditorTab): boolean {
+  return tab.draft !== tab.file.content;
+}
 
 function PanelTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="panel-title">{children}</h2>;
@@ -43,220 +58,359 @@ function Placeholder({ icon, children }: { icon: string; children: React.ReactNo
   );
 }
 
-interface EditorViewProps {
-  state: EditorState;
-  isDirty: boolean;
-  onChange: (content: string) => void;
-  onSave: () => void;
+interface EditorWorkspaceProps {
+  tabs: EditorTab[];
+  activePath: string | null;
+  surface: EditorSurface;
+  onActivate: (relativePath: string) => void;
+  onClose: (relativePath: string) => void;
+  onChange: (relativePath: string, content: string) => void;
+  onSave: (relativePath: string) => void;
 }
 
-function EditorView({ state, isDirty, onChange, onSave }: EditorViewProps) {
-  if (state.status === "idle") {
-    return <Placeholder icon="⌘">Select a supported text file to edit it.</Placeholder>;
-  }
-  if (state.status === "loading") {
-    return <Placeholder icon="⋯">Loading {state.name}…</Placeholder>;
-  }
-  if (state.status === "error") {
-    const title = state.code === "unsupported" ? "Unsupported file" : "Unable to open file";
-    return (
-      <div className="editor-state editor-error" role="alert">
-        <span className="editor-state-icon" aria-hidden="true">
-          {state.code === "unsupported" ? "⊘" : "!"}
-        </span>
-        <strong>{title}</strong>
-        <span className="editor-state-name">{state.name}</span>
-        <p>{state.message}</p>
-      </div>
-    );
-  }
+function EditorWorkspace({
+  tabs,
+  activePath,
+  surface,
+  onActivate,
+  onClose,
+  onChange,
+  onSave,
+}: EditorWorkspaceProps) {
+  const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
 
   return (
-    <div className="file-editor">
-      <div className="file-viewer-bar">
-        <span className="active-file-name" title={state.file.relativePath}>
-          {state.file.name}{isDirty && <span className="dirty-mark"> •</span>}
-        </span>
-        {state.saveStatus && (
-          <span className={`save-status ${state.saveStatus.kind}`} role="status">
-            {state.saveStatus.message}
+    <div className="editor-workspace">
+      {tabs.length > 0 && (
+        <div className="editor-tabs" role="tablist" aria-label="Open files">
+          {tabs.map((tab) => {
+            const active = tab.file.relativePath === activePath;
+            return (
+              <div
+                key={tab.file.relativePath}
+                className={`editor-tab ${active ? "active" : ""}`}
+                title={tab.file.relativePath}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className="editor-tab-main"
+                  onClick={() => onActivate(tab.file.relativePath)}
+                >
+                  <span className="editor-tab-name">{tab.file.name}</span>
+                  {isDirty(tab) && <span className="tab-dirty" aria-label="Unsaved changes">•</span>}
+                </button>
+                <button
+                  type="button"
+                  className="tab-close"
+                  aria-label={`Close ${tab.file.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onClose(tab.file.relativePath);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {activeTab ? (
+        <div className="file-editor">
+          <div className="file-viewer-bar">
+            <span className="active-file-name" title={activeTab.file.relativePath}>
+              {activeTab.file.relativePath}
+              {isDirty(activeTab) && <span className="dirty-mark"> •</span>}
+            </span>
+            {activeTab.saveStatus && (
+              <span className={`save-status ${activeTab.saveStatus.kind}`} role="status">
+                {activeTab.saveStatus.message}
+              </span>
+            )}
+            <button
+              type="button"
+              className="save-button"
+              onClick={() => onSave(activeTab.file.relativePath)}
+              disabled={!isDirty(activeTab) || activeTab.saving}
+              title="Save (Ctrl+S / Cmd+S)"
+            >
+              {activeTab.saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+          <div className="monaco-host">
+            <Editor
+              path={activeTab.file.relativePath}
+              value={activeTab.draft}
+              language={monacoLanguageForFile(activeTab.file.name)}
+              theme="vs-dark"
+              onChange={(value) => onChange(activeTab.file.relativePath, value ?? "")}
+              loading={<Placeholder icon="⋯">Starting editor…</Placeholder>}
+              saveViewState
+              options={{
+                automaticLayout: true,
+                fontSize: 13,
+                lineNumbers: "on",
+                minimap: { enabled: false },
+                padding: { top: 14 },
+                scrollBeyondLastLine: false,
+                tabSize: 2,
+                wordWrap: "on",
+              }}
+            />
+          </div>
+        </div>
+      ) : surface.status === "loading" ? (
+        <Placeholder icon="⋯">Loading {surface.name}…</Placeholder>
+      ) : surface.status === "error" ? (
+        <div className="editor-state editor-error" role="alert">
+          <span className="editor-state-icon" aria-hidden="true">
+            {surface.code === "unsupported" ? "⊘" : "!"}
           </span>
-        )}
-        <button
-          type="button"
-          className="save-button"
-          onClick={onSave}
-          disabled={!isDirty || state.saving}
-          title="Save (Ctrl+S / Cmd+S)"
-        >
-          {state.saving ? "Saving…" : "Save"}
-        </button>
-      </div>
-      <div className="monaco-host">
-        <Editor
-          key={state.file.relativePath}
-          value={state.draft}
-          language={monacoLanguageForFile(state.file.name)}
-          theme="vs-dark"
-          onChange={(value) => onChange(value ?? "")}
-          loading={<Placeholder icon="⋯">Starting editor…</Placeholder>}
-          options={{
-            automaticLayout: true,
-            fontSize: 13,
-            lineNumbers: "on",
-            minimap: { enabled: false },
-            padding: { top: 14 },
-            scrollBeyondLastLine: false,
-            tabSize: 2,
-            wordWrap: "on",
-          }}
-        />
-      </div>
+          <strong>{surface.code === "unsupported" ? "Unsupported file" : "Unable to open file"}</strong>
+          <span className="editor-state-name">{surface.name}</span>
+          <p>{surface.message}</p>
+        </div>
+      ) : (
+        <Placeholder icon="⌘">Select a supported text file to edit it.</Placeholder>
+      )}
     </div>
   );
 }
 
 export default function App() {
-  const [editorState, setEditorState] = useState<EditorState>({ status: "idle" });
-  const [unsavedPrompt, setUnsavedPrompt] = useState<{
-    resolve: (choice: UnsavedChoice) => void;
-  } | null>(null);
+  const [tabs, setTabs] = useState<EditorTab[]>([]);
+  const [activePath, setActivePath] = useState<string | null>(null);
+  const [surface, setSurface] = useState<EditorSurface>({ status: "idle" });
+  const [unsavedPrompt, setUnsavedPrompt] = useState<UnsavedPrompt | null>(null);
+  const tabsRef = useRef(tabs);
   const requestSequence = useRef(0);
 
-  const isDirty =
-    editorState.status === "ready" && editorState.draft !== editorState.file.content;
+  useEffect(() => {
+    tabsRef.current = tabs;
+  }, [tabs]);
 
-  const saveActiveFile = useCallback(async (): Promise<boolean> => {
-    if (editorState.status !== "ready") return true;
-    if (editorState.draft === editorState.file.content) return true;
-    if (editorState.saving) return false;
+  const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
+    const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === relativePath);
+    if (!tab || !isDirty(tab)) return true;
+    if (tab.saving) return false;
 
-    const relativePath = editorState.file.relativePath;
-    const contentToSave = editorState.draft;
-    const expectedModifiedAtMs = editorState.file.modifiedAtMs;
-    setEditorState((current) =>
-      current.status === "ready" && current.file.relativePath === relativePath
-        ? { ...current, saving: true, saveStatus: null }
-        : current
+    const contentToSave = tab.draft;
+    setTabs((current) =>
+      current.map((candidate) =>
+        candidate.file.relativePath === relativePath
+          ? { ...candidate, saving: true, saveStatus: null }
+          : candidate
+      )
     );
-
     const result = await window.workspace.writeFile({
       relativePath,
       content: contentToSave,
-      expectedModifiedAtMs,
+      expectedModifiedAtMs: tab.file.modifiedAtMs,
     });
+
     if (!result.ok) {
-      setEditorState((current) =>
-        current.status === "ready" && current.file.relativePath === relativePath
-          ? { ...current, saving: false, saveStatus: { kind: "error", message: result.error } }
-          : current
+      setTabs((current) =>
+        current.map((candidate) =>
+          candidate.file.relativePath === relativePath
+            ? {
+                ...candidate,
+                saving: false,
+                saveStatus: { kind: "error", message: result.error },
+              }
+            : candidate
+        )
       );
       return false;
     }
 
-    setEditorState((current) => {
-      if (current.status !== "ready" || current.file.relativePath !== relativePath) {
-        return current;
-      }
-      const hasNewerChanges = current.draft !== contentToSave;
-      return {
-        ...current,
-        file: {
-          ...current.file,
-          content: contentToSave,
-          modifiedAtMs: result.value.modifiedAtMs,
-        },
-        saving: false,
-        saveStatus: {
-          kind: "success",
-          message: hasNewerChanges ? "Saved; newer changes pending" : "Saved",
-        },
-      };
-    });
+    setTabs((current) =>
+      current.map((candidate) => {
+        if (candidate.file.relativePath !== relativePath) return candidate;
+        const hasNewerChanges = candidate.draft !== contentToSave;
+        return {
+          ...candidate,
+          file: {
+            ...candidate.file,
+            content: contentToSave,
+            modifiedAtMs: result.value.modifiedAtMs,
+          },
+          saving: false,
+          saveStatus: {
+            kind: "success",
+            message: hasNewerChanges ? "Saved; newer changes pending" : "Saved",
+          },
+        };
+      })
+    );
     return true;
-  }, [editorState]);
+  }, []);
 
-  const askAboutUnsavedChanges = useCallback((): Promise<UnsavedChoice> => {
-    if (unsavedPrompt) return Promise.resolve("cancel");
-    return new Promise((resolve) => setUnsavedPrompt({ resolve }));
-  }, [unsavedPrompt]);
+  const askAboutUnsavedChanges = useCallback(
+    (details: Omit<UnsavedPrompt, "resolve">): Promise<UnsavedChoice> => {
+      if (unsavedPrompt) return Promise.resolve("cancel");
+      return new Promise((resolve) => setUnsavedPrompt({ ...details, resolve }));
+    },
+    [unsavedPrompt]
+  );
 
-  const canLeaveActiveFile = useCallback(async (): Promise<boolean> => {
-    if (!isDirty) return true;
-    const choice = await askAboutUnsavedChanges();
-    if (choice === "cancel") return false;
-    if (choice === "discard") return true;
-    return saveActiveFile();
-  }, [askAboutUnsavedChanges, isDirty, saveActiveFile]);
+  const closeTab = useCallback(async (relativePath: string) => {
+    const currentTabs = tabsRef.current;
+    const tab = currentTabs.find((candidate) => candidate.file.relativePath === relativePath);
+    if (!tab) return;
+    if (isDirty(tab)) {
+      const choice = await askAboutUnsavedChanges({
+        title: "Save changes before closing?",
+        message: `${tab.file.name} has unsaved changes.`,
+        saveLabel: "Save",
+      });
+      if (choice === "cancel") return;
+      if (choice === "save" && !(await saveTab(relativePath))) return;
+    }
 
-  const loadFile = useCallback(async (entry: WorkspaceEntry) => {
+    const index = currentTabs.findIndex((candidate) => candidate.file.relativePath === relativePath);
+    const remaining = currentTabs.filter((candidate) => candidate.file.relativePath !== relativePath);
+    setTabs(remaining);
+    setActivePath((currentActive) => {
+      if (currentActive !== relativePath) return currentActive;
+      return remaining[Math.min(index, remaining.length - 1)]?.file.relativePath ?? null;
+    });
+    setSurface({ status: "idle" });
+  }, [askAboutUnsavedChanges, saveTab]);
+
+  const selectFile = useCallback(async (entry: WorkspaceEntry) => {
+    const existing = tabsRef.current.find((tab) => tab.file.relativePath === entry.relativePath);
+    if (existing) {
+      setActivePath(entry.relativePath);
+      setSurface({ status: "idle" });
+      return;
+    }
+
     const requestId = ++requestSequence.current;
-    setEditorState({ status: "loading", name: entry.name, relativePath: entry.relativePath });
+    setActivePath(null);
+    setSurface({ status: "loading", name: entry.name, relativePath: entry.relativePath });
     const result = await window.workspace.readFile(entry.relativePath);
     if (requestId !== requestSequence.current) return;
-
-    if (result.ok) {
-      setEditorState({
-        status: "ready",
-        file: result.value,
-        draft: result.value.content,
-        saving: false,
-        saveStatus: null,
-      });
-    } else {
-      setEditorState({
+    if (!result.ok) {
+      setSurface({
         status: "error",
         name: entry.name,
         relativePath: entry.relativePath,
         message: result.error,
         code: result.code,
       });
-    }
-  }, []);
-
-  const selectFile = useCallback(async (entry: WorkspaceEntry) => {
-    if (editorState.status === "ready" && editorState.file.relativePath === entry.relativePath) {
       return;
     }
-    if (!(await canLeaveActiveFile())) return;
-    await loadFile(entry);
-  }, [canLeaveActiveFile, editorState, loadFile]);
 
-  const clearEditor = useCallback(() => {
+    const newTab: EditorTab = {
+      file: result.value,
+      draft: result.value.content,
+      saving: false,
+      saveStatus: null,
+    };
+    setTabs((current) =>
+      current.some((tab) => tab.file.relativePath === entry.relativePath)
+        ? current
+        : [...current, newTab]
+    );
+    setActivePath(entry.relativePath);
+    setSurface({ status: "idle" });
+  }, []);
+
+  const canOpenWorkspace = useCallback(async (): Promise<boolean> => {
+    const dirtyTabs = tabsRef.current.filter(isDirty);
+    if (dirtyTabs.length === 0) return true;
+    const choice = await askAboutUnsavedChanges({
+      title: "Save open changes?",
+      message: `${dirtyTabs.length} open file${dirtyTabs.length === 1 ? " has" : "s have"} unsaved changes.`,
+      saveLabel: dirtyTabs.length === 1 ? "Save" : "Save All",
+    });
+    if (choice === "cancel") return false;
+    if (choice === "discard") return true;
+    for (const tab of dirtyTabs) {
+      if (!(await saveTab(tab.file.relativePath))) return false;
+    }
+    return true;
+  }, [askAboutUnsavedChanges, saveTab]);
+
+  const clearWorkspaceTabs = useCallback(() => {
     requestSequence.current += 1;
-    setEditorState({ status: "idle" });
+    setTabs([]);
+    setActivePath(null);
+    setSurface({ status: "idle" });
+  }, []);
+
+  const renameOpenEntries = useCallback((oldRelativePath: string, entry: WorkspaceEntry) => {
+    setTabs((current) =>
+      current.map((tab) => {
+        if (!workspaceEntryContainsPath(tab.file.relativePath, oldRelativePath, entry.kind)) return tab;
+        return {
+          ...tab,
+          file: {
+            ...tab.file,
+            name: tab.file.relativePath === oldRelativePath ? entry.name : tab.file.name,
+            relativePath: replaceWorkspaceEntryPath(tab.file.relativePath, oldRelativePath, entry),
+          },
+        };
+      })
+    );
+    setActivePath((current) => {
+      if (!current) return current;
+      return replaceWorkspaceEntryPath(current, oldRelativePath, entry);
+    });
+  }, []);
+
+  const deleteOpenEntries = useCallback((relativePath: string, kind: WorkspaceEntry["kind"]) => {
+    const currentTabs = tabsRef.current;
+    const remaining = currentTabs.filter(
+      (tab) => !workspaceEntryContainsPath(tab.file.relativePath, relativePath, kind)
+    );
+    setTabs(remaining);
+    setActivePath((current) => {
+      if (!current || !workspaceEntryContainsPath(current, relativePath, kind)) return current;
+      return remaining.at(-1)?.file.relativePath ?? null;
+    });
+    setSurface({ status: "idle" });
+  }, []);
+
+  const getDeleteImpact = useCallback((entry: WorkspaceEntry) => {
+    const affected = tabsRef.current.filter((tab) =>
+      workspaceEntryContainsPath(tab.file.relativePath, entry.relativePath, entry.kind)
+    );
+    return { openCount: affected.length, dirtyCount: affected.filter(isDirty).length };
   }, []);
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        void saveActiveFile();
+        if (activePath) void saveTab(activePath);
       }
     };
     window.addEventListener("keydown", handleSaveShortcut, { capture: true });
     return () => window.removeEventListener("keydown", handleSaveShortcut, { capture: true });
-  }, [saveActiveFile]);
+  }, [activePath, saveTab]);
 
+  const hasDirtyTabs = tabs.some(isDirty);
   useEffect(() => {
     const preventUnsavedClose = (event: BeforeUnloadEvent) => {
-      if (!isDirty) return;
+      if (!hasDirtyTabs) return;
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", preventUnsavedClose);
     return () => window.removeEventListener("beforeunload", preventUnsavedClose);
-  }, [isDirty]);
+  }, [hasDirtyTabs]);
 
-  const activeFilePath = editorState.status === "idle"
-    ? null
-    : editorState.status === "ready"
-      ? editorState.file.relativePath
-      : editorState.relativePath;
-
-  const updateDraft = (content: string) => {
-    setEditorState((current) =>
-      current.status === "ready" ? { ...current, draft: content, saveStatus: null } : current
+  const updateDraft = (relativePath: string, content: string) => {
+    setTabs((current) =>
+      current.map((tab) =>
+        tab.file.relativePath === relativePath
+          ? { ...tab, draft: content, saveStatus: null }
+          : tab
+      )
     );
   };
 
@@ -271,27 +425,36 @@ export default function App() {
       <header className="top-bar">
         <div className="brand-mark" aria-hidden="true">P</div>
         <h1>Proactive AI IDE</h1>
-        <span className="phase-label">Monaco editor</span>
+        <span className="phase-label">Workspace tabs</span>
       </header>
 
       <div className="ide-layout">
         <aside className="panel explorer-panel">
           <PanelTitle>Explorer</PanelTitle>
           <Explorer
-            activeFilePath={activeFilePath}
+            activeFilePath={activePath}
             onSelectFile={(entry) => void selectFile(entry)}
-            onBeforeWorkspaceOpen={canLeaveActiveFile}
-            onWorkspaceOpened={clearEditor}
+            onBeforeWorkspaceOpen={canOpenWorkspace}
+            onWorkspaceOpened={clearWorkspaceTabs}
+            onEntryRenamed={renameOpenEntries}
+            onEntryDeleted={deleteOpenEntries}
+            getDeleteImpact={getDeleteImpact}
           />
         </aside>
 
         <main className="panel editor-panel">
           <PanelTitle>Editor</PanelTitle>
-          <EditorView
-            state={editorState}
-            isDirty={isDirty}
+          <EditorWorkspace
+            tabs={tabs}
+            activePath={activePath}
+            surface={surface}
+            onActivate={(relativePath) => {
+              setActivePath(relativePath);
+              setSurface({ status: "idle" });
+            }}
+            onClose={(relativePath) => void closeTab(relativePath)}
             onChange={updateDraft}
-            onSave={() => void saveActiveFile()}
+            onSave={(relativePath) => void saveTab(relativePath)}
           />
         </main>
 
@@ -313,33 +476,20 @@ export default function App() {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 2C</span>
-        <span>{isDirty ? "Unsaved changes" : "Secure Monaco editor"}</span>
+        <span>Phase 3A</span>
+        <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
       {unsavedPrompt && (
         <div className="dialog-backdrop" role="presentation">
-          <section
-            className="unsaved-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="unsaved-dialog-title"
-          >
-            <h2 id="unsaved-dialog-title">Save your changes?</h2>
-            <p>
-              {editorState.status === "ready" ? editorState.file.name : "This file"} has
-              unsaved changes.
-            </p>
+          <section className="unsaved-dialog" role="dialog" aria-modal="true" aria-labelledby="unsaved-dialog-title">
+            <h2 id="unsaved-dialog-title">{unsavedPrompt.title}</h2>
+            <p>{unsavedPrompt.message}</p>
             <div className="dialog-actions">
               <button type="button" onClick={() => answerUnsavedPrompt("cancel")}>Cancel</button>
               <button type="button" onClick={() => answerUnsavedPrompt("discard")}>Discard</button>
-              <button
-                type="button"
-                className="primary"
-                autoFocus
-                onClick={() => answerUnsavedPrompt("save")}
-              >
-                Save
+              <button type="button" className="primary" autoFocus onClick={() => answerUnsavedPrompt("save")}>
+                {unsavedPrompt.saveLabel}
               </button>
             </div>
           </section>

@@ -1,9 +1,9 @@
 # Proactive AI IDE — Desktop
 
-This package contains the isolated Electron desktop application. Phase 2C adds
-local Monaco editing and secure saving for existing supported files inside the
-selected workspace. Tabs, file creation/rename/delete, terminals, auth, AI, and
-documentation tools are intentionally not included yet.
+This package contains the isolated Electron desktop application. Phase 3A adds
+editor tabs and validated create, rename, and non-recursive delete operations for
+the selected workspace. Terminals, auth, AI, Git, and documentation tools are
+intentionally not included yet.
 
 ## Development
 
@@ -30,8 +30,10 @@ npm run build
 ```
 
 Open a folder, choose a supported text/code file, edit it, and use the visible
-Save action or Ctrl+S / Cmd+S. Switching files with unsaved changes offers Save,
-Discard, and Cancel choices.
+Save action or Ctrl+S / Cmd+S. Closing a dirty tab or replacing the workspace
+offers Save, Discard, and Cancel choices. Explorer actions create supported text
+files and folders, rename items, and delete files or empty folders after
+confirmation.
 
 The existing web application continues to use the commands in the repository
 root, including `npm run dev` and `npm run build`.
