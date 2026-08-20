@@ -274,33 +274,33 @@ Required verification:
 
 ### Phase 4A — One controlled workspace terminal and Output panel
 
-- [ ] **In Progress** — Add Terminal and Output tabs to the bottom panel.
-- [ ] **In Progress** — Create one terminal only after the user selects New Terminal.
-- [ ] **In Progress** — Render the interactive session with xterm.js and fit it on resize.
-- [ ] **In Progress** — Spawn and own the pseudoterminal only in Electron's main process.
-- [ ] **In Progress** — Start the user's platform shell in the authorized workspace root.
-- [ ] **In Progress** — Add minimal typed create/input/output/resize/close IPC contracts.
-- [ ] **In Progress** — Stop the terminal on explicit close, workspace replacement,
+- [x] **Complete** — Add Terminal and Output tabs to the bottom panel.
+- [x] **Complete** — Create one terminal only after the user selects New Terminal.
+- [x] **Complete** — Render the interactive session with xterm.js and fit it on resize.
+- [x] **Complete** — Spawn and own the pseudoterminal only in Electron's main process.
+- [x] **Complete** — Start the user's platform shell in the authorized workspace root.
+- [x] **Complete** — Add minimal typed create/input/output/resize/close IPC contracts.
+- [x] **Complete** — Stop the terminal on explicit close, workspace replacement,
   renderer destruction, and application exit.
-- [ ] **In Progress** — Add a separate Output view for bounded IDE status messages.
+- [x] **Complete** — Add a separate Output view for bounded IDE status messages.
 
 Phase 4A required verification:
 
-- [ ] **In Progress** — Terminal creation, input, streamed output, resize, and close work.
-- [ ] **In Progress** — No process starts before explicit user action or without a workspace.
-- [ ] **In Progress** — Workspace switching and application exit clean up the child process.
-- [ ] **In Progress** — Focused terminal lifecycle tests pass.
-- [ ] **In Progress** — Desktop TypeScript/build and secure launch checks pass.
-- [ ] **In Progress** — Existing web lint, tests, and production build pass.
+- [x] **Complete** — Terminal creation, input, streamed output, resize, and close work.
+- [x] **Complete** — No process starts before explicit user action or without a workspace.
+- [x] **Complete** — Workspace switching and application exit clean up the child process.
+- [x] **Complete** — Focused terminal lifecycle tests pass.
+- [x] **Complete** — Desktop TypeScript/build and secure launch checks pass.
+- [x] **Complete** — Existing web lint, tests, and production build pass.
 
-- [ ] **Not Started** — Add an output panel separate from interactive terminals.
-- [ ] **Not Started** — Add `xterm.js` terminal rendering.
-- [ ] **Not Started** — Add a controlled `node-pty` integration in the main process.
-- [ ] **Not Started** — Start terminal processes only after explicit user action.
-- [ ] **Not Started** — Use the selected project root as the terminal working directory.
-- [ ] **Not Started** — Stream output through narrowly scoped IPC events.
-- [ ] **Not Started** — Resize, restart, and stop terminal sessions safely.
-- [ ] **Not Started** — Terminate child processes when the window or application exits.
+- [x] **Complete** — Add an output panel separate from interactive terminals.
+- [x] **Complete** — Add `xterm.js` terminal rendering.
+- [x] **Complete** — Add a controlled `node-pty` integration in the main process.
+- [x] **Complete** — Start terminal processes only after explicit user action.
+- [x] **Complete** — Use the selected project root as the terminal working directory.
+- [x] **Complete** — Stream output through narrowly scoped IPC events.
+- [x] **Complete** — Resize and stop the single terminal session safely.
+- [x] **Complete** — Terminate child processes when the window or application exits.
 - [ ] **Not Started** — Add opt-in project tasks for builds and tests.
 - [ ] **Not Started** — Parse supported compiler/test output into diagnostics.
 - [ ] **Not Started** — Display diagnostics in Monaco and navigate to source lines.
@@ -447,6 +447,13 @@ Required verification:
     after the existing secure read checks pass. Dirty buffers retain their local
     draft until the user explicitly chooses the external version or keeps the
     local version. Deletion never removes an open buffer automatically.
+19. **Own pseudoterminals in Electron main.** Phase 4A uses `node-pty` only in the
+    main process and xterm.js only in the sandboxed renderer. One session is tied
+    to the authorized workspace and renderer, and only typed input/output/resize/
+    close messages cross preload.
+20. **Rebuild native modules for Electron.** `node-pty` remains external to the
+    Electron Vite main bundle and is rebuilt against the installed Electron ABI
+    through the desktop package's postinstall and `rebuild:native` scripts.
 
 ## Security rules
 
@@ -478,6 +485,12 @@ Required verification:
 - Do not follow symlinks while watching. Ignore generated directories, suppress
   notifications caused by the IDE's own validated mutations, and stop the active
   watcher on workspace replacement, renderer destruction, and accepted app quit.
+- Never expose a shell, process handle, `child_process`, `node-pty`, or raw terminal
+  IPC object to renderer code. Validate session IDs, dimensions, and bounded input
+  in main before touching the pseudoterminal.
+- Start the shell only after New Terminal is selected and only with the authorized
+  workspace root as its working directory. Inherit an allowlisted environment so
+  unrelated API keys and service credentials do not leak into child processes.
 - Do not read or transmit files until the user explicitly selects a project and,
   for AI context, explicitly asks for help.
 - Do not place Supabase service-role credentials, server encryption secrets, or AI
@@ -491,6 +504,75 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 4A complete
+
+Changed files:
+
+- Desktop package manifest, lockfile, and README — added `node-pty`, xterm.js,
+  `@xterm/addon-fit`, Electron rebuild tooling, rebuild scripts, and setup notes.
+- `apps/desktop/src/shared/terminal.ts` — added the typed create, input, output,
+  resize, close, and exit contracts for one terminal session.
+- `apps/desktop/src/main/terminal-session.ts`, `terminal-environment.ts`, and
+  `terminal-ipc.ts` — added validated one-session lifecycle management, safe shell
+  selection/environment filtering, output chunk limits, and trusted-window IPC.
+- `apps/desktop/src/main/index.ts` and `workspace-ipc.ts` — tied terminal cleanup
+  to workspace replacement, renderer destruction, and accepted application exit.
+- `apps/desktop/src/preload/index.ts` and renderer declarations — exposed only the
+  frozen typed terminal bridge, without raw Electron or Node access.
+- `apps/desktop/src/renderer/src/BottomPanel.tsx`, `App.tsx`, `Explorer.tsx`, and
+  `styles.css` — added the professional fitted xterm view, explicit New/Close
+  Terminal actions, separate bounded Output log, errors, status messages, and
+  responsive bottom-panel styling.
+- `apps/desktop/src/main/workspace-files.test.ts` — expanded focused coverage from
+  23 to 26 tests for authorization, input/resize routing, one-session enforcement,
+  workspace/renderer cleanup, environment filtering, and shell selection.
+
+Dependency decisions:
+
+- xterm.js is renderer-only and provides terminal emulation; it cannot create a
+  process by itself.
+- `node-pty` is main-process-only so interactive programs receive a real PTY on
+  macOS, Linux, and supported Windows versions.
+- `node-pty` is a native dependency. `npm install` runs `electron-rebuild -f -w
+  node-pty`; `npm run rebuild:native` is documented for Electron upgrades and
+  restored dependency caches.
+
+Security decisions:
+
+- Terminal creation fails without the workspace authorization established by the
+  native folder picker, and a second session is refused while one is active.
+- Input is bounded at 64 KiB per message, output is split into 64 KiB IPC chunks,
+  and terminal dimensions/session identifiers receive runtime validation.
+- Only ordinary shell environment keys such as PATH, HOME, SHELL, locale, and
+  temporary-directory values are inherited. Provider keys, Supabase secrets, and
+  unrelated environment variables are excluded.
+- No commands start automatically; commands originate only from xterm keystrokes.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 26/26 tests passed, including the terminal
+  authorization, lifecycle, cleanup, environment, input, and resize cases.
+- Electron-ABI PTY smoke test — rebuilt `node-pty` spawned zsh, accepted input,
+  resized, streamed `PTY_OK` plus the exact desktop working directory, and exited
+  with code 0.
+- `npm --prefix apps/desktop run build` — strict TypeScript plus production main,
+  preload, xterm renderer, and Monaco bundles passed.
+- `npm --prefix apps/desktop run dev` — Electron launched, the terminal/output UI
+  was visually checked, and runtime logged `contextIsolation=true`,
+  `nodeIntegration=false`, and `sandbox=true`.
+- `npm run lint`, `npm test`, and `npm run build` — the unchanged web application
+  passed lint, its focused harness, and its production Next.js build.
+
+Known limitations:
+
+- Phase 4A supports exactly one terminal and does not persist its scrollback after
+  closing or switching workspaces.
+- There is no Run Current File, task runner, diagnostics parsing, terminal search,
+  split terminal, shell profile picker, or packaged-installer verification yet.
+- Native compiler prerequisites may be required when a platform cannot use a
+  compatible `node-pty` prebuild; rerun `npm run rebuild:native` after installing
+  those platform tools.
 
 ### 2026-08-20 — Phase 4A started
 
@@ -848,13 +930,14 @@ Verification:
 | 2026-08-20 | Phase 3B watcher/reconciliation tests | Complete | 23/23 tests passed, including batching, ignore, suppression, cleanup, clean reload, dirty conflict, and deletion cases. |
 | 2026-08-20 | Phase 3B desktop checks | Complete | TypeScript/build and secure Electron launch passed. |
 | 2026-08-20 | Phase 3B web regression | Complete | Existing lint, tests, and Next.js build passed unchanged. |
+| 2026-08-20 | Phase 4A terminal lifecycle tests | Complete | 26/26 tests passed; terminal authorization, routing, cleanup, and environment cases passed. |
+| 2026-08-20 | Phase 4A native PTY smoke test | Complete | Electron-ABI node-pty input/output/resize/cwd/exit test passed on macOS. |
+| 2026-08-20 | Phase 4A desktop checks | Complete | TypeScript/build, visual UI check, and secure Electron launch passed. |
+| 2026-08-20 | Phase 4A web regression | Complete | Existing lint, tests, and Next.js build passed unchanged. |
 
 ## Recommended next task
 
-Add a **controlled terminal and output panel** as Phase 4's first scoped task:
-
-1. Define a narrow, explicit terminal-session IPC protocol.
-2. Start commands only after visible user action and only in the selected workspace.
-3. Stream output to the existing Output panel and terminate child processes on exit.
-4. Keep AI, Supabase, authentication, Git integration, documentation, and proactive
-   features deferred.
+Add **Run Current File and structured output/diagnostic capture** as the next scoped
+Phase 4 task. Keep execution explicit, map allowlisted file types to controlled
+commands, stream run output separately from the interactive terminal, and defer AI,
+Supabase, authentication, Git integration, documentation, and proactive features.
