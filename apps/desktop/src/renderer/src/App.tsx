@@ -1,4 +1,5 @@
 import Editor from "@monaco-editor/react";
+import type { editor as MonacoEditor } from "monaco-editor";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { monacoLanguageForFile } from "../../shared/languages";
 import {
@@ -16,8 +17,9 @@ import type {
   WorkspaceEntry,
   WorkspaceTextFile,
 } from "../../shared/workspace";
+import type { RunDiagnostic } from "../../shared/runner";
 import Explorer from "./Explorer";
-import BottomPanel, { type IdeOutputMessage } from "./BottomPanel";
+import BottomPanel, { type IdeOutputMessage, type RunOutputState } from "./BottomPanel";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -48,7 +50,21 @@ interface UnsavedPrompt {
   title: string;
   message: string;
   saveLabel: string;
+  allowDiscard?: boolean;
   resolve: (choice: UnsavedChoice) => void;
+}
+
+interface EditorLocation {
+  relativePath: string;
+  line: number;
+  column: number;
+  token: number;
+}
+
+function runSupport(fileName: string): "supported" | "typescript" | "unsupported" {
+  const extension = fileName.slice(fileName.lastIndexOf(".")).toLowerCase();
+  if ([".py", ".js", ".mjs"].includes(extension)) return "supported";
+  return extension === ".ts" ? "typescript" : "unsupported";
 }
 
 function isDirty(tab: EditorTab): boolean {
@@ -76,6 +92,10 @@ interface EditorWorkspaceProps {
   onClose: (relativePath: string) => void;
   onChange: (relativePath: string, content: string) => void;
   onSave: (relativePath: string) => void;
+  onRun: () => void;
+  onStop: () => void;
+  running: boolean;
+  focusLocation: EditorLocation | null;
   onReloadExternal: (relativePath: string) => void;
   onKeepLocal: (relativePath: string) => void;
 }
@@ -88,10 +108,30 @@ function EditorWorkspace({
   onClose,
   onChange,
   onSave,
+  onRun,
+  onStop,
+  running,
+  focusLocation,
   onReloadExternal,
   onKeepLocal,
 }: EditorWorkspaceProps) {
   const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+
+  useEffect(() => {
+    if (!focusLocation || focusLocation.relativePath !== activePath || !editorRef.current) return;
+    editorRef.current.setPosition({ lineNumber: focusLocation.line, column: focusLocation.column });
+    editorRef.current.revealLineInCenter(focusLocation.line);
+    editorRef.current.focus();
+  }, [activePath, focusLocation]);
+
+  const support = activeTab ? runSupport(activeTab.file.name) : "unsupported";
+  const runDisabled = !activeTab || support !== "supported" || activeTab.availability !== "available" || Boolean(activeTab.externalConflict);
+  const runHint = support === "typescript"
+    ? "TypeScript runner not configured"
+    : support === "unsupported" && activeTab
+      ? "This file type cannot be run"
+      : null;
 
   return (
     <div className="editor-workspace">
@@ -142,11 +182,21 @@ function EditorWorkspace({
               {activeTab.file.relativePath}
               {isDirty(activeTab) && <span className="dirty-mark"> •</span>}
             </span>
+            {runHint && <span className="run-hint">{runHint}</span>}
             {activeTab.saveStatus && (
               <span className={`save-status ${activeTab.saveStatus.kind}`} role="status">
                 {activeTab.saveStatus.message}
               </span>
             )}
+            <button
+              type="button"
+              className={running ? "run-button stop" : "run-button"}
+              onClick={running ? onStop : onRun}
+              disabled={!running && runDisabled}
+              title={running ? "Stop running file" : "Run current file (Ctrl+R / Cmd+R)"}
+            >
+              {running ? "■ Stop" : isDirty(activeTab) && support === "supported" ? "▶ Save & Run" : "▶ Run"}
+            </button>
             <button
               type="button"
               className="save-button"
@@ -187,6 +237,14 @@ function EditorWorkspace({
               value={activeTab.draft}
               language={monacoLanguageForFile(activeTab.file.name)}
               theme="vs-dark"
+              onMount={(instance) => {
+                editorRef.current = instance;
+                if (focusLocation?.relativePath === activeTab.file.relativePath) {
+                  instance.setPosition({ lineNumber: focusLocation.line, column: focusLocation.column });
+                  instance.revealLineInCenter(focusLocation.line);
+                  instance.focus();
+                }
+              }}
               onChange={(value) => onChange(activeTab.file.relativePath, value ?? "")}
               loading={<Placeholder icon="⋯">Starting editor…</Placeholder>}
               saveViewState
@@ -230,7 +288,11 @@ export default function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [outputMessages, setOutputMessages] = useState<IdeOutputMessage[]>([]);
+  const [runOutput, setRunOutput] = useState<RunOutputState | null>(null);
+  const [outputFocusToken, setOutputFocusToken] = useState(0);
+  const [editorLocation, setEditorLocation] = useState<EditorLocation | null>(null);
   const tabsRef = useRef(tabs);
+  const runOutputRef = useRef(runOutput);
   const requestSequence = useRef(0);
   const externalReadSequence = useRef(new Map<string, number>());
   const outputSequence = useRef(0);
@@ -251,6 +313,10 @@ export default function App() {
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
+
+  useEffect(() => {
+    runOutputRef.current = runOutput;
+  }, [runOutput]);
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
     const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === relativePath);
@@ -305,10 +371,13 @@ export default function App() {
       return false;
     }
 
+    const latestDraft = tabsRef.current.find(
+      (candidate) => candidate.file.relativePath === relativePath
+    )?.draft;
+    const hasNewerChanges = latestDraft !== undefined && latestDraft !== contentToSave;
     setTabs((current) =>
       current.map((candidate) => {
         if (candidate.file.relativePath !== relativePath) return candidate;
-        const hasNewerChanges = candidate.draft !== contentToSave;
         return {
           ...candidate,
           file: {
@@ -326,7 +395,7 @@ export default function App() {
       })
     );
     appendOutput(`Saved ${tab.file.relativePath}.`, "success");
-    return true;
+    return !hasNewerChanges;
   }, [appendOutput]);
 
   const askAboutUnsavedChanges = useCallback(
@@ -428,7 +497,9 @@ export default function App() {
     externalReadSequence.current.clear();
     setWorkspaceOpen(true);
     setWorkspaceVersion((current) => current + 1);
-    appendOutput("Workspace opened. Previous terminal sessions were closed.");
+    setRunOutput(null);
+    setEditorLocation(null);
+    appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
   }, [appendOutput]);
 
   const renameOpenEntries = useCallback((oldRelativePath: string, entry: WorkspaceEntry) => {
@@ -594,6 +665,127 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleSaveShortcut, { capture: true });
   }, [activePath, saveTab]);
 
+  useEffect(() => {
+    const unsubscribeOutput = window.runner.onOutput((event) => {
+      setRunOutput((current) => {
+        if (!current || current.runId !== event.runId) return current;
+        const next = (current[event.stream] + event.data).slice(-2 * 1024 * 1024);
+        const updated = { ...current, [event.stream]: next };
+        runOutputRef.current = updated;
+        return updated;
+      });
+    });
+    const unsubscribeComplete = window.runner.onComplete((event) => {
+      setRunOutput((current) => {
+        if (!current || current.runId !== event.runId) return current;
+        const updated: RunOutputState = {
+          ...current,
+          status: event.status,
+          exitCode: event.exitCode,
+          durationMs: event.durationMs,
+          diagnostics: event.diagnostics,
+        };
+        runOutputRef.current = updated;
+        return updated;
+      });
+      const kind = event.status === "succeeded" ? "success" : event.status === "stopped" ? "info" : "error";
+      appendOutput(
+        event.status === "stopped"
+          ? "Run stopped."
+          : `Run ${event.status} in ${event.durationMs} ms${event.exitCode === null ? "" : ` (exit ${event.exitCode})`}.`,
+        kind
+      );
+      setOutputFocusToken((current) => current + 1);
+    });
+    return () => {
+      unsubscribeOutput();
+      unsubscribeComplete();
+    };
+  }, [appendOutput]);
+
+  const runCurrentFile = useCallback(async () => {
+    if (runOutputRef.current?.status === "running") {
+      appendOutput("A file is already running. Stop it before starting another.", "error");
+      setOutputFocusToken((current) => current + 1);
+      return;
+    }
+    const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === activePath);
+    if (!tab) return;
+    const support = runSupport(tab.file.name);
+    if (support !== "supported") {
+      appendOutput(
+        support === "typescript"
+          ? "TypeScript runner not configured."
+          : `Run Current File does not support ${tab.file.name}.`,
+        "error"
+      );
+      setOutputFocusToken((current) => current + 1);
+      return;
+    }
+    if (tab.availability !== "available" || tab.externalConflict) {
+      appendOutput("Resolve the file's external-change state before running it.", "error");
+      setOutputFocusToken((current) => current + 1);
+      return;
+    }
+    if (isDirty(tab)) {
+      const choice = await askAboutUnsavedChanges({
+        title: "Save before running?",
+        message: `${tab.file.name} must be saved before it can run.`,
+        saveLabel: "Save and Run",
+        allowDiscard: false,
+      });
+      if (choice !== "save" || !(await saveTab(tab.file.relativePath))) return;
+    }
+
+    setOutputFocusToken((current) => current + 1);
+    const runId = crypto.randomUUID();
+    const nextRun: RunOutputState = {
+      runId,
+      relativePath: tab.file.relativePath,
+      language: tab.file.name.toLowerCase().endsWith(".py") ? "python" : "javascript",
+      status: "running",
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      durationMs: null,
+      diagnostics: [],
+    };
+    runOutputRef.current = nextRun;
+    setRunOutput(nextRun);
+    const result = await window.runner.start({ runId, relativePath: tab.file.relativePath });
+    if (!result.ok) {
+      runOutputRef.current = null;
+      setRunOutput((current) => current?.runId === runId ? null : current);
+      appendOutput(result.error, "error");
+      return;
+    }
+    appendOutput(`Running ${result.value.relativePath}…`);
+  }, [activePath, appendOutput, askAboutUnsavedChanges, saveTab]);
+
+  const stopCurrentRun = useCallback(async () => {
+    const current = runOutputRef.current;
+    if (!current || current.status !== "running") return;
+    const result = await window.runner.stop({ runId: current.runId });
+    if (!result.ok) appendOutput(result.error, "error");
+  }, [appendOutput]);
+
+  useEffect(() => {
+    const handleRunShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        void runCurrentFile();
+      }
+    };
+    window.addEventListener("keydown", handleRunShortcut, { capture: true });
+    return () => window.removeEventListener("keydown", handleRunShortcut, { capture: true });
+  }, [runCurrentFile]);
+
+  const focusDiagnostic = useCallback(async (diagnostic: RunDiagnostic) => {
+    const name = diagnostic.relativePath.split("/").at(-1) ?? diagnostic.relativePath;
+    await selectFile({ name, relativePath: diagnostic.relativePath, kind: "file", isSymbolicLink: false });
+    setEditorLocation({ ...diagnostic, token: Date.now() });
+  }, [selectFile]);
+
   const hasDirtyTabs = tabs.some(isDirty);
   useEffect(() => {
     const preventUnsavedClose = (event: BeforeUnloadEvent) => {
@@ -658,6 +850,10 @@ export default function App() {
             onClose={(relativePath) => void closeTab(relativePath)}
             onChange={updateDraft}
             onSave={(relativePath) => void saveTab(relativePath)}
+            onRun={() => void runCurrentFile()}
+            onStop={() => void stopCurrentRun()}
+            running={runOutput?.status === "running"}
+            focusLocation={editorLocation}
             onReloadExternal={reloadExternalVersion}
             onKeepLocal={keepLocalChanges}
           />
@@ -677,13 +873,16 @@ export default function App() {
             workspaceOpen={workspaceOpen}
             workspaceVersion={workspaceVersion}
             messages={outputMessages}
+            run={runOutput}
+            outputFocusToken={outputFocusToken}
+            onDiagnosticClick={(diagnostic) => void focusDiagnostic(diagnostic)}
             onStatus={appendOutput}
           />
         </section>
       </div>
 
       <footer className="status-bar">
-        <span>Phase 4A</span>
+        <span>Phase 4B</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
@@ -694,7 +893,9 @@ export default function App() {
             <p>{unsavedPrompt.message}</p>
             <div className="dialog-actions">
               <button type="button" onClick={() => answerUnsavedPrompt("cancel")}>Cancel</button>
-              <button type="button" onClick={() => answerUnsavedPrompt("discard")}>Discard</button>
+              {unsavedPrompt.allowDiscard !== false && (
+                <button type="button" onClick={() => answerUnsavedPrompt("discard")}>Discard</button>
+              )}
               <button type="button" className="primary" autoFocus onClick={() => answerUnsavedPrompt("save")}>
                 {unsavedPrompt.saveLabel}
               </button>

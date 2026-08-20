@@ -1,5 +1,6 @@
 const MONACO_LANGUAGES: Readonly<Record<string, string>> = {
   ".js": "javascript",
+  ".mjs": "javascript",
   ".jsx": "javascript",
   ".ts": "typescript",
   ".tsx": "typescript",

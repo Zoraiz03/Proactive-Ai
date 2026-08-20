@@ -493,6 +493,45 @@ button.tree-row {
   color: #e58b92;
 }
 
+.run-hint {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: #8a94a4;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-button {
+  min-width: 58px;
+  padding: 4px 9px;
+  border: 1px solid #3f765a;
+  border-radius: 5px;
+  background: #28583f;
+  color: #dff7e9;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.run-button:hover:not(:disabled) {
+  background: #32704f;
+}
+
+.run-button.stop {
+  border-color: #8c4c55;
+  background: #713740;
+  color: #ffe8ea;
+}
+
+.run-button:disabled {
+  border-color: #373f4c;
+  background: #242a34;
+  color: #697587;
+  cursor: default;
+}
+
 .save-button {
   min-width: 56px;
   padding: 4px 10px;
@@ -845,6 +884,116 @@ button.tree-row {
 .output-view {
   overflow: auto;
   background: #11161c;
+}
+
+.output-scroll {
+  min-height: 100%;
+}
+
+.run-result {
+  border-bottom: 1px solid #2b313b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.run-result > header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 30px;
+  padding: 5px 12px;
+  background: #171d24;
+  color: #7f8a9b;
+  font-size: 9px;
+}
+
+.run-result > header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #c9d1dc;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-status {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #303844;
+  color: #c9d1dc;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.run-status.running { color: #e5c18c; }
+.run-status.succeeded { color: #7dcda6; }
+.run-status.failed { color: #e58b92; }
+.run-status.stopped { color: #aeb6c3; }
+
+.run-stream {
+  display: flex;
+  min-height: 42px;
+  max-height: 180px;
+  flex-direction: column;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  color: #c9d1dc;
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.run-stream .stderr { color: #edabb1; }
+
+.run-waiting {
+  margin: 0;
+  padding: 9px 12px;
+  color: #697587;
+  font-size: 10px;
+}
+
+.run-diagnostics {
+  padding: 4px 8px 8px;
+  border-top: 1px solid #252c35;
+}
+
+.run-diagnostics h3 {
+  margin: 4px 4px 5px;
+  color: #8f99a8;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.run-diagnostics button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(120px, 0.4fr) minmax(160px, 1fr);
+  gap: 10px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #e5a3aa;
+  font-family: inherit;
+  font-size: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-diagnostics button:hover,
+.run-diagnostics button:focus-visible {
+  background: #26202a;
+  outline: 1px solid #6e56cf;
+}
+
+.run-diagnostics small {
+  min-width: 0;
+  overflow: hidden;
+  color: #b9c0cb;
+  font-size: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .output-empty {

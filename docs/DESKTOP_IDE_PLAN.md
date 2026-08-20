@@ -293,6 +293,31 @@ Phase 4A required verification:
 - [x] **Complete** — Desktop TypeScript/build and secure launch checks pass.
 - [x] **Complete** — Existing web lint, tests, and production build pass.
 
+### Phase 4B — Run Current File and structured diagnostics
+
+- [x] **Complete** — Add an explicit Run action and Ctrl+R/Cmd+R shortcut.
+- [x] **Complete** — Run saved Python and JavaScript files through a controlled
+  main-process command map without a shell.
+- [x] **Complete** — Stream stdout/stderr and report exit status and duration in
+  the Output panel.
+- [x] **Complete** — Add explicit Stop behavior and process cleanup on workspace
+  replacement and application exit.
+- [x] **Complete** — Parse Python and Node error locations into clickable
+  diagnostics that focus Monaco.
+- [x] **Complete** — Report unsupported languages and unavailable TypeScript
+  execution without guessing commands.
+
+Phase 4B required verification:
+
+- [x] **Complete** — Successful Python and JavaScript files run from the
+  selected workspace root.
+- [x] **Complete** — Syntax/runtime errors produce useful clickable diagnostics.
+- [x] **Complete** — Unsaved, unsupported, Stop, workspace-change, and app-exit
+  behavior is safe and explicit.
+- [x] **Complete** — Focused runner and diagnostic parser tests pass.
+- [x] **Complete** — Desktop TypeScript/build and secure launch checks pass.
+- [x] **Complete** — Existing web lint, tests, and production build pass.
+
 - [x] **Complete** — Add an output panel separate from interactive terminals.
 - [x] **Complete** — Add `xterm.js` terminal rendering.
 - [x] **Complete** — Add a controlled `node-pty` integration in the main process.
@@ -454,6 +479,11 @@ Required verification:
 20. **Rebuild native modules for Electron.** `node-pty` remains external to the
     Electron Vite main bundle and is rebuilt against the installed Electron ABI
     through the desktop package's postinstall and `rebuild:native` scripts.
+21. **Run files through an allowlisted argument map.** Phase 4B accepts only one
+    validated workspace-relative file path and maps `.py` to Python and `.js`/`.mjs`
+    to Node. Electron main spawns the interpreter with an argument array,
+    `shell: false`, the canonical workspace root as `cwd`, and a filtered
+    environment. TypeScript and all other languages remain non-runnable.
 
 ## Security rules
 
@@ -504,6 +534,65 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 4B complete
+
+Changed files:
+
+- `apps/desktop/src/shared/runner.ts` — added the narrow typed start, stop, output,
+  completion, status, and diagnostic contracts.
+- `apps/desktop/src/main/run-session.ts`, `run-ipc.ts`, and
+  `run-diagnostics.ts` — added canonical workspace validation, the fixed Python/
+  Node command map, shell-free process ownership, bounded output capture, Stop and
+  lifecycle cleanup, and in-workspace traceback/stack parsing.
+- Desktop main, preload, and renderer declarations — tied the runner to workspace
+  authorization and exposed only the typed bridge.
+- Desktop App, BottomPanel, styles, language map, and text allowlist — added Run/
+  Stop, Ctrl+R/Cmd+R, Save-and-Run protection, structured Output state, clickable
+  Monaco diagnostics, `.mjs` viewing, and clear TypeScript/unsupported states.
+- Focused desktop test harness — expanded from 26 to 30 tests with real Python and
+  JavaScript runs, runtime errors, stopping, authorization, path rejection,
+  command-map, and parser coverage.
+
+Security decisions:
+
+- The renderer never receives an absolute path, command, shell, environment, or
+  child-process object. It may request only a bounded run ID plus a relative path.
+- Main reuses the secure text-file and canonical-root checks immediately before
+  spawning. It uses `shell: false`, fixed interpreter names and arguments, a
+  filtered environment, and the selected canonical workspace root as `cwd`.
+- Output crossing IPC and retained diagnostic capture are bounded. Parsed locations
+  outside the selected root are discarded, and processes stop on explicit Stop,
+  workspace replacement, renderer destruction, and application exit.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 30/30 tests passed, including successful
+  Python and JavaScript execution, Python diagnostic extraction, Stop, authorization,
+  traversal rejection, command mapping, and outside-root diagnostic filtering.
+- `npm --prefix apps/desktop run build` — strict main/preload/renderer type checks
+  and production Electron/Vite builds passed.
+- `env -u ELECTRON_RUN_AS_NODE npm run dev` from `apps/desktop` — Electron launched
+  and logged `contextIsolation=true`, `nodeIntegration=false`, and `sandbox=true`.
+- `npm run lint`, `npm test`, and `npm run build` — the existing Next.js application
+  passed lint, its focused harness, and its production build without source changes.
+
+Supported-language limits:
+
+- `.py` uses `python3` on macOS/Linux and `python` on Windows; `.js` and `.mjs` use
+  `node`. Those runtimes must be available on PATH.
+- `.ts` reports `TypeScript runner not configured`; Java, C/C++, test runners,
+  debugging, arbitrary project tasks, and output-to-AI behavior remain deferred.
+
+### 2026-08-20 — Phase 4B started
+
+- Marked the explicit Run Current File and structured-diagnostics slice **In
+  Progress** before implementation.
+- Limited execution to a main-process command map for saved Python and JavaScript
+  files, with no shell interpolation and no automatic execution.
+- Explicitly deferred TypeScript execution until a reliable workspace-local runner
+  is designed, along with debugging, tests, Git, AI, Supabase, authentication, and
+  documentation features.
 
 ### 2026-08-20 — Phase 4A complete
 
@@ -934,10 +1023,12 @@ Verification:
 | 2026-08-20 | Phase 4A native PTY smoke test | Complete | Electron-ABI node-pty input/output/resize/cwd/exit test passed on macOS. |
 | 2026-08-20 | Phase 4A desktop checks | Complete | TypeScript/build, visual UI check, and secure Electron launch passed. |
 | 2026-08-20 | Phase 4A web regression | Complete | Existing lint, tests, and Next.js build passed unchanged. |
+| 2026-08-20 | Phase 4B runner and diagnostic tests | Complete | 30/30 tests passed; Python/JavaScript success, Python errors, Stop, path authorization, command map, and diagnostic filtering passed. |
+| 2026-08-20 | Phase 4B desktop checks | Complete | Strict TypeScript/build and secure Electron launch passed. |
+| 2026-08-20 | Phase 4B web regression | Complete | Existing lint, focused tests, and Next.js build passed without web source changes. |
 
 ## Recommended next task
 
-Add **Run Current File and structured output/diagnostic capture** as the next scoped
-Phase 4 task. Keep execution explicit, map allowlisted file types to controlled
-commands, stream run output separately from the interactive terminal, and defer AI,
-Supabase, authentication, Git integration, documentation, and proactive features.
+Integrate the manual **Ask Observer** panel with selected-code and diagnostic context.
+Keep every request explicit, reuse the existing server-side key and provider security
+boundaries, and do not introduce proactive or automatic AI behavior.

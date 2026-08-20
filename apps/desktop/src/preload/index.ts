@@ -17,6 +17,14 @@ import {
   type TerminalInputRequest,
   type TerminalResizeRequest,
 } from "../shared/terminal";
+import {
+  RUNNER_CHANNELS,
+  type RunCompleteEvent,
+  type RunOutputEvent,
+  type RunnerBridge,
+  type RunStartRequest,
+  type RunStopRequest,
+} from "../shared/runner";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -65,3 +73,20 @@ const terminalBridge: TerminalBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("terminal", terminalBridge);
+
+const runnerBridge: RunnerBridge = Object.freeze({
+  start: (request: RunStartRequest) => ipcRenderer.invoke(RUNNER_CHANNELS.start, request),
+  stop: (request: RunStopRequest) => ipcRenderer.invoke(RUNNER_CHANNELS.stop, request),
+  onOutput: (listener: (event: RunOutputEvent) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, data: RunOutputEvent) => listener(data);
+    ipcRenderer.on(RUNNER_CHANNELS.output, wrapped);
+    return () => ipcRenderer.removeListener(RUNNER_CHANNELS.output, wrapped);
+  },
+  onComplete: (listener: (event: RunCompleteEvent) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, data: RunCompleteEvent) => listener(data);
+    ipcRenderer.on(RUNNER_CHANNELS.complete, wrapped);
+    return () => ipcRenderer.removeListener(RUNNER_CHANNELS.complete, wrapped);
+  },
+});
+
+contextBridge.exposeInMainWorld("runner", runnerBridge);

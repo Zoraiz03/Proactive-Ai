@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, dialog, session, type WebPreferences } from "electron";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerTerminalIpc } from "./terminal-ipc";
+import { registerRunIpc } from "./run-ipc";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -68,15 +69,19 @@ app.whenReady().then(() => {
   });
 
   const terminalIpc = registerTerminalIpc(() => mainWindow);
+  const runIpc = registerRunIpc(() => mainWindow);
   const cleanupWorkspaceIpc = registerWorkspaceIpc(() => mainWindow, {
     onWorkspaceOpened: (rootPath, webContentsId) => {
       terminalIpc.controller.setWorkspace(rootPath, webContentsId);
+      runIpc.controller.setWorkspace(rootPath, webContentsId);
     },
     onWorkspaceClosed: (webContentsId) => {
       terminalIpc.controller.clearWorkspace(webContentsId);
+      runIpc.controller.clearWorkspace(webContentsId);
     },
   });
   app.once("will-quit", () => {
+    runIpc.cleanup();
     terminalIpc.cleanup();
     void cleanupWorkspaceIpc();
   });

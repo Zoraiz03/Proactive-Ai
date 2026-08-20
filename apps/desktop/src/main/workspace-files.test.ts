@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -41,6 +41,8 @@ import {
   createTerminalEnvironment,
   selectTerminalShell,
 } from "./terminal-environment.ts";
+import { commandForRunFile, RunSessionController } from "./run-session.ts";
+import { parseRunDiagnostics } from "./run-diagnostics.ts";
 
 let temporaryDirectory = "";
 let workspaceRoot = "";
@@ -66,6 +68,11 @@ before(async () => {
   await mkdir(outsideDirectory);
   await writeFile(join(workspaceRoot, "README.md"), "workspace");
   await writeFile(join(workspaceRoot, "src", "index.ts"), "export {};");
+  await writeFile(join(workspaceRoot, "src", "run.js"), "console.log(process.cwd());\n");
+  await writeFile(join(workspaceRoot, "src", "module.mjs"), "export {};\n");
+  await writeFile(join(workspaceRoot, "src", "run.py"), "import os\nprint(os.getcwd())\n");
+  await writeFile(join(workspaceRoot, "src", "broken.py"), "raise RuntimeError('runner smoke error')\n");
+  await writeFile(join(workspaceRoot, "src", "slow.js"), "setInterval(() => {}, 1000);\n");
   await writeFile(join(workspaceRoot, "empty.txt"), "");
   await writeFile(join(workspaceRoot, "editable.ts"), "const value = 1;\n");
   await writeFile(join(workspaceRoot, "stale.ts"), "const stale = false;\n");
@@ -128,7 +135,12 @@ test("loads child folders independently", async () => {
     entries.map((entry) => [entry.name, entry.kind]),
     [
       ["nested", "directory"],
+      ["broken.py", "file"],
       ["index.ts", "file"],
+      ["module.mjs", "file"],
+      ["run.js", "file"],
+      ["run.py", "file"],
+      ["slow.js", "file"],
     ]
   );
 });
@@ -144,6 +156,7 @@ test("rejects paths and symlinks that resolve outside the workspace", async () =
 test("recognizes every supported text and code extension", () => {
   for (const name of [
     "file.js",
+    "file.mjs",
     "file.jsx",
     "file.ts",
     "file.tsx",
@@ -204,11 +217,154 @@ test("rejects file reads outside the workspace", async () => {
 });
 
 test("maps supported extensions to Monaco languages", () => {
+  assert.equal(monacoLanguageForFile("module.mjs"), "javascript");
   assert.equal(monacoLanguageForFile("component.tsx"), "typescript");
   assert.equal(monacoLanguageForFile("script.py"), "python");
   assert.equal(monacoLanguageForFile("README.md"), "markdown");
   assert.equal(monacoLanguageForFile("config.YAML"), "yaml");
   assert.equal(monacoLanguageForFile("unknown"), "plaintext");
+});
+
+test("maps only approved run extensions to controlled commands", () => {
+  assert.deepEqual(commandForRunFile("darwin", "/workspace/script.py"), {
+    language: "python",
+    command: "python3",
+    args: ["/workspace/script.py"],
+  });
+  assert.deepEqual(commandForRunFile("win32", "C:\\workspace\\script.py"), {
+    language: "python",
+    command: "python",
+    args: ["C:\\workspace\\script.py"],
+  });
+  assert.deepEqual(commandForRunFile("linux", "/workspace/script.mjs"), {
+    language: "javascript",
+    command: "node",
+    args: ["/workspace/script.mjs"],
+  });
+  assert.deepEqual(commandForRunFile("linux", "/workspace/script.ts"), {
+    error: "TypeScript runner not configured.",
+  });
+  assert.deepEqual(commandForRunFile("linux", "/workspace/script.cpp"), {
+    error: "This file type is not supported by Run Current File.",
+  });
+});
+
+test("parses Python and Node errors only when locations are inside the workspace", () => {
+  const pythonFile = join(workspaceRoot, "src", "broken.py");
+  const python = parseRunDiagnostics(
+    workspaceRoot,
+    "python",
+    `Traceback (most recent call last):\n  File "${pythonFile}", line 7, in <module>\nNameError: name 'missing' is not defined\n`
+  );
+  assert.deepEqual(python, [{
+    relativePath: "src/broken.py",
+    line: 7,
+    column: 1,
+    message: "NameError: name 'missing' is not defined",
+    source: "python",
+  }]);
+
+  const nodeFile = join(workspaceRoot, "src", "broken.js");
+  const node = parseRunDiagnostics(
+    workspaceRoot,
+    "javascript",
+    `ReferenceError: missing is not defined\n    at ${nodeFile}:4:9\n    at ${join(outsideDirectory, "outside.js")}:1:1\n`
+  );
+  assert.deepEqual(node, [{
+    relativePath: "src/broken.js",
+    line: 4,
+    column: 9,
+    message: "ReferenceError: missing is not defined",
+    source: "javascript",
+  }]);
+});
+
+test("runs one authorized JavaScript file from the workspace and rejects unsafe requests", async () => {
+  const output: string[] = [];
+  let resolveCompletion!: (event: { status: string; exitCode: number | null }) => void;
+  const completion = new Promise<{ status: string; exitCode: number | null }>((resolve) => {
+    resolveCompletion = resolve;
+  });
+  const controller = new RunSessionController({
+    output: (_id, event) => output.push(event.data),
+    complete: (_id, event) => resolveCompletion(event),
+  });
+  assert.equal((await controller.start(7, {
+    runId: "11111111-1111-4111-8111-111111111111",
+    relativePath: "src/run.js",
+  })).ok, false);
+  controller.setWorkspace(await realpath(workspaceRoot), 7);
+  const started = await controller.start(7, {
+    runId: "22222222-2222-4222-8222-222222222222",
+    relativePath: "src/run.js",
+  });
+  assert.equal(started.ok, true);
+  const result = await completion;
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.exitCode, 0);
+  assert.equal(output.join("").trim(), await realpath(workspaceRoot));
+
+  const rejected = new RunSessionController({ output: () => undefined, complete: () => undefined });
+  rejected.setWorkspace(await realpath(workspaceRoot), 7);
+  assert.equal((await rejected.start(8, {
+    runId: "33333333-3333-4333-8333-333333333333",
+    relativePath: "src/run.js",
+  })).ok, false);
+  assert.equal((await rejected.start(7, {
+    runId: "44444444-4444-4444-8444-444444444444",
+    relativePath: "../outside/secret.txt",
+  })).ok, false);
+});
+
+test("runs Python errors into diagnostics and stops an active process", async () => {
+  let resolvePython!: (event: { status: string; diagnostics: Array<{ relativePath: string; line: number }> }) => void;
+  const pythonCompletion = new Promise<{
+    status: string;
+    diagnostics: Array<{ relativePath: string; line: number }>;
+  }>((resolve) => { resolvePython = resolve; });
+  const controller = new RunSessionController({
+    output: () => undefined,
+    complete: (_id, event) => resolvePython(event),
+  });
+  controller.setWorkspace(await realpath(workspaceRoot), 7);
+  assert.equal((await controller.start(7, {
+    runId: "55555555-5555-4555-8555-555555555555",
+    relativePath: "src/broken.py",
+  })).ok, true);
+  const failed = await pythonCompletion;
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.diagnostics.some((item) => item.relativePath === "src/broken.py" && item.line === 1), true);
+
+  const pythonOutput: string[] = [];
+  let resolveSuccess!: (event: { status: string }) => void;
+  const successCompletion = new Promise<{ status: string }>((resolve) => { resolveSuccess = resolve; });
+  const successController = new RunSessionController({
+    output: (_id, event) => pythonOutput.push(event.data),
+    complete: (_id, event) => resolveSuccess(event),
+  });
+  successController.setWorkspace(await realpath(workspaceRoot), 7);
+  assert.equal((await successController.start(7, {
+    runId: "77777777-7777-4777-8777-777777777777",
+    relativePath: "src/run.py",
+  })).ok, true);
+  assert.equal((await successCompletion).status, "succeeded");
+  assert.equal(pythonOutput.join("").trim(), await realpath(workspaceRoot));
+
+  let resolveStopped!: (event: { status: string }) => void;
+  const stoppedCompletion = new Promise<{ status: string }>((resolve) => { resolveStopped = resolve; });
+  const stopController = new RunSessionController({
+    output: () => undefined,
+    complete: (_id, event) => resolveStopped(event),
+  });
+  stopController.setWorkspace(await realpath(workspaceRoot), 7);
+  const started = await stopController.start(7, {
+    runId: "66666666-6666-4666-8666-666666666666",
+    relativePath: "src/slow.js",
+  });
+  assert.equal(started.ok, true);
+  if (!started.ok) return;
+  assert.equal(stopController.stop(7, { runId: started.value.runId }).ok, true);
+  assert.equal((await stoppedCompletion).status, "stopped");
 });
 
 test("overwrites an existing supported file and returns its new disk version", async () => {

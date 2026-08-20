@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { RunDiagnostic, RunLanguage, RunStatus } from "../../shared/runner";
 
 export interface IdeOutputMessage {
   id: number;
@@ -10,10 +11,25 @@ export interface IdeOutputMessage {
   message: string;
 }
 
+export interface RunOutputState {
+  runId: string;
+  relativePath: string;
+  language: RunLanguage;
+  status: RunStatus;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  durationMs: number | null;
+  diagnostics: RunDiagnostic[];
+}
+
 interface BottomPanelProps {
   workspaceOpen: boolean;
   workspaceVersion: number;
   messages: IdeOutputMessage[];
+  run: RunOutputState | null;
+  outputFocusToken: number;
+  onDiagnosticClick: (diagnostic: RunDiagnostic) => void;
   onStatus: (message: string, kind?: IdeOutputMessage["kind"]) => void;
 }
 
@@ -28,6 +44,9 @@ export default function BottomPanel({
   workspaceOpen,
   workspaceVersion,
   messages,
+  run,
+  outputFocusToken,
+  onDiagnosticClick,
   onStatus,
 }: BottomPanelProps) {
   const [activeView, setActiveView] = useState<"terminal" | "output">("terminal");
@@ -151,6 +170,10 @@ export default function BottomPanel({
     return () => cancelAnimationFrame(frame);
   }, [activeView, fitAndResize]);
 
+  useEffect(() => {
+    if (outputFocusToken > 0) setActiveView("output");
+  }, [outputFocusToken]);
+
   const createTerminal = async () => {
     if (!workspaceOpen || sessionIdRef.current || creatingRef.current) return;
     setActiveView("terminal");
@@ -242,17 +265,54 @@ export default function BottomPanel({
       </div>
 
       <div className={`bottom-view output-view ${activeView === "output" ? "active" : ""}`}>
-        {messages.length === 0 ? (
+        {!run && messages.length === 0 ? (
           <div className="output-empty">IDE status messages will appear here.</div>
         ) : (
-          <ol className="output-messages" aria-label="IDE output messages">
-            {messages.map((message) => (
-              <li key={message.id} className={message.kind}>
-                <time>{message.timestamp}</time>
-                <span>{message.message}</span>
-              </li>
-            ))}
-          </ol>
+          <div className="output-scroll">
+            {run && (
+              <section className="run-result" aria-label="Current file run output">
+                <header>
+                  <strong>{run.relativePath}</strong>
+                  <span className={`run-status ${run.status}`}>{run.status}</span>
+                  {run.durationMs !== null && <span>{run.durationMs} ms</span>}
+                  {run.exitCode !== null && <span>exit {run.exitCode}</span>}
+                </header>
+                {(run.stdout || run.stderr) ? (
+                  <pre className="run-stream" aria-label="Program output">
+                    {run.stdout && <span className="stdout">{run.stdout}</span>}
+                    {run.stderr && <span className="stderr">{run.stderr}</span>}
+                  </pre>
+                ) : (
+                  <p className="run-waiting">{run.status === "running" ? "Waiting for output…" : "The process produced no output."}</p>
+                )}
+                {run.diagnostics.length > 0 && (
+                  <div className="run-diagnostics">
+                    <h3>Diagnostics</h3>
+                    {run.diagnostics.map((diagnostic, index) => (
+                      <button
+                        type="button"
+                        key={`${diagnostic.relativePath}:${diagnostic.line}:${diagnostic.column}:${index}`}
+                        onClick={() => onDiagnosticClick(diagnostic)}
+                      >
+                        <span>{diagnostic.relativePath}:{diagnostic.line}:{diagnostic.column}</span>
+                        <small>{diagnostic.message}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+            {messages.length > 0 && (
+              <ol className="output-messages" aria-label="IDE output messages">
+                {messages.map((message) => (
+                  <li key={message.id} className={message.kind}>
+                    <time>{message.timestamp}</time>
+                    <span>{message.message}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
         )}
       </div>
     </div>

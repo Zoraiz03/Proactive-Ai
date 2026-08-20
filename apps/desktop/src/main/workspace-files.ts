@@ -38,6 +38,7 @@ const MAX_RELATIVE_PATH_LENGTH = 4_096;
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const SUPPORTED_TEXT_EXTENSIONS = new Set([
   ".js",
+  ".mjs",
   ".jsx",
   ".ts",
   ".tsx",
