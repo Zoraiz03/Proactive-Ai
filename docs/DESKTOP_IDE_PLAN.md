@@ -21,7 +21,7 @@ implementation and its verification evidence in the changelog.
 | Phase 1 | Complete | Secure Electron application shell |
 | Phase 2 | Complete | Local projects, file explorer, Monaco editing, and saving |
 | Phase 3 | In Progress | Complete file explorer and editor workflow |
-| Phase 4 | Not Started | Terminal, task output, and diagnostics |
+| Phase 4 | In Progress | Terminal, task output, and diagnostics |
 | Phase 5 | Not Started | Authenticated Observer AI integration |
 | Phase 6 | Not Started | Documentation editing and preview |
 | Phase 7 | Not Started | Packaging, signing, updates, and release checks |
@@ -272,6 +272,27 @@ Required verification:
 
 **Goal:** Run project commands intentionally and surface their output and errors.
 
+### Phase 4A — One controlled workspace terminal and Output panel
+
+- [ ] **In Progress** — Add Terminal and Output tabs to the bottom panel.
+- [ ] **In Progress** — Create one terminal only after the user selects New Terminal.
+- [ ] **In Progress** — Render the interactive session with xterm.js and fit it on resize.
+- [ ] **In Progress** — Spawn and own the pseudoterminal only in Electron's main process.
+- [ ] **In Progress** — Start the user's platform shell in the authorized workspace root.
+- [ ] **In Progress** — Add minimal typed create/input/output/resize/close IPC contracts.
+- [ ] **In Progress** — Stop the terminal on explicit close, workspace replacement,
+  renderer destruction, and application exit.
+- [ ] **In Progress** — Add a separate Output view for bounded IDE status messages.
+
+Phase 4A required verification:
+
+- [ ] **In Progress** — Terminal creation, input, streamed output, resize, and close work.
+- [ ] **In Progress** — No process starts before explicit user action or without a workspace.
+- [ ] **In Progress** — Workspace switching and application exit clean up the child process.
+- [ ] **In Progress** — Focused terminal lifecycle tests pass.
+- [ ] **In Progress** — Desktop TypeScript/build and secure launch checks pass.
+- [ ] **In Progress** — Existing web lint, tests, and production build pass.
+
 - [ ] **Not Started** — Add an output panel separate from interactive terminals.
 - [ ] **Not Started** — Add `xterm.js` terminal rendering.
 - [ ] **Not Started** — Add a controlled `node-pty` integration in the main process.
@@ -470,6 +491,15 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 4A started
+
+- Marked the one-terminal and tabbed Output-panel slice **In Progress** before
+  implementation.
+- Selected xterm.js for renderer-only terminal emulation and `node-pty` for the
+  main-process pseudoterminal, subject to native Electron rebuild verification.
+- Explicitly deferred Run Current File, diagnostics parsing, debugging, Git, AI,
+  Supabase, authentication, documentation, and proactive features.
 
 ### 2026-08-20 — Phase 3B complete
 
