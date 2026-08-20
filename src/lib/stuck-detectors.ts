@@ -161,6 +161,10 @@ interface CursorObservation {
 
 export class CursorThrashingDetector {
   private movements: CursorObservation[] = [];
+  private bandStartedAt: number | null = null;
+  private bandStartLine: number | null = null;
+  private bandMinLine: number | null = null;
+  private bandMaxLine: number | null = null;
 
   constructor(
     private readonly config: StuckDetectionConfig["cursorThrashing"]
@@ -170,23 +174,32 @@ export class CursorThrashingDetector {
     const previous = this.movements.at(-1);
     if (previous?.line === line) return null;
 
+    if (this.bandStartedAt === null || this.bandStartLine === null) {
+      this.startBand(line, timestamp);
+    } else {
+      const nextMin = Math.min(this.bandMinLine ?? line, line);
+      const nextMax = Math.max(this.bandMaxLine ?? line, line);
+      if (
+        nextMax - nextMin > this.config.lineBand ||
+        line - this.bandStartLine >= this.config.meaningfulForwardProgress
+      ) {
+        this.movements = [];
+        this.startBand(line, timestamp);
+      } else {
+        this.bandMinLine = nextMin;
+        this.bandMaxLine = nextMax;
+      }
+    }
+
     this.movements.push({ line, timestamp });
     this.movements = this.movements.slice(-this.config.movementCount);
     if (this.movements.length < this.config.movementCount) return null;
 
-    const first = this.movements[0];
-    const duration = timestamp - first.timestamp;
+    const duration = timestamp - this.bandStartedAt!;
     const lines = this.movements.map((movement) => movement.line);
     const minLine = Math.min(...lines);
     const maxLine = Math.max(...lines);
-    const forwardProgress = line - first.line;
-    if (
-      duration < this.config.durationMs ||
-      maxLine - minLine > this.config.lineBand ||
-      forwardProgress >= this.config.meaningfulForwardProgress
-    ) {
-      return null;
-    }
+    if (duration < this.config.durationMs) return null;
 
     return {
       type: "cursor_thrashing",
@@ -196,6 +209,13 @@ export class CursorThrashingDetector {
       region: { startLine: minLine, endLine: maxLine },
       score: this.config.score,
     };
+  }
+
+  private startBand(line: number, timestamp: number) {
+    this.bandStartedAt = timestamp;
+    this.bandStartLine = line;
+    this.bandMinLine = line;
+    this.bandMaxLine = line;
   }
 }
 

@@ -58,6 +58,16 @@ function testCursorThrashing() {
   assert.deepEqual(signal?.region, { startLine: 20, endLine: 21 });
 }
 
+function testFastCursorThrashingStillUsesBandDuration() {
+  const detector = new CursorThrashingDetector(config.cursorThrashing);
+  let signal = null;
+  for (let index = 0; index <= 25; index += 1) {
+    signal = detector.observe(30 + (index % 2), index * 1_000);
+  }
+  assert.equal(signal?.type, "cursor_thrashing");
+  assert.equal(signal?.windowMs, 25_000);
+}
+
 function testWeakSignalDoesNotTrigger() {
   const engine = new StuckDetectorEngine(config);
   for (let repetition = 0; repetition < 3; repetition += 1) {
@@ -81,5 +91,6 @@ function testWeakSignalDoesNotTrigger() {
 testRepeatedEdits();
 testErrorsMustRemainUnresolved();
 testCursorThrashing();
+testFastCursorThrashingStillUsesBandDuration();
 testWeakSignalDoesNotTrigger();
 console.log("stuck detector harness: all assertions passed");
