@@ -77,7 +77,7 @@ input {
   min-width: 0;
   min-height: 0;
   grid-template-columns: minmax(180px, 230px) minmax(320px, 1fr) minmax(230px, 290px);
-  grid-template-rows: minmax(260px, 1fr) minmax(120px, 170px);
+  grid-template-rows: minmax(260px, 1fr) minmax(160px, 220px);
   grid-template-areas:
     "explorer editor observer"
     "explorer output observer";
@@ -631,6 +631,7 @@ button.tree-row {
 
 .output-panel {
   grid-area: output;
+  overflow: hidden;
   border-top: 1px solid #2b313b;
   background: #13181f;
 }
@@ -704,16 +705,185 @@ button.tree-row {
   cursor: not-allowed;
 }
 
-.output-line {
-  padding: 12px 15px;
+.bottom-workspace {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: 34px minmax(0, 1fr);
+  background: #0e1218;
+}
+
+.bottom-tabs {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid #2b313b;
+  background: #181d25;
+}
+
+.bottom-tabs > button {
+  position: relative;
+  min-width: 78px;
+  padding: 0 13px;
+  border: 0;
+  background: transparent;
+  color: #7f8a9b;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.bottom-tabs > button:hover,
+.bottom-tabs > button.active {
+  color: #d8dee9;
+  background: #202630;
+}
+
+.bottom-tabs > button.active::after {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  background: #9b7de3;
+  content: "";
+}
+
+.bottom-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-right: 8px;
+}
+
+.bottom-actions button {
+  padding: 4px 9px;
+  border: 1px solid #424b59;
+  border-radius: 4px;
+  background: #252c35;
+  color: #c8ced7;
+  font-size: 9px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.bottom-actions button.primary {
+  border-color: #6f58ab;
+  background: #5f49b2;
+  color: white;
+}
+
+.bottom-actions button:disabled {
+  border-color: #343c49;
+  background: #202630;
+  color: #596272;
+  cursor: default;
+}
+
+.bottom-view {
+  display: none;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bottom-view.active {
+  display: block;
+}
+
+.terminal-view {
+  position: relative;
+  background: #0e1218;
+}
+
+.terminal-host {
+  width: 100%;
+  height: 100%;
+  padding: 7px 8px 3px;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}
+
+.terminal-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
   color: #697587;
+  pointer-events: none;
+}
+
+.terminal-empty span {
+  color: #9b7de3;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 15px;
+}
+
+.terminal-empty p {
+  margin: 0;
   font-size: 11px;
 }
 
-.output-line span {
-  margin-right: 8px;
-  color: #9b7de3;
+.terminal-error {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  max-width: min(440px, calc(100% - 20px));
+  padding: 6px 9px;
+  border: 1px solid rgb(224 108 117 / 40%);
+  border-radius: 5px;
+  background: #352128;
+  color: #edabb1;
+  font-size: 10px;
+}
+
+.output-view {
+  overflow: auto;
+  background: #11161c;
+}
+
+.output-empty {
+  padding: 14px;
+  color: #697587;
+  font-size: 11px;
+}
+
+.output-messages {
+  margin: 0;
+  padding: 7px 0 12px;
+  list-style: none;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+}
+
+.output-messages li {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 9px;
+  padding: 3px 12px;
+  color: #aeb6c3;
+  line-height: 1.45;
+}
+
+.output-messages li:hover {
+  background: #1b212a;
+}
+
+.output-messages time {
+  color: #596474;
+}
+
+.output-messages li.success span {
+  color: #7dcda6;
+}
+
+.output-messages li.error span {
+  color: #e58b92;
 }
 
 .status-bar {
@@ -845,7 +1015,7 @@ button.tree-row {
 @media (max-width: 900px) {
   .ide-layout {
     grid-template-columns: minmax(160px, 200px) minmax(300px, 1fr);
-    grid-template-rows: minmax(220px, 1fr) 130px 180px;
+    grid-template-rows: minmax(220px, 1fr) 180px 180px;
     grid-template-areas:
       "explorer editor"
       "explorer output"

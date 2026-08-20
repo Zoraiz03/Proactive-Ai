@@ -17,6 +17,7 @@ import type {
   WorkspaceTextFile,
 } from "../../shared/workspace";
 import Explorer from "./Explorer";
+import BottomPanel, { type IdeOutputMessage } from "./BottomPanel";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -226,9 +227,26 @@ export default function App() {
   const [surface, setSurface] = useState<EditorSurface>({ status: "idle" });
   const [externalChanges, setExternalChanges] = useState<WorkspaceChangeBatch | null>(null);
   const [unsavedPrompt, setUnsavedPrompt] = useState<UnsavedPrompt | null>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceVersion, setWorkspaceVersion] = useState(0);
+  const [outputMessages, setOutputMessages] = useState<IdeOutputMessage[]>([]);
   const tabsRef = useRef(tabs);
   const requestSequence = useRef(0);
   const externalReadSequence = useRef(new Map<string, number>());
+  const outputSequence = useRef(0);
+
+  const appendOutput = useCallback(
+    (message: string, kind: IdeOutputMessage["kind"] = "info") => {
+      const item: IdeOutputMessage = {
+        id: ++outputSequence.current,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        kind,
+        message,
+      };
+      setOutputMessages((current) => [...current.slice(-199), item]);
+    },
+    []
+  );
 
   useEffect(() => {
     tabsRef.current = tabs;
@@ -272,6 +290,7 @@ export default function App() {
     });
 
     if (!result.ok) {
+      appendOutput(`Save failed for ${tab.file.relativePath}: ${result.error}`, "error");
       setTabs((current) =>
         current.map((candidate) =>
           candidate.file.relativePath === relativePath
@@ -306,8 +325,9 @@ export default function App() {
         };
       })
     );
+    appendOutput(`Saved ${tab.file.relativePath}.`, "success");
     return true;
-  }, []);
+  }, [appendOutput]);
 
   const askAboutUnsavedChanges = useCallback(
     (details: Omit<UnsavedPrompt, "resolve">): Promise<UnsavedChoice> => {
@@ -406,7 +426,10 @@ export default function App() {
     setSurface({ status: "idle" });
     setExternalChanges(null);
     externalReadSequence.current.clear();
-  }, []);
+    setWorkspaceOpen(true);
+    setWorkspaceVersion((current) => current + 1);
+    appendOutput("Workspace opened. Previous terminal sessions were closed.");
+  }, [appendOutput]);
 
   const renameOpenEntries = useCallback((oldRelativePath: string, entry: WorkspaceEntry) => {
     setTabs((current) =>
@@ -483,6 +506,9 @@ export default function App() {
 
   useEffect(() => window.workspace.onDidChange((batch) => {
     setExternalChanges(batch);
+    appendOutput(
+      `Workspace updated externally (${batch.changes.length} change${batch.changes.length === 1 ? "" : "s"}).`
+    );
 
     for (const snapshot of tabsRef.current) {
       const deleted = batchDeletesPath(batch, snapshot.file.relativePath);
@@ -555,7 +581,7 @@ export default function App() {
         );
       });
     }
-  }), []);
+  }), [appendOutput]);
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -600,7 +626,7 @@ export default function App() {
       <header className="top-bar">
         <div className="brand-mark" aria-hidden="true">P</div>
         <h1>Proactive AI IDE</h1>
-        <span className="phase-label">Disk sync</span>
+        <span className="phase-label">Workspace terminal</span>
       </header>
 
       <div className="ide-layout">
@@ -615,6 +641,7 @@ export default function App() {
             onEntryDeleted={deleteOpenEntries}
             getDeleteImpact={getDeleteImpact}
             externalChanges={externalChanges}
+            onStatus={appendOutput}
           />
         </aside>
 
@@ -646,15 +673,17 @@ export default function App() {
         </aside>
 
         <section className="panel output-panel">
-          <PanelTitle>Output</PanelTitle>
-          <div className="output-line">
-            <span aria-hidden="true">›</span> Output and diagnostics will appear here.
-          </div>
+          <BottomPanel
+            workspaceOpen={workspaceOpen}
+            workspaceVersion={workspaceVersion}
+            messages={outputMessages}
+            onStatus={appendOutput}
+          />
         </section>
       </div>
 
       <footer className="status-bar">
-        <span>Phase 3B</span>
+        <span>Phase 4A</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 

@@ -163,6 +163,7 @@ interface ExplorerProps {
   onEntryDeleted: (relativePath: string, kind: WorkspaceEntry["kind"]) => void;
   getDeleteImpact: (entry: WorkspaceEntry) => DeleteImpact;
   externalChanges: WorkspaceChangeBatch | null;
+  onStatus: (message: string, kind?: "info" | "success" | "error") => void;
 }
 
 function parentPath(relativePath: string): string {
@@ -178,6 +179,7 @@ export default function Explorer({
   onEntryDeleted,
   getDeleteImpact,
   externalChanges,
+  onStatus,
 }: ExplorerProps) {
   const [workspace, setWorkspace] = useState<OpenWorkspace | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -319,6 +321,7 @@ export default function Explorer({
       }
       if (!(await refreshWorkspace(result.value))) return;
       setDialog(null);
+      onStatus(`Created ${result.value.relativePath}.`, "success");
       if (result.value.kind === "file") onSelectFile(result.value);
       return;
     }
@@ -337,6 +340,7 @@ export default function Explorer({
       onEntryRenamed(oldRelativePath, result.value);
       if (!(await refreshWorkspace(result.value))) return;
       setDialog(null);
+      onStatus(`Renamed ${oldRelativePath} to ${result.value.relativePath}.`, "success");
       return;
     }
 
@@ -350,6 +354,7 @@ export default function Explorer({
     onEntryDeleted(dialog.entry.relativePath, dialog.entry.kind);
     if (!(await refreshWorkspace(null))) return;
     setDialog(null);
+    onStatus(`Deleted ${dialog.entry.relativePath}.`, "success");
   };
 
   const closeDialog = () => {
