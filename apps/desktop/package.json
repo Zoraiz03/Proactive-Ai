@@ -1,0 +1,27 @@
+{
+  "name": "@proactive-ai/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Secure Electron shell for Proactive AI IDE",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "electron-vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.4.1",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
+  }
+}
