@@ -7,6 +7,16 @@ import {
   type WorkspaceChangeBatch,
   type WorkspaceBridge,
 } from "../shared/workspace";
+import {
+  TERMINAL_CHANNELS,
+  type TerminalBridge,
+  type TerminalCloseRequest,
+  type TerminalCreateRequest,
+  type TerminalDataEvent,
+  type TerminalExitEvent,
+  type TerminalInputRequest,
+  type TerminalResizeRequest,
+} from "../shared/terminal";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -32,3 +42,26 @@ const workspaceBridge: WorkspaceBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("workspace", workspaceBridge);
+
+const terminalBridge: TerminalBridge = Object.freeze({
+  create: (request: TerminalCreateRequest) =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.create, request),
+  sendInput: (request: TerminalInputRequest) =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.input, request),
+  resize: (request: TerminalResizeRequest) =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.resize, request),
+  close: (request: TerminalCloseRequest) =>
+    ipcRenderer.invoke(TERMINAL_CHANNELS.close, request),
+  onData: (listener: (event: TerminalDataEvent) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, data: TerminalDataEvent) => listener(data);
+    ipcRenderer.on(TERMINAL_CHANNELS.data, wrapped);
+    return () => ipcRenderer.removeListener(TERMINAL_CHANNELS.data, wrapped);
+  },
+  onExit: (listener: (event: TerminalExitEvent) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, data: TerminalExitEvent) => listener(data);
+    ipcRenderer.on(TERMINAL_CHANNELS.exit, wrapped);
+    return () => ipcRenderer.removeListener(TERMINAL_CHANNELS.exit, wrapped);
+  },
+});
+
+contextBridge.exposeInMainWorld("terminal", terminalBridge);

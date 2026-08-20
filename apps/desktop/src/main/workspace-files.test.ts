@@ -32,6 +32,15 @@ import {
   shouldIgnoreWorkspaceWatchPath,
   WorkspaceWatcher,
 } from "./workspace-watcher.ts";
+import {
+  TerminalSessionController,
+  type PseudoTerminal,
+  type SpawnTerminalOptions,
+} from "./terminal-session.ts";
+import {
+  createTerminalEnvironment,
+  selectTerminalShell,
+} from "./terminal-environment.ts";
 
 let temporaryDirectory = "";
 let workspaceRoot = "";
@@ -519,4 +528,128 @@ test("matches exact file changes and parent-directory deletion events", () => {
   assert.equal(batchChangesFile(batch, "src/other.ts"), false);
   assert.equal(batchDeletesPath(batch, "removed/nested/file.ts"), true);
   assert.equal(batchDeletesPath(batch, "removed-name/file.ts"), false);
+});
+
+class FakePseudoTerminal implements PseudoTerminal {
+  writes: string[] = [];
+  resizes: Array<[number, number]> = [];
+  killed = false;
+  private dataListeners = new Set<(data: string) => void>();
+  private exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>();
+
+  write(data: string): void {
+    this.writes.push(data);
+  }
+
+  resize(cols: number, rows: number): void {
+    this.resizes.push([cols, rows]);
+  }
+
+  kill(): void {
+    this.killed = true;
+  }
+
+  onData(listener: (data: string) => void): { dispose: () => void } {
+    this.dataListeners.add(listener);
+    return { dispose: () => this.dataListeners.delete(listener) };
+  }
+
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): { dispose: () => void } {
+    this.exitListeners.add(listener);
+    return { dispose: () => this.exitListeners.delete(listener) };
+  }
+
+  emitData(data: string): void {
+    this.dataListeners.forEach((listener) => listener(data));
+  }
+
+  emitExit(exitCode: number): void {
+    this.exitListeners.forEach((listener) => listener({ exitCode }));
+  }
+}
+
+test("starts one authorized terminal and validates input and resize operations", () => {
+  const processes: FakePseudoTerminal[] = [];
+  const spawnOptions: SpawnTerminalOptions[] = [];
+  const dataEvents: string[] = [];
+  const exitReasons: string[] = [];
+  const controller = new TerminalSessionController(
+    (options) => {
+      spawnOptions.push(options);
+      const process = new FakePseudoTerminal();
+      processes.push(process);
+      return process;
+    },
+    {
+      data: (_webContentsId, event) => dataEvents.push(event.data),
+      exit: (_webContentsId, event) => exitReasons.push(event.reason),
+    }
+  );
+
+  assert.equal(controller.create(7, { cols: 80, rows: 24 }).ok, false);
+  controller.setWorkspace(workspaceRoot, 7);
+  const created = controller.create(7, { cols: 80, rows: 24 });
+  assert.equal(created.ok, true);
+  assert.deepEqual(spawnOptions, [{ cwd: workspaceRoot, cols: 80, rows: 24 }]);
+  assert.equal(controller.create(7, { cols: 80, rows: 24 }).ok, false);
+  if (!created.ok) return;
+
+  assert.equal(controller.input(8, { sessionId: created.value.sessionId, data: "pwd\r" }).ok, false);
+  assert.equal(controller.input(7, { sessionId: created.value.sessionId, data: "pwd\r" }).ok, true);
+  assert.deepEqual(processes[0].writes, ["pwd\r"]);
+  assert.equal(
+    controller.resize(7, { sessionId: created.value.sessionId, cols: 120, rows: 35 }).ok,
+    true
+  );
+  assert.deepEqual(processes[0].resizes, [[120, 35]]);
+  processes[0].emitData("workspace output");
+  assert.deepEqual(dataEvents, ["workspace output"]);
+
+  assert.equal(controller.close(7, { sessionId: created.value.sessionId }).ok, true);
+  assert.equal(processes[0].killed, true);
+  assert.deepEqual(exitReasons, ["closed"]);
+});
+
+test("kills an active terminal on workspace replacement and renderer cleanup", () => {
+  const processes: FakePseudoTerminal[] = [];
+  const reasons: string[] = [];
+  const controller = new TerminalSessionController(
+    () => {
+      const process = new FakePseudoTerminal();
+      processes.push(process);
+      return process;
+    },
+    {
+      data: () => undefined,
+      exit: (_webContentsId, event) => reasons.push(event.reason),
+    }
+  );
+
+  controller.setWorkspace(workspaceRoot, 11);
+  assert.equal(controller.create(11, { cols: 80, rows: 24 }).ok, true);
+  controller.setWorkspace(outsideDirectory, 11);
+  assert.equal(processes[0].killed, true);
+  assert.deepEqual(reasons, ["workspace_changed"]);
+
+  assert.equal(controller.create(11, { cols: 80, rows: 24 }).ok, true);
+  controller.rendererClosed(11);
+  assert.equal(processes[1].killed, true);
+  assert.deepEqual(reasons, ["workspace_changed"]);
+});
+
+test("filters inherited secrets and selects a platform shell deterministically", () => {
+  const environment = createTerminalEnvironment({
+    PATH: "/usr/bin",
+    HOME: "/tmp/home",
+    SHELL: "/bin/fish",
+    OPENAI_API_KEY: "must-not-leak",
+    SUPABASE_SERVICE_ROLE_KEY: "must-not-leak",
+  });
+  assert.equal(environment.PATH, "/usr/bin");
+  assert.equal(environment.TERM, "xterm-256color");
+  assert.equal("OPENAI_API_KEY" in environment, false);
+  assert.equal("SUPABASE_SERVICE_ROLE_KEY" in environment, false);
+  assert.equal(selectTerminalShell("darwin", { SHELL: "/bin/fish" }), "/bin/fish");
+  assert.equal(selectTerminalShell("linux", {}), "/bin/bash");
+  assert.equal(selectTerminalShell("win32", { COMSPEC: "cmd.exe" }), "cmd.exe");
 });

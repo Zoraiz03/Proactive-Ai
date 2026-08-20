@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, session, type WebPreferences } from "electron";
 import { registerWorkspaceIpc } from "./workspace-ipc";
+import { registerTerminalIpc } from "./terminal-ipc";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -66,8 +67,17 @@ app.whenReady().then(() => {
     callback(false);
   });
 
-  const cleanupWorkspaceIpc = registerWorkspaceIpc(() => mainWindow);
+  const terminalIpc = registerTerminalIpc(() => mainWindow);
+  const cleanupWorkspaceIpc = registerWorkspaceIpc(() => mainWindow, {
+    onWorkspaceOpened: (rootPath, webContentsId) => {
+      terminalIpc.controller.setWorkspace(rootPath, webContentsId);
+    },
+    onWorkspaceClosed: (webContentsId) => {
+      terminalIpc.controller.clearWorkspace(webContentsId);
+    },
+  });
   app.once("will-quit", () => {
+    terminalIpc.cleanup();
     void cleanupWorkspaceIpc();
   });
   createMainWindow();

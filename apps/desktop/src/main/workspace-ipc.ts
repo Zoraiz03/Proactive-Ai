@@ -107,7 +107,11 @@ function authorizedRoot(event: IpcMainInvokeEvent): string | null {
 }
 
 export function registerWorkspaceIpc(
-  getMainWindow: () => BrowserWindow | null
+  getMainWindow: () => BrowserWindow | null,
+  lifecycle: {
+    onWorkspaceOpened: (rootPath: string, webContentsId: number) => void;
+    onWorkspaceClosed: (webContentsId?: number) => void;
+  }
 ): () => Promise<void> {
   let cleanupBoundWebContentsId: number | null = null;
   const watcher = new WorkspaceWatcher((batch) => {
@@ -144,6 +148,7 @@ export function registerWorkspaceIpc(
           rootPath: selected.rootPath,
           webContentsId: event.sender.id,
         };
+        lifecycle.onWorkspaceOpened(selected.rootPath, event.sender.id);
         void watcher.start(selected.rootPath).catch((error: unknown) => {
           console.error(
             "[desktop] workspace watcher failed:",
@@ -157,6 +162,7 @@ export function registerWorkspaceIpc(
             if (workspaceAuthorization?.webContentsId === webContentsId) {
               workspaceAuthorization = null;
               void watcher.stop();
+              lifecycle.onWorkspaceClosed(webContentsId);
             }
             if (cleanupBoundWebContentsId === webContentsId) {
               cleanupBoundWebContentsId = null;
@@ -339,6 +345,7 @@ export function registerWorkspaceIpc(
   return async () => {
     workspaceAuthorization = null;
     cleanupBoundWebContentsId = null;
+    lifecycle.onWorkspaceClosed();
     await watcher.stop();
     ipcMain.removeHandler(WORKSPACE_CHANNELS.openFolder);
     ipcMain.removeHandler(WORKSPACE_CHANNELS.readDirectory);
