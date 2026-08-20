@@ -237,6 +237,15 @@ button.tree-row {
   background: #202630;
 }
 
+.file-row.active {
+  background: #2b2440;
+  color: #eee9ff;
+}
+
+.file-row.active .tree-icon {
+  color: #bda8f4;
+}
+
 .tree-chevron {
   width: 9px;
   flex: 0 0 9px;
@@ -287,6 +296,120 @@ button.tree-row {
 .editor-panel {
   grid-area: editor;
   background: #11151b;
+}
+
+.file-viewer {
+  display: flex;
+  height: calc(100% - 35px);
+  min-height: 0;
+  flex-direction: column;
+}
+
+.file-viewer-bar {
+  display: flex;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-top: 1px solid #252c35;
+  border-bottom: 1px solid #2b313b;
+  background: #181d25;
+  color: #c4cad4;
+  font-size: 11px;
+}
+
+.file-viewer-bar > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.read-only-badge {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid #373f4c;
+  border-radius: 999px;
+  color: #7f8a9b;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.code-viewer {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  padding: 18px 20px 40px;
+  color: #d8dee9;
+  background: #11151b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.code-viewer:focus-visible {
+  outline: 1px solid #6e56cf;
+  outline-offset: -1px;
+}
+
+.editor-state {
+  display: flex;
+  height: calc(100% - 35px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 24px;
+  color: #778294;
+  text-align: center;
+}
+
+.file-viewer .editor-state {
+  height: 100%;
+}
+
+.editor-state-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 4px;
+  place-items: center;
+  border: 1px solid #343c49;
+  border-radius: 9px;
+  color: #8490a3;
+  font-size: 17px;
+}
+
+.editor-state strong {
+  color: #aeb6c3;
+  font-size: 12px;
+}
+
+.editor-state p {
+  max-width: 310px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.editor-state-name {
+  max-width: 310px;
+  overflow: hidden;
+  color: #8e98a8;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-error .editor-state-icon,
+.editor-error strong {
+  color: #e58b92;
 }
 
 .observer-panel {

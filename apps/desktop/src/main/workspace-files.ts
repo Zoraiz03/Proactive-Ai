@@ -1,19 +1,57 @@
-import { readdir, realpath, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import {
   basename,
+  extname,
   isAbsolute,
   relative,
   resolve,
   sep,
   win32,
 } from "node:path";
-import type { WorkspaceEntry } from "../shared/workspace";
+import { TextDecoder } from "node:util";
+import type {
+  FileReadErrorCode,
+  WorkspaceEntry,
+  WorkspaceTextFile,
+} from "../shared/workspace";
 
 const IGNORED_NAMES = new Set(["node_modules", ".git", "dist", "build", ".next"]);
 const MAX_DIRECTORY_ENTRIES = 5_000;
 const MAX_RELATIVE_PATH_LENGTH = 4_096;
+const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
+const SUPPORTED_TEXT_EXTENSIONS = new Set([
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".py",
+  ".java",
+  ".c",
+  ".cpp",
+  ".h",
+  ".html",
+  ".css",
+  ".json",
+  ".md",
+  ".txt",
+  ".yml",
+  ".yaml",
+]);
 
 export class WorkspaceAccessError extends Error {}
+
+export class WorkspaceFileError extends WorkspaceAccessError {
+  readonly code: FileReadErrorCode;
+
+  constructor(message: string, code: FileReadErrorCode) {
+    super(message);
+    this.code = code;
+  }
+}
+
+export function isSupportedWorkspaceTextFile(fileName: string): boolean {
+  return SUPPORTED_TEXT_EXTENSIONS.has(extname(fileName).toLowerCase());
+}
 
 export function normalizeWorkspaceRelativePath(input: unknown): {
   relativePath: string;
@@ -144,4 +182,60 @@ export async function prepareWorkspaceRoot(selectedPath: string): Promise<{
     throw new WorkspaceAccessError("The selected item is not a folder.");
   }
   return { name: basename(selectedPath) || basename(rootPath) || rootPath, rootPath };
+}
+
+export async function readWorkspaceTextFile(
+  rootPath: string,
+  relativePath: unknown
+): Promise<WorkspaceTextFile> {
+  const normalized = normalizeWorkspaceRelativePath(relativePath);
+  const fileName = normalized.segments.at(-1) ?? "";
+  if (!isSupportedWorkspaceTextFile(fileName)) {
+    throw new WorkspaceFileError(
+      "This file type is not supported by the read-only viewer.",
+      "unsupported"
+    );
+  }
+
+  const target = await resolveWorkspacePath(rootPath, normalized.relativePath);
+  const fileStats = await stat(target.realPath);
+  if (!fileStats.isFile()) {
+    throw new WorkspaceFileError("Only text files can be opened.", "not_file");
+  }
+  if (fileStats.size > MAX_TEXT_FILE_BYTES) {
+    throw new WorkspaceFileError(
+      "This file is too large to open. The current limit is 2 MiB.",
+      "too_large"
+    );
+  }
+
+  const contents = await readFile(target.realPath);
+  if (contents.byteLength > MAX_TEXT_FILE_BYTES) {
+    throw new WorkspaceFileError(
+      "This file is too large to open. The current limit is 2 MiB.",
+      "too_large"
+    );
+  }
+  if (contents.includes(0)) {
+    throw new WorkspaceFileError(
+      "This appears to be a binary file and cannot be displayed.",
+      "binary"
+    );
+  }
+
+  let content: string;
+  try {
+    content = new TextDecoder("utf-8", { fatal: true }).decode(contents);
+  } catch {
+    throw new WorkspaceFileError(
+      "This file is not valid UTF-8 text and cannot be displayed.",
+      "binary"
+    );
+  }
+
+  return {
+    name: fileName,
+    relativePath: target.relativePath,
+    content,
+  };
 }

@@ -4,9 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import {
+  isSupportedWorkspaceTextFile,
   normalizeWorkspaceRelativePath,
   readWorkspaceDirectory,
+  readWorkspaceTextFile,
   resolveWorkspacePath,
+  WorkspaceFileError,
 } from "./workspace-files.ts";
 
 let temporaryDirectory = "";
@@ -19,6 +22,7 @@ before(async () => {
   outsideDirectory = join(temporaryDirectory, "outside");
 
   await mkdir(join(workspaceRoot, "src", "nested"), { recursive: true });
+  await mkdir(join(workspaceRoot, "folder.txt"));
   await mkdir(join(workspaceRoot, "node_modules"));
   await mkdir(join(workspaceRoot, ".git"));
   await mkdir(join(workspaceRoot, "dist"));
@@ -27,6 +31,14 @@ before(async () => {
   await mkdir(outsideDirectory);
   await writeFile(join(workspaceRoot, "README.md"), "workspace");
   await writeFile(join(workspaceRoot, "src", "index.ts"), "export {};");
+  await writeFile(join(workspaceRoot, "empty.txt"), "");
+  await writeFile(join(workspaceRoot, "unsupported.png"), "not an image");
+  await writeFile(join(workspaceRoot, "binary.txt"), Buffer.from([0x41, 0x00, 0x42]));
+  await writeFile(join(workspaceRoot, "invalid.txt"), Buffer.from([0xc3, 0x28]));
+  await writeFile(
+    join(workspaceRoot, "large.txt"),
+    Buffer.alloc(2 * 1024 * 1024 + 1, 0x61)
+  );
   await writeFile(join(outsideDirectory, "secret.txt"), "outside");
 
   const directorySymlinkType = process.platform === "win32" ? "junction" : "dir";
@@ -53,7 +65,9 @@ test("lists only immediate entries and ignores generated directories", async () 
   const entries = await readWorkspaceDirectory(workspaceRoot, "");
   const names = entries.map((entry) => entry.name);
 
-  assert.deepEqual(names, ["safe-link", "src", "README.md"]);
+  assert.equal(names.includes("safe-link"), true);
+  assert.equal(names.includes("src"), true);
+  assert.equal(names.includes("README.md"), true);
   assert.equal(entries.find((entry) => entry.name === "safe-link")?.isSymbolicLink, true);
   assert.equal(names.includes("nested"), false);
   assert.equal(names.includes("node_modules"), false);
@@ -80,4 +94,66 @@ test("rejects paths and symlinks that resolve outside the workspace", async () =
 
   const entries = await readWorkspaceDirectory(workspaceRoot, "");
   assert.equal(entries.some((entry) => entry.name === "outside-link"), false);
+});
+
+test("recognizes every supported text and code extension", () => {
+  for (const name of [
+    "file.js",
+    "file.jsx",
+    "file.ts",
+    "file.tsx",
+    "file.py",
+    "file.java",
+    "file.c",
+    "file.cpp",
+    "file.h",
+    "file.html",
+    "file.css",
+    "file.json",
+    "file.md",
+    "file.txt",
+    "file.yml",
+    "file.yaml",
+    "FILE.TS",
+  ]) {
+    assert.equal(isSupportedWorkspaceTextFile(name), true, name);
+  }
+  assert.equal(isSupportedWorkspaceTextFile("file.png"), false);
+  assert.equal(isSupportedWorkspaceTextFile("Makefile"), false);
+});
+
+test("reads supported root, nested, and empty UTF-8 files", async () => {
+  assert.deepEqual(await readWorkspaceTextFile(workspaceRoot, "README.md"), {
+    name: "README.md",
+    relativePath: "README.md",
+    content: "workspace",
+  });
+  assert.equal(
+    (await readWorkspaceTextFile(workspaceRoot, "src/index.ts")).content,
+    "export {};"
+  );
+  assert.equal((await readWorkspaceTextFile(workspaceRoot, "empty.txt")).content, "");
+});
+
+test("rejects unsupported, binary, invalid UTF-8, oversized, and directory reads", async () => {
+  const rejectsWithCode = async (
+    path: string,
+    code: WorkspaceFileError["code"]
+  ) => {
+    await assert.rejects(
+      readWorkspaceTextFile(workspaceRoot, path),
+      (error: unknown) => error instanceof WorkspaceFileError && error.code === code
+    );
+  };
+
+  await rejectsWithCode("unsupported.png", "unsupported");
+  await rejectsWithCode("binary.txt", "binary");
+  await rejectsWithCode("invalid.txt", "binary");
+  await rejectsWithCode("large.txt", "too_large");
+  await rejectsWithCode("folder.txt", "not_file");
+});
+
+test("rejects file reads outside the workspace", async () => {
+  await assert.rejects(readWorkspaceTextFile(workspaceRoot, "../outside/secret.txt"));
+  await assert.rejects(readWorkspaceTextFile(workspaceRoot, "outside-link/secret.txt"));
 });

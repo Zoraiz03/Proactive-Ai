@@ -149,11 +149,30 @@ Phase 2A required verification:
   `nodeIntegration=false`, and `sandbox=true`.
 - [x] **Complete** — Existing web lint, tests, and production build pass.
 
+### Phase 2B — Secure read-only text file viewer
+
+- [x] **Complete** — Add one typed, root-confined IPC method for reading a
+  selected relative file path.
+- [x] **Complete** — Restrict reads to the supported text/code extensions.
+- [x] **Complete** — Reject directories, binary content, oversized files, and
+  paths or symlinks resolving outside the workspace.
+- [x] **Complete** — Return safe typed error states without absolute local paths.
+- [x] **Complete** — Load clicked files into a read-only code-style viewer.
+- [x] **Complete** — Highlight the active Explorer file.
+- [x] **Complete** — Add loading, empty, unsupported, and read-error states.
+- [x] **Complete** — Keep Monaco, editing, saving, tabs, terminal, AI, Supabase,
+  authentication, and documentation features deferred.
+
+Phase 2B required verification:
+
+- [x] **Complete** — Focused supported, nested, unsupported, binary, oversized,
+  directory, traversal, and external-symlink tests pass.
+- [x] **Complete** — Desktop TypeScript and production builds pass.
+- [x] **Complete** — Electron launches with the secure BrowserWindow flags.
+- [x] **Complete** — Existing web lint, tests, and production build pass.
+
 ### Remaining Phase 2 work
 
-- [ ] **Not Started** — Add a typed, root-confined IPC method for reading selected
-  text-file contents.
-- [ ] **Not Started** — Detect and reject unsupported binary files.
 - [ ] **Not Started** — Open text and code files in Monaco Editor.
 - [ ] **Not Started** — Map common extensions to Monaco languages.
 - [ ] **Not Started** — Track dirty editor state.
@@ -330,6 +349,9 @@ Required verification:
     and safe-symlink indicators only.
 11. **Load the tree on demand.** The main process lists one directory level per IPC
     request; the renderer requests children only when a folder is expanded.
+12. **Read only allowlisted UTF-8 files.** Phase 2B permits a fixed extension set,
+    caps files at 2 MiB, rejects NUL bytes and invalid UTF-8, and returns content
+    through one renderer-bound method without exposing absolute paths.
 
 ## Security rules
 
@@ -347,6 +369,9 @@ Required verification:
   Broken symlinks and symlinks resolving outside the root must not be returned.
 - Keep absolute local paths out of renderer responses and visible error messages.
 - Limit directory listing size and ignore generated dependency/build directories.
+- Permit file content reads only for the documented extension allowlist, require a
+  regular file, cap reads at 2 MiB before and after loading, and reject NUL bytes or
+  invalid UTF-8.
 - Do not read or transmit files until the user explicitly selects a project and,
   for AI context, explicitly asks for help.
 - Do not place Supabase service-role credentials, server encryption secrets, or AI
@@ -360,6 +385,59 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 2B complete
+
+Changed files:
+
+- `apps/desktop/src/shared/workspace.ts` — added the typed `readFile` channel,
+  text-file result type, and safe error-code contract.
+- `apps/desktop/src/main/workspace-files.ts` — added the extension allowlist,
+  2 MiB limit, regular-file check, canonical root enforcement, binary detection,
+  strict UTF-8 decoding, and safe file result.
+- `apps/desktop/src/main/workspace-ipc.ts` — added one trusted-window,
+  renderer-authorization-bound read handler with user-safe errors.
+- `apps/desktop/src/preload/index.ts` — exposed one new narrow `readFile(relativePath)`
+  method without exposing raw IPC or Node APIs.
+- `apps/desktop/src/renderer/src/Explorer.tsx` — made file rows selectable, retained
+  lazy folder behavior, reset stale trees on workspace changes, and highlighted the
+  active file.
+- `apps/desktop/src/renderer/src/App.tsx` and `styles.css` — added race-safe loading,
+  read-only content, empty, unsupported, and read-error Editor states.
+- `apps/desktop/src/main/workspace-files.test.ts` — expanded security coverage from
+  4 to 8 tests.
+- Desktop README and this roadmap — documented the Phase 2B boundary and results.
+
+Security decisions:
+
+- Supported extensions are `.js`, `.jsx`, `.ts`, `.tsx`, `.py`, `.java`, `.c`,
+  `.cpp`, `.h`, `.html`, `.css`, `.json`, `.md`, `.txt`, `.yml`, and `.yaml`.
+- The existing lexical and canonical real-path checks run before every file read;
+  external symlinks and traversal paths are rejected.
+- Only regular files of at most 2 MiB are read. The loaded buffer is checked again
+  to limit file-growth races.
+- NUL-containing and invalid UTF-8 files are treated as binary and rejected.
+- Renderer errors contain a typed category and safe message, never an absolute path.
+- Content is rendered as escaped React text in a non-editable `<pre>` viewer.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 8/8 tests passed for all supported extensions,
+  root/nested/empty files, unsupported files, binary data, invalid UTF-8, oversized
+  files, directories, traversal, and external symlinks.
+- `npm --prefix apps/desktop run build` — strict TypeScript and production build
+  passed.
+- `npm --prefix apps/desktop run dev` — Electron launched and logged
+  `contextIsolation=true`, `nodeIntegration=false`, and `sandbox=true`.
+- `npm run lint` — existing web lint passed with no warnings or errors.
+- `npm test` — existing web suggestion harness passed.
+- `npm run build` — existing Next.js production build passed.
+
+### 2026-08-20 — Phase 2B started
+
+- Marked the secure read-only file-viewer slice **In Progress** before implementation.
+- Explicitly deferred Monaco, editing, saving, tabs, terminal, AI, Supabase,
+  authentication, and documentation features.
 
 ### 2026-08-20 — Phase 2A complete
 
@@ -474,13 +552,17 @@ Verification:
 | 2026-08-20 | Phase 2A path security tests | Complete | 4/4 traversal, ignore, lazy-listing, and symlink tests passed. |
 | 2026-08-20 | Phase 2A desktop checks | Complete | TypeScript/build and secure Electron launch passed. |
 | 2026-08-20 | Phase 2A web regression | Complete | Existing lint, tests, and Next.js build passed. |
+| 2026-08-20 | Phase 2B file security tests | Complete | 8/8 extension, content, size, binary, and boundary tests passed. |
+| 2026-08-20 | Phase 2B desktop checks | Complete | TypeScript/build and secure Electron launch passed. |
+| 2026-08-20 | Phase 2B web regression | Complete | Existing lint, tests, and Next.js build passed. |
 
 ## Recommended next task
 
-Open a selected text file in the **Editor placeholder**:
+Replace the read-only viewer with **Monaco Editor for supported files**:
 
-1. Add one typed, read-only IPC method for a selected relative file path.
-2. Reuse the Phase 2A canonical-root and symlink boundary.
-3. Reject binary and oversized files before returning content.
-4. Let file rows select and display plain text in the existing Editor area.
-5. Keep editing, saving, and Monaco explicitly deferred.
+1. Add Monaco only to the isolated desktop renderer package.
+2. Reuse the Phase 2B secure read result and supported-file allowlist.
+3. Map supported extensions to Monaco languages.
+4. Keep Monaco read-only and preserve loading, empty, unsupported, and error states.
+5. Continue to defer editing, saving, tabs, terminal, AI, Supabase, authentication,
+   and documentation features.

@@ -1,7 +1,19 @@
 import { useState } from "react";
 import type { OpenWorkspace, WorkspaceEntry } from "../../shared/workspace";
 
-function TreeEntry({ entry, depth }: { entry: WorkspaceEntry; depth: number }) {
+interface TreeEntryProps {
+  entry: WorkspaceEntry;
+  depth: number;
+  activeFilePath: string | null;
+  onSelectFile: (entry: WorkspaceEntry) => void;
+}
+
+function TreeEntry({
+  entry,
+  depth,
+  activeFilePath,
+  onSelectFile,
+}: TreeEntryProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<WorkspaceEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,13 +56,21 @@ function TreeEntry({ entry, depth }: { entry: WorkspaceEntry; depth: number }) {
           {entry.isSymbolicLink && <span className="symlink-mark">↗</span>}
         </button>
       ) : (
-        <div className="tree-row file-row" style={{ paddingLeft: 28 + depth * 14 }}>
+        <button
+          type="button"
+          className={`tree-row file-row ${
+            activeFilePath === entry.relativePath ? "active" : ""
+          }`}
+          style={{ paddingLeft: 28 + depth * 14 }}
+          onClick={() => onSelectFile(entry)}
+          aria-current={activeFilePath === entry.relativePath ? "page" : undefined}
+        >
           <span className="tree-icon" aria-hidden="true">
             ◻
           </span>
           <span className="tree-name">{entry.name}</span>
           {entry.isSymbolicLink && <span className="symlink-mark">↗</span>}
-        </div>
+        </button>
       )}
 
       {expanded && (
@@ -63,7 +83,13 @@ function TreeEntry({ entry, depth }: { entry: WorkspaceEntry; depth: number }) {
           {children && children.length > 0 && (
             <ul>
               {children.map((child) => (
-                <TreeEntry key={child.relativePath} entry={child} depth={depth + 1} />
+                <TreeEntry
+                  key={child.relativePath}
+                  entry={child}
+                  depth={depth + 1}
+                  activeFilePath={activeFilePath}
+                  onSelectFile={onSelectFile}
+                />
               ))}
             </ul>
           )}
@@ -73,8 +99,19 @@ function TreeEntry({ entry, depth }: { entry: WorkspaceEntry; depth: number }) {
   );
 }
 
-export default function Explorer() {
+interface ExplorerProps {
+  activeFilePath: string | null;
+  onSelectFile: (entry: WorkspaceEntry) => void;
+  onWorkspaceOpened: () => void;
+}
+
+export default function Explorer({
+  activeFilePath,
+  onSelectFile,
+  onWorkspaceOpened,
+}: ExplorerProps) {
   const [workspace, setWorkspace] = useState<OpenWorkspace | null>(null);
+  const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,7 +125,11 @@ export default function Explorer() {
       setError(result.error);
       return;
     }
-    if (result.value) setWorkspace(result.value);
+    if (result.value) {
+      onWorkspaceOpened();
+      setWorkspace(result.value);
+      setWorkspaceVersion((version) => version + 1);
+    }
   };
 
   return (
@@ -112,7 +153,7 @@ export default function Explorer() {
       )}
 
       {workspace && (
-        <div className="workspace-tree">
+        <div className="workspace-tree" key={workspaceVersion}>
           <div className="workspace-name" title={workspace.name}>
             <span aria-hidden="true">⌄</span>
             {workspace.name}
@@ -122,7 +163,13 @@ export default function Explorer() {
           ) : (
             <ul>
               {workspace.entries.map((entry) => (
-                <TreeEntry key={entry.relativePath} entry={entry} depth={0} />
+                <TreeEntry
+                  key={entry.relativePath}
+                  entry={entry}
+                  depth={0}
+                  activeFilePath={activeFilePath}
+                  onSelectFile={onSelectFile}
+                />
               ))}
             </ul>
           )}

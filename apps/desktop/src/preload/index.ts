@@ -8,6 +8,8 @@ const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
   readDirectory: (relativePath: string) =>
     ipcRenderer.invoke(WORKSPACE_CHANNELS.readDirectory, relativePath),
+  readFile: (relativePath: string) =>
+    ipcRenderer.invoke(WORKSPACE_CHANNELS.readFile, relativePath),
 });
 
 contextBridge.exposeInMainWorld("workspace", workspaceBridge);

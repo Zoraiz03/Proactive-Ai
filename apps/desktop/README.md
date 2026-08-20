@@ -1,9 +1,9 @@
 # Proactive AI IDE — Desktop
 
-This package contains the isolated Electron desktop application. Phase 2A adds a
-read-only local project Explorer: choose a folder with the native dialog and
-expand its directories lazily. File opening/editing, Monaco, saving, terminals,
-auth, AI, and documentation tools are intentionally not included yet.
+This package contains the isolated Electron desktop application. Phase 2B adds a
+secure read-only text/code file viewer on top of the local project Explorer.
+Monaco, editing, saving, tabs, terminals, auth, AI, and documentation tools are
+intentionally not included yet.
 
 ## Development
 
