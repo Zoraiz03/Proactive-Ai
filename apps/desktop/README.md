@@ -15,6 +15,14 @@ npm install
 npm run dev
 ```
 
+`npm install` runs `electron-rebuild` for the native `node-pty` dependency. If the
+Electron version changes or the terminal fails to load after restoring cached
+dependencies, rebuild it explicitly:
+
+```bash
+npm run rebuild:native
+```
+
 Or from the repository root:
 
 ```bash
