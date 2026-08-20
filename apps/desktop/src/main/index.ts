@@ -3,6 +3,7 @@ import { app, BrowserWindow, dialog, session, type WebPreferences } from "electr
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerTerminalIpc } from "./terminal-ipc";
 import { registerRunIpc } from "./run-ipc";
+import { registerAuthIpc } from "./auth-ipc";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -68,24 +69,38 @@ app.whenReady().then(() => {
     callback(false);
   });
 
-  const terminalIpc = registerTerminalIpc(() => mainWindow);
-  const runIpc = registerRunIpc(() => mainWindow);
-  const cleanupWorkspaceIpc = registerWorkspaceIpc(() => mainWindow, {
+  let terminalIpc: ReturnType<typeof registerTerminalIpc> | null = null;
+  let runIpc: ReturnType<typeof registerRunIpc> | null = null;
+  let workspaceIpc: ReturnType<typeof registerWorkspaceIpc> | null = null;
+  const authIpc = registerAuthIpc(() => mainWindow, app.getPath("userData"), (state) => {
+    if (state.status !== "signed_out" && state.status !== "configuration_error") return;
+    terminalIpc?.controller.clearWorkspace();
+    runIpc?.controller.clearWorkspace();
+    void workspaceIpc?.clearWorkspace();
+  });
+  const getAuthenticatedWindow = () => authIpc.controller.isAuthenticated() ? mainWindow : null;
+  terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
+  runIpc = registerRunIpc(getAuthenticatedWindow);
+  workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
     onWorkspaceOpened: (rootPath, webContentsId) => {
-      terminalIpc.controller.setWorkspace(rootPath, webContentsId);
-      runIpc.controller.setWorkspace(rootPath, webContentsId);
+      terminalIpc?.controller.setWorkspace(rootPath, webContentsId);
+      runIpc?.controller.setWorkspace(rootPath, webContentsId);
     },
     onWorkspaceClosed: (webContentsId) => {
-      terminalIpc.controller.clearWorkspace(webContentsId);
-      runIpc.controller.clearWorkspace(webContentsId);
+      terminalIpc?.controller.clearWorkspace(webContentsId);
+      runIpc?.controller.clearWorkspace(webContentsId);
     },
   });
   app.once("will-quit", () => {
-    runIpc.cleanup();
-    terminalIpc.cleanup();
-    void cleanupWorkspaceIpc();
+    authIpc.cleanup();
+    runIpc?.cleanup();
+    terminalIpc?.cleanup();
+    void workspaceIpc?.cleanup();
   });
   createMainWindow();
+  void authIpc.controller.initialize().then(() => {
+    console.info(`[desktop] authentication ready (${authIpc.controller.getState().status})`);
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

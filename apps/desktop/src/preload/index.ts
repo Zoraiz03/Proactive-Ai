@@ -25,6 +25,12 @@ import {
   type RunStartRequest,
   type RunStopRequest,
 } from "../shared/runner";
+import {
+  AUTH_CHANNELS,
+  type DesktopAuthBridge,
+  type DesktopAuthState,
+  type DesktopSignInRequest,
+} from "../shared/auth";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -90,3 +96,16 @@ const runnerBridge: RunnerBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("runner", runnerBridge);
+
+const authBridge: DesktopAuthBridge = Object.freeze({
+  getState: () => ipcRenderer.invoke(AUTH_CHANNELS.state),
+  signIn: (request: DesktopSignInRequest) => ipcRenderer.invoke(AUTH_CHANNELS.signIn, request),
+  signOut: () => ipcRenderer.invoke(AUTH_CHANNELS.signOut),
+  onStateChanged: (listener: (state: DesktopAuthState) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: DesktopAuthState) => listener(state);
+    ipcRenderer.on(AUTH_CHANNELS.changed, wrapped);
+    return () => ipcRenderer.removeListener(AUTH_CHANNELS.changed, wrapped);
+  },
+});
+
+contextBridge.exposeInMainWorld("desktopAuth", authBridge);

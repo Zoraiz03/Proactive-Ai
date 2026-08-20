@@ -1,11 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./monaco";
-import App from "./App";
+import DesktopAuth from "./DesktopAuth";
 import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <DesktopAuth />
   </React.StrictMode>
 );

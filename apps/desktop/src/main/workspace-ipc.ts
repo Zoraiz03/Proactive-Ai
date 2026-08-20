@@ -112,7 +112,7 @@ export function registerWorkspaceIpc(
     onWorkspaceOpened: (rootPath: string, webContentsId: number) => void;
     onWorkspaceClosed: (webContentsId?: number) => void;
   }
-): () => Promise<void> {
+): { clearWorkspace: () => Promise<void>; cleanup: () => Promise<void> } {
   let cleanupBoundWebContentsId: number | null = null;
   const watcher = new WorkspaceWatcher((batch) => {
     const mainWindow = getMainWindow();
@@ -342,17 +342,25 @@ export function registerWorkspaceIpc(
     }
   );
 
-  return async () => {
+  const clearWorkspace = async () => {
+    const webContentsId = workspaceAuthorization?.webContentsId;
     workspaceAuthorization = null;
     cleanupBoundWebContentsId = null;
-    lifecycle.onWorkspaceClosed();
+    lifecycle.onWorkspaceClosed(webContentsId);
     await watcher.stop();
-    ipcMain.removeHandler(WORKSPACE_CHANNELS.openFolder);
-    ipcMain.removeHandler(WORKSPACE_CHANNELS.readDirectory);
-    ipcMain.removeHandler(WORKSPACE_CHANNELS.readFile);
-    ipcMain.removeHandler(WORKSPACE_CHANNELS.writeFile);
-    ipcMain.removeHandler(WORKSPACE_CHANNELS.createEntry);
-    ipcMain.removeHandler(WORKSPACE_CHANNELS.renameEntry);
-    ipcMain.removeHandler(WORKSPACE_CHANNELS.deleteEntry);
+  };
+
+  return {
+    clearWorkspace,
+    cleanup: async () => {
+      await clearWorkspace();
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.openFolder);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.readDirectory);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.readFile);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.writeFile);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.createEntry);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.renameEntry);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.deleteEntry);
+    },
   };
 }

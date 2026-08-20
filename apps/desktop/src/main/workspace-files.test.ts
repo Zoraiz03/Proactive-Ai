@@ -43,6 +43,17 @@ import {
 } from "./terminal-environment.ts";
 import { commandForRunFile, RunSessionController } from "./run-session.ts";
 import { parseRunDiagnostics } from "./run-diagnostics.ts";
+import {
+  EncryptedAuthSessionStore,
+  type SessionEncryption,
+  type StoredAuthSession,
+} from "./auth-session-store.ts";
+import {
+  DesktopAuthController,
+  parseSignInRequest,
+  type AuthenticatedSession,
+  type DesktopAuthProvider,
+} from "./auth-controller.ts";
 
 let temporaryDirectory = "";
 let workspaceRoot = "";
@@ -365,6 +376,116 @@ test("runs Python errors into diagnostics and stops an active process", async ()
   if (!started.ok) return;
   assert.equal(stopController.stop(7, { runId: started.value.runId }).ok, true);
   assert.equal((await stoppedCompletion).status, "stopped");
+});
+
+function testSession(id = "user-1"): AuthenticatedSession {
+  return {
+    tokens: { version: 1, accessToken: `access-${id}`, refreshToken: `refresh-${id}` },
+    user: { id, email: `${id}@example.com`, name: "Desktop User" },
+  };
+}
+
+class FakeDesktopAuthProvider implements DesktopAuthProvider {
+  restored: StoredAuthSession[] = [];
+  signedIn: Array<{ email: string; password: string }> = [];
+  signOutCount = 0;
+  failSignIn = false;
+  private listeners = new Set<(session: AuthenticatedSession | null) => void>();
+
+  async restore(tokens: StoredAuthSession): Promise<AuthenticatedSession> {
+    this.restored.push(tokens);
+    return testSession("restored");
+  }
+
+  async signIn(email: string, password: string): Promise<AuthenticatedSession> {
+    this.signedIn.push({ email, password });
+    if (this.failSignIn) throw new Error("Invalid login credentials");
+    return testSession();
+  }
+
+  async signOut(): Promise<void> { this.signOutCount += 1; }
+  onSessionChanged(listener: (session: AuthenticatedSession | null) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  dispose(): void { this.listeners.clear(); }
+}
+
+const testEncryption: SessionEncryption = {
+  isAvailable: async () => true,
+  encrypt: async (plainText) => Buffer.from([...plainText].reverse().join(""), "utf8"),
+  decrypt: async (encrypted) => ({
+    value: [...encrypted.toString("utf8")].reverse().join(""),
+    shouldReEncrypt: false,
+  }),
+};
+
+test("validates desktop sign-in requests without logging or returning passwords", () => {
+  assert.deepEqual(parseSignInRequest({ email: " User@Example.com ", password: "secret" }), {
+    email: "user@example.com",
+    password: "secret",
+  });
+  assert.equal(parseSignInRequest({ email: "invalid", password: "secret" }), null);
+  assert.equal(parseSignInRequest({ email: "user@example.com", password: "" }), null);
+  assert.equal(parseSignInRequest({ email: "user@example.com", password: "x".repeat(1_025) }), null);
+});
+
+test("persists and restores only encrypted desktop session bytes", async () => {
+  const sessionPath = join(temporaryDirectory, "auth-store", "session.enc");
+  const store = new EncryptedAuthSessionStore(sessionPath, testEncryption);
+  const session = testSession().tokens;
+  await store.save(session);
+  const bytes = await readFile(sessionPath);
+  assert.equal(bytes.includes(session.accessToken), false);
+  assert.equal(bytes.includes(session.refreshToken), false);
+  assert.deepEqual(await store.load(), session);
+  await store.clear();
+  await assert.rejects(access(sessionPath));
+});
+
+test("restores, signs in, rejects invalid credentials, and signs out through auth controller", async () => {
+  const sessionPath = join(temporaryDirectory, "auth-controller", "session.enc");
+  const store = new EncryptedAuthSessionStore(sessionPath, testEncryption);
+  await store.save(testSession("stored").tokens);
+  const provider = new FakeDesktopAuthProvider();
+  const controller = new DesktopAuthController(provider, store);
+  await controller.initialize();
+  assert.equal(controller.getState().status, "signed_in");
+  assert.equal(provider.restored.length, 1);
+
+  provider.failSignIn = true;
+  const invalid = await controller.signIn({ email: "user@example.com", password: "wrong" });
+  assert.deepEqual(invalid, { ok: false, error: "Incorrect email or password." });
+  assert.equal(controller.getState().status, "signed_out");
+
+  provider.failSignIn = false;
+  const valid = await controller.signIn({ email: "USER@example.com", password: "correct" });
+  assert.equal(valid.ok, true);
+  assert.equal(controller.getState().status, "signed_in");
+  assert.equal((await store.load())?.refreshToken, "refresh-user-1");
+
+  assert.equal((await controller.signOut()).ok, true);
+  assert.equal(controller.getState().status, "signed_out");
+  assert.equal(await store.load(), null);
+  controller.dispose();
+});
+
+test("blocks desktop authentication when secure OS encryption is unavailable", async () => {
+  const unavailable: SessionEncryption = {
+    ...testEncryption,
+    isAvailable: async () => false,
+  };
+  const controller = new DesktopAuthController(
+    new FakeDesktopAuthProvider(),
+    new EncryptedAuthSessionStore(join(temporaryDirectory, "unavailable", "session.enc"), unavailable)
+  );
+  await controller.initialize();
+  const state = controller.getState();
+  assert.equal(state.status, "configuration_error");
+  if (state.status === "configuration_error") {
+    assert.match(state.message, /secure operating-system session storage/i);
+  }
+  controller.dispose();
 });
 
 test("overwrites an existing supported file and returns its new disk version", async () => {

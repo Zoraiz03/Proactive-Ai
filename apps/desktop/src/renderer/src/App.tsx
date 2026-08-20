@@ -18,6 +18,7 @@ import type {
   WorkspaceTextFile,
 } from "../../shared/workspace";
 import type { RunDiagnostic } from "../../shared/runner";
+import type { DesktopAuthUser } from "../../shared/auth";
 import Explorer from "./Explorer";
 import BottomPanel, { type IdeOutputMessage, type RunOutputState } from "./BottomPanel";
 
@@ -279,7 +280,12 @@ function EditorWorkspace({
   );
 }
 
-export default function App() {
+interface AppProps {
+  user: DesktopAuthUser;
+  onSignOut: () => Promise<string | null>;
+}
+
+export default function App({ user, onSignOut }: AppProps) {
   const [tabs, setTabs] = useState<EditorTab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [surface, setSurface] = useState<EditorSurface>({ status: "idle" });
@@ -291,6 +297,8 @@ export default function App() {
   const [runOutput, setRunOutput] = useState<RunOutputState | null>(null);
   const [outputFocusToken, setOutputFocusToken] = useState(0);
   const [editorLocation, setEditorLocation] = useState<EditorLocation | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [accountError, setAccountError] = useState<string | null>(null);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const requestSequence = useRef(0);
@@ -786,6 +794,17 @@ export default function App() {
     setEditorLocation({ ...diagnostic, token: Date.now() });
   }, [selectFile]);
 
+  const signOut = useCallback(async () => {
+    if (!(await canOpenWorkspace())) return;
+    setSigningOut(true);
+    setAccountError(null);
+    const error = await onSignOut();
+    if (error) {
+      setAccountError(error);
+      setSigningOut(false);
+    }
+  }, [canOpenWorkspace, onSignOut]);
+
   const hasDirtyTabs = tabs.some(isDirty);
   useEffect(() => {
     const preventUnsavedClose = (event: BeforeUnloadEvent) => {
@@ -818,7 +837,21 @@ export default function App() {
       <header className="top-bar">
         <div className="brand-mark" aria-hidden="true">P</div>
         <h1>Proactive AI IDE</h1>
-        <span className="phase-label">Workspace terminal</span>
+        <span className="phase-label">Secure workspace</span>
+        <details className="user-menu">
+          <summary title={user.email}>
+            <span className="user-avatar" aria-hidden="true">{(user.name || user.email).slice(0, 1).toUpperCase()}</span>
+            <span>{user.name || user.email}</span>
+          </summary>
+          <div className="user-menu-popover">
+            <strong>{user.name || "Proactive AI user"}</strong>
+            <span>{user.email}</span>
+            {accountError && <p role="alert">{accountError}</p>}
+            <button type="button" onClick={() => void signOut()} disabled={signingOut}>
+              {signingOut ? "Signing out…" : "Sign Out"}
+            </button>
+          </div>
+        </details>
       </header>
 
       <div className="ide-layout">

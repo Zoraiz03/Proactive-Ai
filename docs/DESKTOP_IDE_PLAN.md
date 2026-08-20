@@ -344,8 +344,35 @@ Required verification:
 **Goal:** Connect the desktop editor to the existing authenticated Observer backend
 without placing secrets in the desktop bundle.
 
-- [ ] **Not Started** — Choose and document the desktop authentication/session flow.
-- [ ] **Not Started** — Add desktop sign-in, sign-out, and secure session persistence.
+### Phase 5A — Secure desktop authentication
+
+- [x] **Complete** — Add an unauthenticated email/password sign-in screen and
+  authenticated user menu with Sign Out.
+- [x] **Complete** — Run Supabase Auth in Electron main with a public client key
+  only; expose no raw session or token to the renderer.
+- [x] **Complete** — Encrypt the persisted session using Electron `safeStorage`
+  and restore/refresh it across application restarts.
+- [x] **Complete** — Keep the desktop IDE inaccessible while signed out and clear
+  secure session data during sign-out.
+- [x] **Complete** — Document the bearer-token boundary required for future
+  desktop calls to the existing Next.js AI routes without changing web auth.
+
+Phase 5A required verification:
+
+- [x] **Complete** — Valid and invalid email/password sign-in states behave
+  clearly.
+- [x] **Complete** — A valid encrypted session restores after restart and is
+  removed on sign-out.
+- [x] **Complete** — Signed-out users see only authentication UI.
+- [x] **Complete** — No service-role key, provider key, encryption secret, or raw
+  session token appears in renderer code, renderer bundles, logs, or IPC responses.
+- [x] **Complete** — Focused desktop auth/session tests pass.
+- [x] **Complete** — Desktop TypeScript/build and secure launch checks pass.
+- [x] **Complete** — Existing web lint, tests, authentication behavior, and
+  production build pass unchanged.
+
+- [x] **Complete** — Choose and document the desktop authentication/session flow.
+- [x] **Complete** — Add desktop sign-in, sign-out, and secure session persistence.
 - [ ] **Not Started** — Adapt the existing API authentication boundary for desktop
   clients without weakening web authentication.
 - [ ] **Not Started** — Keep the Supabase service-role key and provider-key decryption
@@ -484,6 +511,35 @@ Required verification:
     to Node. Electron main spawns the interpreter with an argument array,
     `shell: false`, the canonical workspace root as `cwd`, and a filtered
     environment. TypeScript and all other languages remain non-runnable.
+22. **Keep desktop auth tokens in Electron main.** Phase 5A uses the public Supabase
+    URL and publishable/anon key only. Password calls, refresh rotation, and session
+    validation happen in main; renderer IPC receives only user ID, display name,
+    email, and public auth state. Access/refresh tokens are encrypted asynchronously
+    with Electron `safeStorage` and stored with owner-only permissions. Linux's
+    insecure `basic_text` fallback is rejected.
+
+### Future desktop-to-backend authentication boundary
+
+Phase 5B should keep the HTTP request in Electron main behind a purpose-specific
+Ask Observer IPC method. Main should obtain the current refreshed access token and
+send it as `Authorization: Bearer <token>` to the deployed Next.js API. The token
+must never be returned to renderer JavaScript, stored in localStorage, or logged.
+
+The existing Next.js routes currently create a cookie-bound Supabase SSR client and
+therefore cannot authenticate a desktop bearer request. Phase 5B should add a small
+server-only request-auth helper that:
+
+1. preserves the current cookie path unchanged for web requests;
+2. accepts exactly one bearer token for desktop requests;
+3. validates that token with Supabase Auth `getUser(token)`, not by trusting decoded
+   JWT fields alone;
+4. creates a request-scoped Supabase client with the public key and bearer header so
+   database reads/writes continue to run as that user under existing RLS; and
+5. uses the service-role client only after identity validation for the existing
+   server-only encrypted provider-key lookup.
+
+Do not cache a user-scoped Supabase client across requests. Mixed/invalid auth
+headers should return 401, and future request logs must redact authorization data.
 
 ## Security rules
 
@@ -534,6 +590,81 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 5A complete
+
+Changed files:
+
+- Desktop package manifest/lockfile — added the pinned `@supabase/supabase-js`
+  client only to `apps/desktop`.
+- `apps/desktop/src/shared/auth.ts` — added the narrow public auth state and typed
+  sign-in/sign-out IPC contracts; tokens are intentionally absent.
+- `apps/desktop/src/main/auth-controller.ts`, `auth-session-store.ts`,
+  `supabase-auth-provider.ts`, and `auth-ipc.ts` — added validated email/password
+  sign-in, server-validated restoration, refresh rotation, encrypted persistence,
+  public profile projection, and trusted-window IPC.
+- Desktop main/workspace IPC — gated workspace, terminal, and runner access on the
+  authenticated state and clears workspace authorization/processes on sign-out.
+- Desktop preload and renderer — added the frozen auth bridge, signed-out/loading/
+  error screens, authenticated user menu, and Sign Out without exposing Node or
+  Supabase clients to the renderer.
+- Electron Vite config, desktop environment example, README, and root ignore rule —
+  reuse only the existing public web Supabase values or desktop-specific public
+  equivalents while excluding all server secrets.
+- Focused desktop harness — expanded from 30 to 34 tests for request validation,
+  encrypted-at-rest bytes, restoration, invalid/valid sign-in, sign-out cleanup,
+  and unavailable secure-storage blocking.
+
+Security and session decisions:
+
+- Supabase Auth runs only in Electron main with `persistSession: false` and automatic
+  token refresh. Restored sessions are verified with the Auth server using
+  `getUser(accessToken)` before unlocking the IDE.
+- The application owns a single encrypted session file under Electron `userData`.
+  Async `safeStorage` uses macOS Keychain, Windows DPAPI, or a Linux secret service;
+  unavailable encryption and Linux `basic_text` fail closed.
+- The renderer receives only `{ id, email, name }`. User metadata is used only as a
+  display-name fallback, never for authorization. Service-role/provider keys and
+  the application encryption secret remain in the existing Next.js server.
+- Sign Out uses local Supabase scope so the separate web login remains unchanged,
+  deletes encrypted desktop session data, revokes local IDE IPC access, and stops
+  workspace-owned terminal/run processes.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 34/34 tests passed, including encrypted session
+  persistence/restoration, successful and invalid sign-in decisions, sign-out
+  clearing, and fail-closed secure-storage behavior.
+- Live Supabase invalid-login check — the existing project rejected a deliberately
+  invalid email/password request without logging credentials.
+- Desktop renderer secret-value scan — no configured service-role key, provider key,
+  or encryption secret appeared in renderer production assets.
+- `npm --prefix apps/desktop run build` — strict main/preload/renderer TypeScript and
+  production Electron/Vite builds passed.
+- `env -u ELECTRON_RUN_AS_NODE npm run dev` — Electron launched, initialized to the
+  signed-out auth gate, and logged `contextIsolation=true`, `nodeIntegration=false`,
+  and `sandbox=true`.
+- `npm run lint`, `npm test`, and `npm run build` — the existing web app passed with
+  its authentication source and behavior unchanged.
+
+Known requirements and limits:
+
+- Email/password is the only desktop sign-in method in Phase 5A. Signup, password
+  recovery, OAuth, and MFA UI remain web-only/future work.
+- Python/Node runtimes and Supabase must be reachable over the user's network.
+- Phase 5B must implement the documented request-scoped bearer validation before
+  desktop Ask Observer can call the existing cookie-authenticated API routes.
+
+### 2026-08-20 — Phase 5A started
+
+- Marked secure desktop email/password authentication and encrypted session
+  restoration **In Progress** before implementation.
+- Selected an Electron-main Supabase client with `persistSession: false`; an
+  application-owned encrypted session file will use OS-backed `safeStorage`, and
+  the sandboxed renderer will receive only non-sensitive user identity fields.
+- Confirmed the existing Next.js API routes currently validate cookie-backed web
+  sessions. Phase 5A will document, but not implement, a future bearer-token
+  validation path for desktop Observer requests.
 
 ### 2026-08-20 — Phase 4B complete
 
@@ -1026,9 +1157,14 @@ Verification:
 | 2026-08-20 | Phase 4B runner and diagnostic tests | Complete | 30/30 tests passed; Python/JavaScript success, Python errors, Stop, path authorization, command map, and diagnostic filtering passed. |
 | 2026-08-20 | Phase 4B desktop checks | Complete | Strict TypeScript/build and secure Electron launch passed. |
 | 2026-08-20 | Phase 4B web regression | Complete | Existing lint, focused tests, and Next.js build passed without web source changes. |
+| 2026-08-20 | Phase 5A auth/session tests | Complete | 34/34 tests passed; encrypted persistence, restore, sign-in/error, sign-out, and unavailable-storage cases passed. |
+| 2026-08-20 | Phase 5A Supabase connectivity | Complete | Existing project rejected a deliberate invalid email/password request as expected. |
+| 2026-08-20 | Phase 5A desktop checks | Complete | Strict TypeScript/build, renderer secret scan, signed-out auth gate, and secure Electron launch passed. |
+| 2026-08-20 | Phase 5A web regression | Complete | Existing lint, focused tests, and Next.js build passed without web auth source changes. |
 
 ## Recommended next task
 
-Integrate the manual **Ask Observer** panel with selected-code and diagnostic context.
-Keep every request explicit, reuse the existing server-side key and provider security
-boundaries, and do not introduce proactive or automatic AI behavior.
+Connect the manual **Ask Observer** panel to the existing AI backend with selected-code
+and diagnostic context. Implement the documented request-scoped bearer validation,
+keep tokens and requests in Electron main, preserve web cookie authentication and
+RLS, and do not introduce proactive or automatic AI behavior.
