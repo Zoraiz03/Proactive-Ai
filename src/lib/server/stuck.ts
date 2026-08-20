@@ -25,10 +25,14 @@ export const StuckMetadataSchema = z
           count: z.number().int().positive(),
           observedAt: z.number().nonnegative(),
           windowMs: z.number().nonnegative(),
-          region: z.object({
-            startLine: z.number().int().positive(),
-            endLine: z.number().int().positive(),
-          }),
+          region: z
+            .object({
+              startLine: z.number().int().positive(),
+              endLine: z.number().int().positive(),
+            })
+            .refine((region) => region.endLine >= region.startLine, {
+              message: "A detector region must end on or after its start line.",
+            }),
           score: z.number().nonnegative(),
           signature: z.string().max(1_000).optional(),
         })
@@ -42,11 +46,26 @@ export const StuckMetadataSchema = z
   .superRefine((metadata, ctx) => {
     const types = new Set(metadata.detectorTypes);
     const signalTypes = new Set(metadata.signals.map((signal) => signal.type));
-    if (types.size !== metadata.detectorTypes.length || types.size !== signalTypes.size) {
-      ctx.addIssue({ code: "custom", message: "Detector types must be unique." });
+    if (
+      types.size !== metadata.detectorTypes.length ||
+      signalTypes.size !== metadata.signals.length ||
+      types.size !== signalTypes.size ||
+      Array.from(types).some((type) => !signalTypes.has(type))
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Detector types must be unique and match the supplied signals.",
+      });
     }
     if (metadata.score < metadata.threshold) {
       ctx.addIssue({ code: "custom", message: "The stuck score is below its threshold." });
+    }
+    const signalScore = metadata.signals.reduce(
+      (total, signal) => total + signal.score,
+      0
+    );
+    if (Math.abs(signalScore - metadata.score) > 0.01) {
+      ctx.addIssue({ code: "custom", message: "The stuck score does not match its signals." });
     }
   });
 
