@@ -6,6 +6,7 @@ import {
   adaptDetectorSettings,
   DetectorTypeSchema,
   normalizeStoredSettings,
+  resolvedSettings,
 } from "@/lib/server/stuck";
 
 const Body = z.object({ outcome: z.enum(["accepted", "dismissed"]) });
@@ -58,6 +59,7 @@ export async function POST(
   }
 
   const adapted: DetectorType[] = [];
+  let config = null;
   if (parsedBody.data.outcome === "dismissed") {
     const { data: settingsRow } = await supabase
       .from("stuck_detection_settings")
@@ -94,9 +96,13 @@ export async function POST(
         adaptive_overrides: adaptiveOverrides,
         updated_at: new Date().toISOString(),
       });
-      if (error) console.error("[suggestion-outcome] adapt:", error.message);
+      if (error) {
+        console.error("[suggestion-outcome] adapt:", error.message);
+      } else {
+        config = resolvedSettings({ ...settings, adaptiveOverrides });
+      }
     }
   }
 
-  return NextResponse.json({ recorded: true, adapted });
+  return NextResponse.json({ recorded: true, adapted, config });
 }

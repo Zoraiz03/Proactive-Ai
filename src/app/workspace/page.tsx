@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Logo from "@/components/Logo";
@@ -10,7 +10,15 @@ import ObserverPanel, { ObserverStatus } from "@/components/ObserverPanel";
 import { useWorkspace } from "@/lib/store";
 import { kindOf } from "@/lib/files";
 import { getSession, signOut, Session } from "@/lib/auth";
-import { fetchSuggestion, Provider, Suggestion } from "@/lib/suggest";
+import {
+  fetchStuckSettings,
+  fetchSuggestion,
+  Provider,
+  recordSuggestionOutcome,
+  Suggestion,
+} from "@/lib/suggest";
+import { resolveStuckConfig, StuckDetectionConfig } from "@/lib/stuck-config";
+import type { StuckMetadata } from "@/lib/stuck-detectors";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), {
   ssr: false,
@@ -85,6 +93,11 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [needsKey, setNeedsKey] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [detectionConfig, setDetectionConfig] = useState<StuckDetectionConfig>(
+    () => resolveStuckConfig()
+  );
+  const requestInFlight = useRef(false);
+  const pendingStuck = useRef<StuckMetadata | null>(null);
   // Content the observer has already handled — don't re-suggest for it
   const lastHandledContent = useRef<string | null>(null);
 
@@ -94,6 +107,11 @@ export default function WorkspacePage() {
       setSession(s);
       setSessionLoaded(true);
       setStatus(s ? "idle" : "signedout");
+      if (s) {
+        void fetchStuckSettings().then((config) => {
+          if (config) setDetectionConfig(config);
+        });
+      }
     });
   }, []);
 
@@ -102,16 +120,18 @@ export default function WorkspacePage() {
   const contentTooShort =
     !!activeFile && activeFile.content.length < MIN_CONTENT_LENGTH;
 
-  // The proactive trigger: a debounce timer that resets on every
-  // content change and fires once after the configured typing pause.
+  // Document files retain the original pause-based suggestion behavior.
+  // Monaco code files are triggered only by the detector engine below.
   useEffect(() => {
     if (!sessionLoaded || !session || !activeFile) return;
+    if (kindOf(activeFile.name) === "code") return;
     if (activeFile.content.length < MIN_CONTENT_LENGTH) return;
     if (activeFile.content === lastHandledContent.current) return;
 
     setStatus("watching");
     const timer = setTimeout(async () => {
       const requested = activeFile.content;
+      requestInFlight.current = true;
       setStatus("thinking");
       const result = await fetchSuggestion({
         provider,
@@ -120,6 +140,7 @@ export default function WorkspacePage() {
         content: requested,
       });
       lastHandledContent.current = requested;
+      requestInFlight.current = false;
       if (result.suggestion) {
         setSuggestion(result.suggestion);
         setStatus("ready");
@@ -142,8 +163,54 @@ export default function WorkspacePage() {
     retryNonce,
   ]);
 
+  const handleStuck = useCallback(
+    async (stuck: StuckMetadata) => {
+      if (
+        !session ||
+        !activeFile ||
+        kindOf(activeFile.name) !== "code" ||
+        activeFile.content.length < MIN_CONTENT_LENGTH ||
+        requestInFlight.current ||
+        suggestion
+      ) {
+        return;
+      }
+
+      requestInFlight.current = true;
+      pendingStuck.current = stuck;
+      setError(null);
+      setNeedsKey(false);
+      setStatus("thinking");
+      const requestedFileId = activeFile.id;
+      const result = await fetchSuggestion({
+        provider,
+        fileName: activeFile.name,
+        kind: "code",
+        content: activeFile.content,
+        stuck,
+      });
+      requestInFlight.current = false;
+
+      if (requestedFileId !== useWorkspace.getState().activeFileId) return;
+      if (result.suggestion) {
+        pendingStuck.current = null;
+        setSuggestion(result.suggestion);
+        setStatus("ready");
+      } else {
+        if (!result.needsKey) pendingStuck.current = null;
+        setError(result.error ?? "Something went wrong.");
+        setNeedsKey(Boolean(result.needsKey));
+        setStatus("error");
+      }
+    },
+    [activeFile, provider, session, suggestion]
+  );
+
   const acceptSuggestion = () => {
     if (!activeFile || !suggestion?.snippet) return;
+    void recordSuggestionOutcome(suggestion.id, "accepted").then((config) => {
+      if (config) setDetectionConfig(config);
+    });
     const next =
       kindOf(activeFile.name) === "code"
         ? `${activeFile.content.replace(/\n$/, "")}\n\n${suggestion.snippet}\n`
@@ -157,18 +224,29 @@ export default function WorkspacePage() {
   };
 
   const dismissSuggestion = () => {
+    const dismissedId = suggestion?.id;
     setSuggestion(null);
     setError(null);
     setNeedsKey(false);
     setStatus(session ? "idle" : "signedout");
+    if (dismissedId) {
+      void recordSuggestionOutcome(dismissedId, "dismissed").then((config) => {
+        if (config) setDetectionConfig(config);
+      });
+    }
   };
 
   const retryAfterKeySaved = () => {
+    const stuck = pendingStuck.current;
     lastHandledContent.current = null;
     setError(null);
     setNeedsKey(false);
     setStatus("idle");
-    setRetryNonce((n) => n + 1);
+    if (stuck) {
+      setTimeout(() => void handleStuck(stuck), 0);
+    } else {
+      setRetryNonce((n) => n + 1);
+    }
   };
 
   if (!hydrated) {
@@ -206,6 +284,8 @@ export default function WorkspacePage() {
                 fileName={activeFile.name}
                 value={activeFile.content}
                 onChange={(v) => updateContent(activeFile.id, v)}
+                detectionConfig={detectionConfig}
+                onStuck={handleStuck}
               />
             ) : (
               <DocEditor
@@ -230,6 +310,7 @@ export default function WorkspacePage() {
           error={error}
           needsKey={needsKey}
           contentTooShort={contentTooShort}
+          isCodeFile={!!activeFile && kindOf(activeFile.name) === "code"}
           provider={provider}
           onProviderChange={(p) => {
             setProvider(p);

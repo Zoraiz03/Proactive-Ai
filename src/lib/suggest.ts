@@ -62,18 +62,23 @@ export async function fetchStuckSettings(): Promise<StuckDetectionConfig | null>
   }
 }
 
-export function recordSuggestionOutcome(
+export async function recordSuggestionOutcome(
   suggestionId: string,
   outcome: "accepted" | "dismissed"
-): void {
-  void fetch(`/api/suggestions/${suggestionId}/outcome`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ outcome }),
-    keepalive: true,
-  }).catch(() => {
+): Promise<StuckDetectionConfig | null> {
+  try {
+    const res = await fetch(`/api/suggestions/${suggestionId}/outcome`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+      keepalive: true,
+    });
+    if (!res.ok) return null;
+    return ((await res.json()).config as StuckDetectionConfig | null) ?? null;
+  } catch {
     // Outcome persistence must never delay or block the editor interaction.
-  });
+    return null;
+  }
 }
 
 export async function saveApiKey(

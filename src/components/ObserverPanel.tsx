@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Provider,
   PROVIDER_LABELS,
@@ -22,6 +22,7 @@ interface Props {
   error: string | null;
   needsKey: boolean;
   contentTooShort: boolean;
+  isCodeFile: boolean;
   provider: Provider;
   onProviderChange: (provider: Provider) => void;
   onAccept: () => void;
@@ -93,6 +94,7 @@ export default function ObserverPanel({
   error,
   needsKey,
   contentTooShort,
+  isCodeFile,
   provider,
   onProviderChange,
   onAccept,
@@ -100,6 +102,15 @@ export default function ObserverPanel({
   onKeySaved,
 }: Props) {
   const pill = STATUS_PILL[status];
+
+  useEffect(() => {
+    if (status !== "ready" || !suggestion) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onDismiss();
+    };
+    window.addEventListener("keydown", dismissOnEscape);
+    return () => window.removeEventListener("keydown", dismissOnEscape);
+  }, [onDismiss, status, suggestion]);
 
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-l border-sand bg-card">
@@ -151,12 +162,16 @@ export default function ObserverPanel({
           ) : (
             <>
               <div className="rounded-lg border border-dashed border-tan bg-cream p-3 text-xs leading-relaxed text-ink-soft">
-                Suggestions appear automatically after you pause typing.
+                {isCodeFile
+                  ? "Suggestions appear when multiple editing patterns indicate you may be stuck."
+                  : "Suggestions appear automatically after you pause typing."}
               </div>
               <p className="px-1 font-mono text-[11px] text-tan">
-                {status === "watching"
-                  ? "typing detected — waiting for a pause…"
-                  : "watching for a pause…"}
+                {isCodeFile
+                  ? "watching edits, diagnostics, and cursor movement…"
+                  : status === "watching"
+                    ? "typing detected — waiting for a pause…"
+                    : "watching for a pause…"}
               </p>
             </>
           ))}
@@ -170,9 +185,21 @@ export default function ObserverPanel({
 
         {status === "ready" && suggestion && (
           <div className="space-y-3">
-            <div className="rounded-lg border border-bronze/40 bg-cream p-3">
+            <div className="relative rounded-lg border border-bronze/40 bg-cream p-3 pr-8">
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="absolute right-2 top-1.5 rounded p-1 text-xs text-tan hover:bg-sand/50 hover:text-ink"
+                aria-label="Dismiss suggestion"
+                title="Dismiss (Escape)"
+              >
+                ✕
+              </button>
               <p className="text-xs leading-relaxed text-ink">
                 {suggestion.explanation}
+              </p>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-tan">
+                {suggestion.reason}
               </p>
               {suggestion.snippet && (
                 <pre className="mt-2 max-h-56 overflow-auto rounded-md bg-ink p-2.5 font-mono text-[11px] leading-relaxed text-cream">
