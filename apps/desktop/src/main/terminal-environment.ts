@@ -11,10 +11,10 @@ export function createTerminalEnvironment(
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
   };
-  for (const key of SAFE_ENVIRONMENT_KEYS) {
+  SAFE_ENVIRONMENT_KEYS.forEach((key) => {
     const value = environment[key];
     if (typeof value === "string") safeEnvironment[key] = value;
-  }
+  });
   return safeEnvironment;
 }
 
