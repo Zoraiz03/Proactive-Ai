@@ -7,11 +7,13 @@ import {
   Suggestion,
   saveApiKey,
 } from "@/lib/suggest";
+import type { ProactiveHelpNudge } from "@/lib/proactive-help";
 
 export type ObserverStatus =
   | "signedout"
   | "idle"
   | "watching"
+  | "nudge"
   | "thinking"
   | "ready"
   | "error";
@@ -19,14 +21,21 @@ export type ObserverStatus =
 interface Props {
   status: ObserverStatus;
   suggestion: Suggestion | null;
+  nudge: ProactiveHelpNudge | null;
   error: string | null;
   needsKey: boolean;
   contentTooShort: boolean;
   isCodeFile: boolean;
+  proactiveHelpEnabled: boolean;
+  proactiveHelpSaving: boolean;
+  proactiveHelpLoaded: boolean;
   provider: Provider;
   onProviderChange: (provider: Provider) => void;
   onAccept: () => void;
   onDismiss: () => void;
+  onGetHelp: () => void;
+  onNotNow: () => void;
+  onProactiveHelpChange: (enabled: boolean) => void;
   onKeySaved: () => void;
 }
 
@@ -34,6 +43,7 @@ const STATUS_PILL: Record<ObserverStatus, { label: string; pulse: boolean }> = {
   signedout: { label: "Signed out", pulse: false },
   idle: { label: "Observing", pulse: true },
   watching: { label: "Watching", pulse: true },
+  nudge: { label: "Help available", pulse: false },
   thinking: { label: "Thinking…", pulse: true },
   ready: { label: "Suggestion", pulse: false },
   error: { label: "Paused", pulse: false },
@@ -91,26 +101,35 @@ function KeyForm({
 export default function ObserverPanel({
   status,
   suggestion,
+  nudge,
   error,
   needsKey,
   contentTooShort,
   isCodeFile,
+  proactiveHelpEnabled,
+  proactiveHelpSaving,
+  proactiveHelpLoaded,
   provider,
   onProviderChange,
   onAccept,
   onDismiss,
+  onGetHelp,
+  onNotNow,
+  onProactiveHelpChange,
   onKeySaved,
 }: Props) {
   const pill = STATUS_PILL[status];
 
   useEffect(() => {
-    if (status !== "ready" || !suggestion) return;
+    if (!nudge && (status !== "ready" || !suggestion)) return;
     const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onDismiss();
+      if (event.key !== "Escape") return;
+      if (nudge) onNotNow();
+      else onDismiss();
     };
     window.addEventListener("keydown", dismissOnEscape);
     return () => window.removeEventListener("keydown", dismissOnEscape);
-  }, [onDismiss, status, suggestion]);
+  }, [nudge, onDismiss, onNotNow, status, suggestion]);
 
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-l border-sand bg-card">
@@ -130,6 +149,37 @@ export default function ObserverPanel({
       </div>
 
       <div className="border-b border-sand px-4 py-2.5">
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <span>
+            <span className="block text-xs font-medium text-ink">
+              Proactive Help
+            </span>
+            <span className="block text-[10px] text-tan">
+              Offer help when code looks stuck
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={proactiveHelpEnabled}
+            disabled={
+              status === "signedout" ||
+              proactiveHelpSaving ||
+              !proactiveHelpLoaded
+            }
+            onClick={() => onProactiveHelpChange(!proactiveHelpEnabled)}
+            className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+              proactiveHelpEnabled ? "bg-bronze-deep" : "bg-sand"
+            }`}
+            aria-label="Proactive Help"
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                proactiveHelpEnabled ? "translate-x-[18px]" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+        </div>
         <label className="block text-[10px] font-semibold uppercase tracking-widest text-tan">
           AI model
         </label>
@@ -180,6 +230,33 @@ export default function ObserverPanel({
           <div className="rounded-lg border border-sand bg-cream p-3 text-xs leading-relaxed text-ink-soft">
             <span className="mr-2 inline-block animate-spin">✳</span>
             Reviewing your work…
+          </div>
+        )}
+
+        {status === "nudge" && nudge && (
+          <div className="rounded-lg border border-bronze/40 bg-cream p-3">
+            <p className="text-xs font-medium text-ink">
+              You may be stuck around lines {nudge.startLine}–{nudge.endLine}.
+            </p>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-ink-soft">
+              Reason: {nudge.reason}
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={onGetHelp}
+                className="flex-1 rounded-md bg-bronze-deep py-1.5 text-xs font-medium text-cream hover:bg-bronze"
+              >
+                Get help
+              </button>
+              <button
+                type="button"
+                onClick={onNotNow}
+                className="flex-1 rounded-md border border-sand py-1.5 text-xs text-ink-soft hover:border-bronze"
+              >
+                Not now
+              </button>
+            </div>
           </div>
         )}
 

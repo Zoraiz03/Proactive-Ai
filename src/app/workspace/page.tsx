@@ -15,10 +15,16 @@ import {
   fetchSuggestion,
   Provider,
   recordSuggestionOutcome,
+  saveProactiveHelpEnabled,
   Suggestion,
 } from "@/lib/suggest";
 import { resolveStuckConfig, StuckDetectionConfig } from "@/lib/stuck-config";
 import type { StuckMetadata } from "@/lib/stuck-detectors";
+import {
+  createProactiveHelpNudge,
+  metadataForNudgeAction,
+  ProactiveHelpNudge,
+} from "@/lib/proactive-help";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), {
   ssr: false,
@@ -93,11 +99,16 @@ export default function WorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [needsKey, setNeedsKey] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [proactiveHelpEnabled, setProactiveHelpEnabled] = useState(true);
+  const [proactiveHelpLoaded, setProactiveHelpLoaded] = useState(false);
+  const [proactiveHelpSaving, setProactiveHelpSaving] = useState(false);
+  const [nudge, setNudge] = useState<ProactiveHelpNudge | null>(null);
   const [detectionConfig, setDetectionConfig] = useState<StuckDetectionConfig>(
     () => resolveStuckConfig()
   );
   const requestInFlight = useRef(false);
   const pendingStuck = useRef<StuckMetadata | null>(null);
+  const nudgeFileId = useRef<string | null>(null);
   // Content the observer has already handled — don't re-suggest for it
   const lastHandledContent = useRef<string | null>(null);
 
@@ -108,8 +119,12 @@ export default function WorkspacePage() {
       setSessionLoaded(true);
       setStatus(s ? "idle" : "signedout");
       if (s) {
-        void fetchStuckSettings().then((config) => {
-          if (config) setDetectionConfig(config);
+        void fetchStuckSettings().then((settings) => {
+          if (settings) {
+            setDetectionConfig(settings.config);
+            setProactiveHelpEnabled(settings.proactiveHelpEnabled);
+          }
+          setProactiveHelpLoaded(true);
         });
       }
     });
@@ -119,6 +134,14 @@ export default function WorkspacePage() {
   const pauseMs = (session?.pauseSeconds ?? 5) * 1000;
   const contentTooShort =
     !!activeFile && activeFile.content.length < MIN_CONTENT_LENGTH;
+
+  useEffect(() => {
+    if (nudgeFileId.current && nudgeFileId.current !== activeFileId) {
+      nudgeFileId.current = null;
+      setNudge(null);
+      setStatus(session ? "idle" : "signedout");
+    }
+  }, [activeFileId, session]);
 
   // Document files retain the original pause-based suggestion behavior.
   // Monaco code files are triggered only by the detector engine below.
@@ -163,9 +186,10 @@ export default function WorkspacePage() {
     retryNonce,
   ]);
 
-  const handleStuck = useCallback(
+  const requestCodeSuggestion = useCallback(
     async (stuck: StuckMetadata) => {
       if (
+        !proactiveHelpEnabled ||
         !session ||
         !activeFile ||
         kindOf(activeFile.name) !== "code" ||
@@ -178,6 +202,8 @@ export default function WorkspacePage() {
 
       requestInFlight.current = true;
       pendingStuck.current = stuck;
+      nudgeFileId.current = null;
+      setNudge(null);
       setError(null);
       setNeedsKey(false);
       setStatus("thinking");
@@ -203,8 +229,60 @@ export default function WorkspacePage() {
         setStatus("error");
       }
     },
-    [activeFile, provider, session, suggestion]
+    [activeFile, proactiveHelpEnabled, provider, session, suggestion]
   );
+
+  const handleStuck = useCallback(
+    (stuck: StuckMetadata) => {
+      if (!session || !activeFile || requestInFlight.current || suggestion || nudge) {
+        return;
+      }
+      const nextNudge = createProactiveHelpNudge({
+        enabled: proactiveHelpLoaded && proactiveHelpEnabled,
+        isCodeFile: kindOf(activeFile.name) === "code",
+        contentLength: activeFile.content.length,
+        minimumContentLength: MIN_CONTENT_LENGTH,
+        metadata: stuck,
+      });
+      if (!nextNudge) return;
+
+      nudgeFileId.current = activeFile.id;
+      setError(null);
+      setNeedsKey(false);
+      setNudge(nextNudge);
+      setStatus("nudge");
+    },
+    [
+      activeFile,
+      nudge,
+      proactiveHelpEnabled,
+      proactiveHelpLoaded,
+      session,
+      suggestion,
+    ]
+  );
+
+  const getHelp = () => {
+    if (!nudge) return;
+    const metadata = metadataForNudgeAction(nudge, "get_help");
+    if (metadata) void requestCodeSuggestion(metadata);
+  };
+
+  const hideNudge = () => {
+    nudgeFileId.current = null;
+    setNudge(null);
+    setStatus(session ? "idle" : "signedout");
+  };
+
+  const toggleProactiveHelp = async (enabled: boolean) => {
+    const previous = proactiveHelpEnabled;
+    setProactiveHelpEnabled(enabled);
+    if (!enabled && nudge) hideNudge();
+    setProactiveHelpSaving(true);
+    const saved = await saveProactiveHelpEnabled(enabled);
+    setProactiveHelpSaving(false);
+    if (!saved) setProactiveHelpEnabled(previous);
+  };
 
   const acceptSuggestion = () => {
     if (!activeFile || !suggestion?.snippet) return;
@@ -243,7 +321,7 @@ export default function WorkspacePage() {
     setNeedsKey(false);
     setStatus("idle");
     if (stuck) {
-      setTimeout(() => void handleStuck(stuck), 0);
+      setTimeout(() => void requestCodeSuggestion(stuck), 0);
     } else {
       setRetryNonce((n) => n + 1);
     }
@@ -307,10 +385,14 @@ export default function WorkspacePage() {
         <ObserverPanel
           status={status}
           suggestion={suggestion}
+          nudge={nudge}
           error={error}
           needsKey={needsKey}
           contentTooShort={contentTooShort}
           isCodeFile={!!activeFile && kindOf(activeFile.name) === "code"}
+          proactiveHelpEnabled={proactiveHelpEnabled}
+          proactiveHelpSaving={proactiveHelpSaving}
+          proactiveHelpLoaded={proactiveHelpLoaded}
           provider={provider}
           onProviderChange={(p) => {
             setProvider(p);
@@ -318,6 +400,9 @@ export default function WorkspacePage() {
           }}
           onAccept={acceptSuggestion}
           onDismiss={dismissSuggestion}
+          onGetHelp={getHelp}
+          onNotNow={hideNudge}
+          onProactiveHelpChange={(enabled) => void toggleProactiveHelp(enabled)}
           onKeySaved={retryAfterKeySaved}
         />
       </div>

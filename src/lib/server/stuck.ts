@@ -111,16 +111,22 @@ export const StuckSettingsPatchSchema = z
   .object({
     preset: z.enum(["low", "medium", "high"]).optional(),
     overrides: StuckOverridesSchema.optional(),
+    proactiveHelpEnabled: z.boolean().optional(),
   })
   .strict()
-  .refine((body) => body.preset !== undefined || body.overrides !== undefined, {
-    message: "Provide a preset or overrides.",
-  });
+  .refine(
+    (body) =>
+      body.preset !== undefined ||
+      body.overrides !== undefined ||
+      body.proactiveHelpEnabled !== undefined,
+    { message: "Provide a preset, overrides, or proactive help preference." }
+  );
 
 export interface StoredStuckSettings {
   preset: SensitivityPreset;
   overrides: StuckConfigOverrides;
   adaptiveOverrides: StuckConfigOverrides;
+  proactiveHelpEnabled: boolean;
 }
 
 function safeOverrides(value: unknown): StuckConfigOverrides {
@@ -132,6 +138,7 @@ export function normalizeStoredSettings(row: {
   preset?: unknown;
   overrides?: unknown;
   adaptive_overrides?: unknown;
+  proactive_help_enabled?: unknown;
 } | null): StoredStuckSettings {
   const preset = z
     .enum(["low", "medium", "high"])
@@ -141,6 +148,10 @@ export function normalizeStoredSettings(row: {
     preset,
     overrides: safeOverrides(row?.overrides),
     adaptiveOverrides: safeOverrides(row?.adaptive_overrides),
+    proactiveHelpEnabled:
+      typeof row?.proactive_help_enabled === "boolean"
+        ? row.proactive_help_enabled
+        : true,
   };
 }
 

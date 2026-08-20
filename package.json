@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:detectors": "node --experimental-transform-types scripts/stuck-detectors.test.ts"
+    "test:detectors": "node --experimental-transform-types scripts/stuck-detectors.test.ts",
+    "test:proactive-help": "node --experimental-transform-types scripts/proactive-help.test.ts",
+    "test": "npm run test:detectors && npm run test:proactive-help"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

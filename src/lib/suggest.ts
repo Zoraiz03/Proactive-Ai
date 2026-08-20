@@ -29,6 +29,11 @@ export interface SuggestResult {
   needsKey?: boolean;
 }
 
+export interface StuckSettingsResult {
+  config: StuckDetectionConfig;
+  proactiveHelpEnabled: boolean;
+}
+
 export async function fetchSuggestion(body: {
   provider: Provider;
   fileName: string;
@@ -52,13 +57,30 @@ export async function fetchSuggestion(body: {
   }
 }
 
-export async function fetchStuckSettings(): Promise<StuckDetectionConfig | null> {
+export async function fetchStuckSettings(): Promise<StuckSettingsResult | null> {
   try {
     const res = await fetch("/api/stuck-settings");
     if (!res.ok) return null;
-    return (await res.json()).config as StuckDetectionConfig;
+    const data = await res.json();
+    return {
+      config: data.config as StuckDetectionConfig,
+      proactiveHelpEnabled: data.proactiveHelpEnabled !== false,
+    };
   } catch {
     return null;
+  }
+}
+
+export async function saveProactiveHelpEnabled(enabled: boolean): Promise<boolean> {
+  try {
+    const res = await fetch("/api/stuck-settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proactiveHelpEnabled: enabled }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

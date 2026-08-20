@@ -15,7 +15,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("stuck_detection_settings")
-    .select("preset, overrides, adaptive_overrides")
+    .select("preset, overrides, adaptive_overrides, proactive_help_enabled")
     .eq("user_id", user.id)
     .maybeSingle();
   if (error) {
@@ -46,7 +46,7 @@ export async function PATCH(req: Request) {
 
   const { data: existing, error: readError } = await supabase
     .from("stuck_detection_settings")
-    .select("preset, overrides, adaptive_overrides")
+    .select("preset, overrides, adaptive_overrides, proactive_help_enabled")
     .eq("user_id", user.id)
     .maybeSingle();
   if (readError) {
@@ -58,6 +58,8 @@ export async function PATCH(req: Request) {
     preset: parsed.data.preset ?? current.preset,
     overrides: parsed.data.overrides ?? current.overrides,
     adaptive_overrides: current.adaptiveOverrides,
+    proactive_help_enabled:
+      parsed.data.proactiveHelpEnabled ?? current.proactiveHelpEnabled,
   };
   const { error } = await supabase.from("stuck_detection_settings").upsert({
     user_id: user.id,
