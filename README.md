@@ -7,7 +7,8 @@ A browser-based workspace that delivers AI suggestions automatically while you t
 ## Build phases
 
 - [x] **Phase 1 — Workspace shell**: landing page, file tree, Monaco code editor, TipTap document editor, localStorage auto-save
-- [x] **Auth + suggestion engine**: sign-in/sign-up, proactive typing-pause detection, model dropdown (Gemini/DeepSeek/ChatGPT/Claude + offline demo), accept/dismiss, encrypted API-key storage
+- [x] **Auth + suggestion engine**: sign-in/sign-up, detector-driven code suggestions, pause-driven document suggestions, model dropdown (Gemini/DeepSeek/ChatGPT/Claude + offline demo), accept/dismiss, encrypted API-key storage
+- [x] **Adaptive stuck detection**: repeated edits, unresolved errors, and cursor thrashing combine into a score; last-20 outcomes tune per-user sensitivity
 - [x] **Supabase migration**: Postgres + Supabase Auth + Row Level Security; the API now lives in Next.js Route Handlers (no separate server)
 - [ ] **Phase 3b — Files in Postgres** (currently localStorage) + preferences UI
 - [ ] **Phase 4 — Session history + usage limits**
@@ -37,6 +38,17 @@ Create a project at supabase.com, run the SQL in `supabase/migrations/` against 
 `_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` values in `.env.local` with your
 project's. No code changes needed.
 
+For an existing project, apply the additive feedback migration with:
+
+```bash
+npx supabase db push
+```
+
+This creates `stuck_detection_settings`, `suggestions`, and
+`suggestion_outcomes`. The migration enables ownership RLS and grants the
+authenticated/service roles explicitly; no dashboard policy or key changes are
+required.
+
 ## Stack
 
 **Frontend + backend:** Next.js 14 (App Router, Route Handlers) · React 18 · TypeScript · Tailwind CSS · Monaco Editor · TipTap · Zustand
@@ -55,11 +67,17 @@ project's. No code changes needed.
 | GET | `/api/keys` | Which AI providers have a saved key (never the key itself) |
 | PUT | `/api/keys/[provider]` | Save/replace an encrypted API key (gemini, openai, deepseek, anthropic) |
 | DELETE | `/api/keys/[provider]` | Remove a key |
-| POST | `/api/suggest` | Generate a proactive suggestion (provider, fileName, kind, content) |
+| POST | `/api/suggest` | Generate and persist a suggestion, including structured stuck metadata for code |
+| GET | `/api/stuck-settings` | Resolve the signed-in user's preset, overrides, and adaptive thresholds |
+| PATCH | `/api/stuck-settings` | Save a future Settings UI's preset and detector overrides |
+| POST | `/api/suggestions/[id]/outcome` | Record accepted/dismissed outcomes and adapt sensitivity |
 
 Auth (signup/login/logout/session) is handled directly by the Supabase client in
 `src/lib/auth.ts` — no custom endpoints needed. The server-wide fallback AI keys
 live in `.env.local`; a user's own saved key always takes priority.
+
+Run focused detector checks with `npm run test:detectors`. The harness uses
+deterministic timestamps and does not require a browser.
 
 ## Structure
 
@@ -72,13 +90,17 @@ src/
     workspace/page.tsx   # Three-pane workspace
     api/
       suggest/route.ts   # Proactive suggestion endpoint
+      stuck-settings/    # Typed detector preset/override API
+      suggestions/[id]/  # Outcome persistence and feedback adaptation
       keys/[provider]/   # Encrypted API-key save/delete
   components/            # FileTree, CodeEditor, DocEditor, ObserverPanel …
   lib/
     supabase/            # client.ts (browser), server.ts (SSR), service.ts (service-role)
     auth.ts              # Supabase Auth wrapper
     suggest.ts           # Calls the /api route handlers
-    server/              # providers.ts + crypto.ts (SERVER-ONLY)
+    server/              # providers, validation/feedback, and crypto (SERVER-ONLY)
+    stuck-config.ts      # Typed defaults and low/medium/high presets
+    stuck-detectors.ts   # Independent Monaco signal detectors + score combiner
     files.ts, store.ts   # File-kind detection, Zustand store
 supabase/
   migrations/            # Schema, RLS policies, grants, signup trigger

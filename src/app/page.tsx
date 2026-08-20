@@ -98,10 +98,10 @@ export default function LandingPage() {
             </h1>
             <p className="mt-6 max-w-md text-[15px] leading-relaxed text-ink-soft">
               Proactive AI Workspace inverts the request-response loop. A
-              5-second pause triggers context-aware suggestions across{" "}
-              <strong className="text-ink">code</strong> and{" "}
-              <strong className="text-ink">documents</strong>, with free and
-              paid models one dropdown away — so it never burns your budget.
+              combination of editing signals detects when you are stuck in{" "}
+              <strong className="text-ink">code</strong>, while pauses trigger
+              help in <strong className="text-ink">documents</strong>. Free and
+              paid models stay one dropdown away — so it never burns your budget.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link
