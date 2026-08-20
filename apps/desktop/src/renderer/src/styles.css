@@ -209,6 +209,13 @@ input {
   line-height: 1.45;
 }
 
+.external-status {
+  margin: 0 10px 9px;
+  color: #8fbfa8;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .workspace-tree {
   min-height: 0;
   flex: 1;
@@ -407,6 +414,12 @@ button.tree-row {
   line-height: 1;
 }
 
+.tab-unavailable {
+  color: #e5b36b;
+  font-size: 10px;
+  font-weight: 800;
+}
+
 .tab-close {
   display: grid;
   width: 17px;
@@ -501,6 +514,53 @@ button.tree-row {
   background: #242a34;
   color: #697587;
   cursor: default;
+}
+
+.external-file-banner {
+  display: flex;
+  min-height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid #343c49;
+  background: #202630;
+  color: #bac2ce;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.external-file-banner.conflict,
+.external-file-banner.unavailable {
+  background: rgb(184 126 54 / 12%);
+  color: #e5c18c;
+}
+
+.external-file-banner.notice {
+  color: #8fbfa8;
+}
+
+.external-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.external-file-actions button {
+  padding: 4px 8px;
+  border: 1px solid #4b5564;
+  border-radius: 4px;
+  background: #272e39;
+  color: #d7dce4;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.external-file-actions button.primary {
+  border-color: #6f58ab;
+  background: #5f49b2;
+  color: white;
 }
 
 .monaco-host {

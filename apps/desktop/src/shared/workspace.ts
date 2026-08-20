@@ -6,6 +6,7 @@ export const WORKSPACE_CHANNELS = {
   createEntry: "workspace:create-entry",
   renameEntry: "workspace:rename-entry",
   deleteEntry: "workspace:delete-entry",
+  changed: "workspace:changed",
 } as const;
 
 export interface WorkspaceEntry {
@@ -81,6 +82,17 @@ export type WorkspaceMutationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string; code: WorkspaceMutationErrorCode };
 
+export interface WorkspaceChange {
+  relativePath: string;
+  type: "added" | "changed" | "deleted";
+  kind: "file" | "directory";
+}
+
+export interface WorkspaceChangeBatch {
+  changes: WorkspaceChange[];
+  timestamp: number;
+}
+
 export type IpcResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string };
@@ -101,4 +113,5 @@ export interface WorkspaceBridge {
   deleteEntry: (
     relativePath: string
   ) => Promise<WorkspaceMutationResult<{ relativePath: string }>>;
+  onDidChange: (listener: (batch: WorkspaceChangeBatch) => void) => () => void;
 }

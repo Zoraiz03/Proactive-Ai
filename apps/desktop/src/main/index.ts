@@ -66,7 +66,10 @@ app.whenReady().then(() => {
     callback(false);
   });
 
-  registerWorkspaceIpc(() => mainWindow);
+  const cleanupWorkspaceIpc = registerWorkspaceIpc(() => mainWindow);
+  app.once("will-quit", () => {
+    void cleanupWorkspaceIpc();
+  });
   createMainWindow();
 
   app.on("activate", () => {

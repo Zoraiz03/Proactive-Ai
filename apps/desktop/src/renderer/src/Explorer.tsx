@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
-import type { OpenWorkspace, WorkspaceEntry } from "../../shared/workspace";
+import { useCallback, useEffect, useState } from "react";
+import type {
+  OpenWorkspace,
+  WorkspaceChangeBatch,
+  WorkspaceEntry,
+} from "../../shared/workspace";
 
 interface DeleteImpact {
   openCount: number;
@@ -12,6 +16,9 @@ interface TreeEntryProps {
   activeFilePath: string | null;
   selectedPath: string | null;
   revealPath: string | null;
+  expandedPaths: ReadonlySet<string>;
+  refreshVersion: number;
+  onExpandedChange: (relativePath: string, expanded: boolean) => void;
   onSelectEntry: (entry: WorkspaceEntry) => void;
   onSelectFile: (entry: WorkspaceEntry) => void;
 }
@@ -22,31 +29,39 @@ function TreeEntry({
   activeFilePath,
   selectedPath,
   revealPath,
+  expandedPaths,
+  refreshVersion,
+  onExpandedChange,
   onSelectEntry,
   onSelectFile,
 }: TreeEntryProps) {
-  const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<WorkspaceEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const expand = async () => {
+  const expanded = expandedPaths.has(entry.relativePath);
+
+  const loadChildren = useCallback(async () => {
     if (entry.kind !== "directory") return;
-    setExpanded(true);
-    if (children !== null || loading) return;
     setLoading(true);
     setError(null);
     const result = await window.workspace.readDirectory(entry.relativePath);
     setLoading(false);
     if (result.ok) setChildren(result.value);
     else setError(result.error);
+  }, [entry.kind, entry.relativePath]);
+
+  const expand = async () => {
+    if (entry.kind !== "directory") return;
+    onExpandedChange(entry.relativePath, true);
+    if (children === null && !loading) await loadChildren();
   };
 
   const toggle = async () => {
     onSelectEntry(entry);
     if (entry.kind !== "directory") return;
     if (expanded) {
-      setExpanded(false);
+      onExpandedChange(entry.relativePath, false);
       return;
     }
     await expand();
@@ -61,6 +76,10 @@ function TreeEntry({
       void expand();
     }
   }, [entry.kind, entry.relativePath, revealPath]);
+
+  useEffect(() => {
+    if (expanded) void loadChildren();
+  }, [expanded, loadChildren, refreshVersion]);
 
   const isSelected = selectedPath === entry.relativePath;
 
@@ -115,6 +134,9 @@ function TreeEntry({
                   activeFilePath={activeFilePath}
                   selectedPath={selectedPath}
                   revealPath={revealPath}
+                  expandedPaths={expandedPaths}
+                  refreshVersion={refreshVersion}
+                  onExpandedChange={onExpandedChange}
                   onSelectEntry={onSelectEntry}
                   onSelectFile={onSelectFile}
                 />
@@ -140,6 +162,7 @@ interface ExplorerProps {
   onEntryRenamed: (oldRelativePath: string, entry: WorkspaceEntry) => void;
   onEntryDeleted: (relativePath: string, kind: WorkspaceEntry["kind"]) => void;
   getDeleteImpact: (entry: WorkspaceEntry) => DeleteImpact;
+  externalChanges: WorkspaceChangeBatch | null;
 }
 
 function parentPath(relativePath: string): string {
@@ -154,9 +177,11 @@ export default function Explorer({
   onEntryRenamed,
   onEntryDeleted,
   getDeleteImpact,
+  externalChanges,
 }: ExplorerProps) {
   const [workspace, setWorkspace] = useState<OpenWorkspace | null>(null);
-  const [workspaceVersion, setWorkspaceVersion] = useState(0);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
   const [selectedEntry, setSelectedEntry] = useState<WorkspaceEntry | null>(null);
   const [revealPath, setRevealPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -165,6 +190,7 @@ export default function Explorer({
   const [dialogName, setDialogName] = useState("");
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
+  const [externalStatus, setExternalStatus] = useState<string | null>(null);
 
   const openFolder = async () => {
     if (loading || !(await onBeforeWorkspaceOpen())) return;
@@ -181,7 +207,8 @@ export default function Explorer({
       setWorkspace(result.value);
       setSelectedEntry(null);
       setRevealPath(null);
-      setWorkspaceVersion((version) => version + 1);
+      setExpandedPaths(new Set());
+      setRefreshVersion((version) => version + 1);
     }
   };
 
@@ -195,9 +222,59 @@ export default function Explorer({
     setWorkspace({ ...workspace, entries: result.value });
     setSelectedEntry(entryToReveal);
     setRevealPath(entryToReveal?.relativePath ?? null);
-    setWorkspaceVersion((version) => version + 1);
+    if (entryToReveal) {
+      const segments = parentPath(entryToReveal.relativePath).split("/").filter(Boolean);
+      setExpandedPaths((current) => {
+        const next = new Set(current);
+        for (let index = 1; index <= segments.length; index += 1) {
+          next.add(segments.slice(0, index).join("/"));
+        }
+        return next;
+      });
+    }
+    setRefreshVersion((version) => version + 1);
     return true;
   };
+
+  const setEntryExpanded = useCallback((relativePath: string, expanded: boolean) => {
+    setExpandedPaths((current) => {
+      const next = new Set(current);
+      if (expanded) next.add(relativePath);
+      else next.delete(relativePath);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!workspace || !externalChanges) return;
+    let cancelled = false;
+    const refreshFromDisk = async () => {
+      const result = await window.workspace.readDirectory("");
+      if (cancelled) return;
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setWorkspace((current) => current ? { ...current, entries: result.value } : current);
+      setRefreshVersion((version) => version + 1);
+      setSelectedEntry((current) => {
+        if (!current) return current;
+        const wasDeleted = externalChanges.changes.some((change) =>
+          change.type === "deleted" &&
+          (current.relativePath === change.relativePath ||
+            (change.kind === "directory" && current.relativePath.startsWith(`${change.relativePath}/`)))
+        );
+        return wasDeleted ? null : current;
+      });
+      setExternalStatus("Workspace updated externally.");
+    };
+    void refreshFromDisk();
+    const statusTimer = window.setTimeout(() => setExternalStatus(null), 3500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(statusTimer);
+    };
+  }, [externalChanges]);
 
   const creationParent = selectedEntry
     ? selectedEntry.kind === "directory"
@@ -302,6 +379,7 @@ export default function Explorer({
       )}
 
       {error && <div className="explorer-error">{error}</div>}
+      {externalStatus && <div className="external-status" role="status">{externalStatus}</div>}
 
       {!workspace && !loading && !error && (
         <div className="explorer-empty">
@@ -311,7 +389,7 @@ export default function Explorer({
       )}
 
       {workspace && (
-        <div className="workspace-tree" key={workspaceVersion}>
+        <div className="workspace-tree">
           <div className="workspace-name" title={workspace.name}>
             <span aria-hidden="true">⌄</span>
             {workspace.name}
@@ -328,6 +406,9 @@ export default function Explorer({
                   activeFilePath={activeFilePath}
                   selectedPath={selectedEntry?.relativePath ?? null}
                   revealPath={revealPath}
+                  expandedPaths={expandedPaths}
+                  refreshVersion={refreshVersion}
+                  onExpandedChange={setEntryExpanded}
                   onSelectEntry={setSelectedEntry}
                   onSelectFile={onSelectFile}
                 />

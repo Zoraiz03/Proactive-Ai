@@ -223,14 +223,40 @@ Phase 3A required verification:
 - [x] **Complete** — Electron launches with the existing secure flags.
 - [x] **Complete** — Existing web lint, tests, and production build pass.
 
+### Phase 3B — External workspace synchronization
+
+- [x] **Complete** — Watch the selected workspace only from Electron's main
+  process and ignore generated/noisy directories.
+- [x] **Complete** — Debounce and batch relative-path change events through one
+  typed preload subscription.
+- [x] **Complete** — Refresh Explorer contents while preserving expanded and
+  still-valid selected entries where possible.
+- [x] **Complete** — Reload externally changed clean tabs without overwriting
+  dirty editor buffers.
+- [x] **Complete** — Offer Reload External Version or Keep My Local Changes for
+  dirty-file conflicts.
+- [x] **Complete** — Mark externally deleted open files unavailable without
+  dropping their in-memory content.
+- [x] **Complete** — Stop watchers when switching workspaces and closing the app.
+
+Phase 3B required verification:
+
+- [x] **Complete** — External create, rename, edit, delete, and rapid event
+  batches refresh the workspace safely.
+- [x] **Complete** — Clean, dirty, recreated, and deleted open-file flows behave
+  deterministically.
+- [x] **Complete** — Watcher ignore, batching, suppression, and cleanup tests pass.
+- [x] **Complete** — Desktop TypeScript/build and secure launch checks pass.
+- [x] **Complete** — Existing web lint, tests, and production build pass.
+
 - [x] **Complete** — Add file and folder creation.
 - [x] **Complete** — Add rename and delete operations with clear confirmation for
   destructive actions.
 - [x] **Complete** — Add editor tabs and active-tab navigation.
 - [x] **Complete** — Preserve dirty buffers when switching files.
 - [ ] **Not Started** — Add Save, Save As, and Save All commands.
-- [ ] **Not Started** — Detect external file changes and offer reload/compare choices.
-- [ ] **Not Started** — Add workspace refresh and filesystem watching.
+- [x] **Complete** — Detect external file changes and offer reload/keep choices.
+- [x] **Complete** — Add automatic workspace refresh and filesystem watching.
 - [ ] **Not Started** — Add find-in-file and project search.
 - [ ] **Not Started** — Persist non-sensitive window and recent-project preferences.
 
@@ -392,6 +418,14 @@ Required verification:
 16. **Keep dirty buffers independent of paths.** Open tabs own their in-memory
     drafts. Renaming a file or parent directory rewrites the affected tab paths but
     preserves drafts, saved baselines, and modification timestamps.
+17. **Watch only in the main process.** Phase 3B uses one watcher for the currently
+    authorized canonical workspace root, emits only normalized relative paths,
+    batches rapid activity, and never exposes a filesystem watcher to preload or
+    renderer code.
+18. **Treat disk changes as untrusted concurrent edits.** Clean buffers may reload
+    after the existing secure read checks pass. Dirty buffers retain their local
+    draft until the user explicitly chooses the external version or keeps the
+    local version. Deletion never removes an open buffer automatically.
 
 ## Security rules
 
@@ -420,6 +454,9 @@ Required verification:
 - Refuse rename/delete operations on the workspace root and symbolic links. Never
   replace an existing rename destination, and delete directories with empty-only
   removal rather than recursive deletion.
+- Do not follow symlinks while watching. Ignore generated directories, suppress
+  notifications caused by the IDE's own validated mutations, and stop the active
+  watcher on workspace replacement, renderer destruction, and accepted app quit.
 - Do not read or transmit files until the user explicitly selects a project and,
   for AI context, explicitly asks for help.
 - Do not place Supabase service-role credentials, server encryption secrets, or AI
@@ -433,6 +470,67 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 3B complete
+
+Changed files:
+
+- Desktop package manifest and lockfile — added `chokidar` only to the isolated
+  Electron package.
+- `apps/desktop/src/main/workspace-watcher.ts`, `workspace-ipc.ts`, and `index.ts`
+  — added a main-process-only watcher, ignored-directory filtering, relative event
+  batching, internal-operation suppression, authorized-window delivery, and
+  lifecycle cleanup.
+- `apps/desktop/src/shared/workspace.ts` and `external-sync.ts` — added the narrow
+  typed subscription contract and deterministic clean/dirty/deletion decisions.
+- `apps/desktop/src/preload/index.ts` — exposed one listener registration that
+  returns an unsubscribe function; no Node or raw IPC object is exposed.
+- `apps/desktop/src/renderer/src/Explorer.tsx`, `App.tsx`, and `styles.css` —
+  preserved expanded tree state during refresh, retained valid selection, added
+  external-update notices, reloaded clean tabs, protected dirty drafts with two
+  explicit conflict actions, and marked deleted tabs unavailable.
+- `apps/desktop/src/main/workspace-files.test.ts` — expanded focused coverage from
+  20 to 23 tests, including watcher batching/ignore/suppression/stop behavior and
+  clean-versus-dirty reconciliation.
+- Desktop README and this roadmap — documented Phase 3B behavior and results.
+
+Security decisions:
+
+- The canonical workspace root remains main-process-only. Renderer events contain
+  relative paths, entry kinds, change kinds, and a timestamp only.
+- The watcher does not follow symlinks and ignores `node_modules`, `.git`, `dist`,
+  `build`, and `.next` at every depth.
+- External reloads still pass through the existing allowlist, canonical-path,
+  regular-file, UTF-8, binary, and 2 MiB checks.
+- The IDE suppresses its own validated writes/mutations so they do not masquerade
+  as external conflicts; rapid external changes are coalesced before delivery.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 23/23 tests passed, including external event
+  batching, ignored paths, internal suppression, cleanup, clean reload decisions,
+  dirty conflict decisions, and parent-directory deletion matching.
+- `npm --prefix apps/desktop run build` — strict main/preload/renderer TypeScript
+  checks and the production Electron Vite build passed.
+- `npm --prefix apps/desktop run dev` — Electron launched and logged
+  `contextIsolation=true`, `nodeIntegration=false`, and `sandbox=true`.
+- `npm run lint`, `npm test`, and `npm run build` — the unchanged web application
+  passed lint, its focused harness, and its production Next.js build.
+
+Remaining risks:
+
+- Operating systems can represent an external rename as separate delete/add
+  events. An open old-path tab is intentionally marked unavailable rather than
+  guessing that an unrelated new path is its rename target.
+- Native watcher limits vary by operating system and very large repositories;
+  ignored generated trees and event batching reduce load, while larger-tree
+  scalability remains a future performance-validation task.
+
+### 2026-08-20 — Phase 3B started
+
+- Marked only external disk synchronization **In Progress** before implementation.
+- Explicitly deferred terminal, AI, Supabase, authentication, Git integration,
+  rich documents, and proactive features.
 
 ### 2026-08-20 — Phase 3A complete
 
@@ -717,14 +815,16 @@ Verification:
 | 2026-08-20 | Phase 3A operation tests | Complete | 20/20 file security, mutation, and tab-path tests passed. |
 | 2026-08-20 | Phase 3A desktop checks | Complete | TypeScript/build and secure Electron launch passed. |
 | 2026-08-20 | Phase 3A web regression | Complete | Existing lint, tests, and Next.js build passed unchanged. |
+| 2026-08-20 | Phase 3B watcher/reconciliation tests | Complete | 23/23 tests passed, including batching, ignore, suppression, cleanup, clean reload, dirty conflict, and deletion cases. |
+| 2026-08-20 | Phase 3B desktop checks | Complete | TypeScript/build and secure Electron launch passed. |
+| 2026-08-20 | Phase 3B web regression | Complete | Existing lint, tests, and Next.js build passed unchanged. |
 
 ## Recommended next task
 
-Add **external file-change refresh and polished Explorer behavior**:
+Add a **controlled terminal and output panel** as Phase 4's first scoped task:
 
-1. Detect external changes to open files and offer Reload or Keep Editor Content.
-2. Add an explicit Explorer refresh action while preserving expanded folders.
-3. Improve keyboard navigation, focus management, and inline operation feedback.
-4. Add Save All before introducing filesystem watching.
-5. Continue to defer terminal, AI, Supabase, authentication, Git, and documentation
-   features.
+1. Define a narrow, explicit terminal-session IPC protocol.
+2. Start commands only after visible user action and only in the selected workspace.
+3. Stream output to the existing Output panel and terminate child processes on exit.
+4. Keep AI, Supabase, authentication, Git integration, documentation, and proactive
+   features deferred.

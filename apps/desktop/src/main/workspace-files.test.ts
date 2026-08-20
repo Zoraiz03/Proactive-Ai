@@ -23,6 +23,15 @@ import {
   replaceWorkspaceEntryPath,
   workspaceEntryContainsPath,
 } from "../shared/workspace-paths.ts";
+import {
+  batchChangesFile,
+  batchDeletesPath,
+  resolveExternalFileUpdate,
+} from "../shared/external-sync.ts";
+import {
+  shouldIgnoreWorkspaceWatchPath,
+  WorkspaceWatcher,
+} from "./workspace-watcher.ts";
 
 let temporaryDirectory = "";
 let workspaceRoot = "";
@@ -419,4 +428,95 @@ test("updates only affected open-tab paths after file and folder renames", () =>
     replaceWorkspaceEntryPath("src/other.ts", "src/utils", renamedFolder),
     "src/other.ts"
   );
+});
+
+test("watches, batches, ignores, suppresses, and stops workspace changes", async () => {
+  const watchRoot = join(temporaryDirectory, "watcher-workspace");
+  await mkdir(join(watchRoot, "src"), { recursive: true });
+  await mkdir(join(watchRoot, "node_modules"), { recursive: true });
+
+  assert.equal(shouldIgnoreWorkspaceWatchPath(watchRoot, join(watchRoot, "src")), false);
+  assert.equal(
+    shouldIgnoreWorkspaceWatchPath(watchRoot, join(watchRoot, "node_modules", "package.js")),
+    true
+  );
+  assert.equal(shouldIgnoreWorkspaceWatchPath(watchRoot, outsideDirectory), true);
+
+  const batches: Array<Array<{ relativePath: string; type: string }>> = [];
+  let resolveNextBatch: (() => void) | null = null;
+  const watcher = new WorkspaceWatcher(
+    (batch) => {
+      batches.push(batch.changes.map(({ relativePath, type }) => ({ relativePath, type })));
+      resolveNextBatch?.();
+      resolveNextBatch = null;
+    },
+    { batchDelayMs: 80, suppressionMs: 600, usePolling: true }
+  );
+  await watcher.start(watchRoot);
+
+  const waitForBatch = () => new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for workspace batch")), 3_000);
+    resolveNextBatch = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+  });
+
+  const firstBatch = waitForBatch();
+  await Promise.all([
+    writeFile(join(watchRoot, "src", "one.ts"), "one"),
+    writeFile(join(watchRoot, "src", "two.ts"), "two"),
+  ]);
+  await firstBatch;
+  assert.equal(batches.length, 1);
+  assert.deepEqual(
+    new Set(batches[0].map((change) => change.relativePath)),
+    new Set(["src/one.ts", "src/two.ts"])
+  );
+
+  watcher.suppress(["src/internal.ts"]);
+  await writeFile(join(watchRoot, "src", "internal.ts"), "internal");
+  await writeFile(join(watchRoot, "node_modules", "ignored.ts"), "ignored");
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  assert.equal(batches.length, 1);
+
+  await watcher.stop();
+  await writeFile(join(watchRoot, "src", "after-stop.ts"), "stopped");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(batches.length, 1);
+});
+
+test("resolves external file updates without overwriting dirty buffers", () => {
+  const opened = {
+    name: "file.ts",
+    relativePath: "src/file.ts",
+    content: "const value = 1;",
+    modifiedAtMs: 1,
+  };
+  const external = { ...opened, content: "const value = 2;", modifiedAtMs: 2 };
+
+  assert.deepEqual(resolveExternalFileUpdate(opened, opened.content, external), {
+    kind: "reload",
+    file: external,
+    draft: external.content,
+  });
+  assert.deepEqual(resolveExternalFileUpdate(opened, "const local = true;", external), {
+    kind: "conflict",
+    externalFile: external,
+  });
+});
+
+test("matches exact file changes and parent-directory deletion events", () => {
+  const batch = {
+    timestamp: 1,
+    changes: [
+      { relativePath: "src/file.ts", type: "changed" as const, kind: "file" as const },
+      { relativePath: "removed", type: "deleted" as const, kind: "directory" as const },
+    ],
+  };
+
+  assert.equal(batchChangesFile(batch, "src/file.ts"), true);
+  assert.equal(batchChangesFile(batch, "src/other.ts"), false);
+  assert.equal(batchDeletesPath(batch, "removed/nested/file.ts"), true);
+  assert.equal(batchDeletesPath(batch, "removed-name/file.ts"), false);
 });

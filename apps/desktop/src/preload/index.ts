@@ -4,6 +4,7 @@ import {
   type FileWriteRequest,
   type CreateWorkspaceEntryRequest,
   type RenameWorkspaceEntryRequest,
+  type WorkspaceChangeBatch,
   type WorkspaceBridge,
 } from "../shared/workspace";
 
@@ -21,6 +22,13 @@ const workspaceBridge: WorkspaceBridge = Object.freeze({
     ipcRenderer.invoke(WORKSPACE_CHANNELS.renameEntry, request),
   deleteEntry: (relativePath: string) =>
     ipcRenderer.invoke(WORKSPACE_CHANNELS.deleteEntry, relativePath),
+  onDidChange: (listener: (batch: WorkspaceChangeBatch) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, batch: WorkspaceChangeBatch) => {
+      listener(batch);
+    };
+    ipcRenderer.on(WORKSPACE_CHANNELS.changed, wrapped);
+    return () => ipcRenderer.removeListener(WORKSPACE_CHANNELS.changed, wrapped);
+  },
 });
 
 contextBridge.exposeInMainWorld("workspace", workspaceBridge);

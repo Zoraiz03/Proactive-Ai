@@ -2,11 +2,17 @@ import Editor from "@monaco-editor/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { monacoLanguageForFile } from "../../shared/languages";
 import {
+  batchChangesFile,
+  batchDeletesPath,
+  resolveExternalFileUpdate,
+} from "../../shared/external-sync";
+import {
   replaceWorkspaceEntryPath,
   workspaceEntryContainsPath,
 } from "../../shared/workspace-paths";
 import type {
   FileReadErrorCode,
+  WorkspaceChangeBatch,
   WorkspaceEntry,
   WorkspaceTextFile,
 } from "../../shared/workspace";
@@ -19,6 +25,9 @@ interface EditorTab {
   draft: string;
   saving: boolean;
   saveStatus: SaveStatus | null;
+  availability: "available" | "unavailable";
+  externalConflict: WorkspaceTextFile | null;
+  externalNotice: string | null;
 }
 
 type EditorSurface =
@@ -66,6 +75,8 @@ interface EditorWorkspaceProps {
   onClose: (relativePath: string) => void;
   onChange: (relativePath: string, content: string) => void;
   onSave: (relativePath: string) => void;
+  onReloadExternal: (relativePath: string) => void;
+  onKeepLocal: (relativePath: string) => void;
 }
 
 function EditorWorkspace({
@@ -76,6 +87,8 @@ function EditorWorkspace({
   onClose,
   onChange,
   onSave,
+  onReloadExternal,
+  onKeepLocal,
 }: EditorWorkspaceProps) {
   const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
 
@@ -100,6 +113,9 @@ function EditorWorkspace({
                 >
                   <span className="editor-tab-name">{tab.file.name}</span>
                   {isDirty(tab) && <span className="tab-dirty" aria-label="Unsaved changes">•</span>}
+                  {tab.availability === "unavailable" && (
+                    <span className="tab-unavailable" aria-label="File unavailable">!</span>
+                  )}
                 </button>
                 <button
                   type="button"
@@ -134,12 +150,36 @@ function EditorWorkspace({
               type="button"
               className="save-button"
               onClick={() => onSave(activeTab.file.relativePath)}
-              disabled={!isDirty(activeTab) || activeTab.saving}
+              disabled={
+                !isDirty(activeTab) ||
+                activeTab.saving ||
+                activeTab.availability === "unavailable" ||
+                Boolean(activeTab.externalConflict)
+              }
               title="Save (Ctrl+S / Cmd+S)"
             >
               {activeTab.saving ? "Saving…" : "Save"}
             </button>
           </div>
+          {activeTab.externalConflict ? (
+            <div className="external-file-banner conflict" role="alert">
+              <span>This file changed on disk while you have unsaved edits.</span>
+              <div className="external-file-actions">
+                <button type="button" onClick={() => onReloadExternal(activeTab.file.relativePath)}>
+                  Reload external version
+                </button>
+                <button type="button" className="primary" onClick={() => onKeepLocal(activeTab.file.relativePath)}>
+                  Keep my local changes
+                </button>
+              </div>
+            </div>
+          ) : activeTab.availability === "unavailable" ? (
+            <div className="external-file-banner unavailable" role="alert">
+              This file is no longer available on disk. Its editor content is preserved in this tab.
+            </div>
+          ) : activeTab.externalNotice ? (
+            <div className="external-file-banner notice" role="status">{activeTab.externalNotice}</div>
+          ) : null}
           <div className="monaco-host">
             <Editor
               path={activeTab.file.relativePath}
@@ -184,9 +224,11 @@ export default function App() {
   const [tabs, setTabs] = useState<EditorTab[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [surface, setSurface] = useState<EditorSurface>({ status: "idle" });
+  const [externalChanges, setExternalChanges] = useState<WorkspaceChangeBatch | null>(null);
   const [unsavedPrompt, setUnsavedPrompt] = useState<UnsavedPrompt | null>(null);
   const tabsRef = useRef(tabs);
   const requestSequence = useRef(0);
+  const externalReadSequence = useRef(new Map<string, number>());
 
   useEffect(() => {
     tabsRef.current = tabs;
@@ -196,6 +238,24 @@ export default function App() {
     const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === relativePath);
     if (!tab || !isDirty(tab)) return true;
     if (tab.saving) return false;
+    if (tab.availability === "unavailable" || tab.externalConflict) {
+      setTabs((current) =>
+        current.map((candidate) =>
+          candidate.file.relativePath === relativePath
+            ? {
+                ...candidate,
+                saveStatus: {
+                  kind: "error",
+                  message: tab.externalConflict
+                    ? "Resolve the external change before saving"
+                    : "This file is unavailable on disk",
+                },
+              }
+            : candidate
+        )
+      );
+      return false;
+    }
 
     const contentToSave = tab.draft;
     setTabs((current) =>
@@ -238,6 +298,7 @@ export default function App() {
             modifiedAtMs: result.value.modifiedAtMs,
           },
           saving: false,
+          externalNotice: null,
           saveStatus: {
             kind: "success",
             message: hasNewerChanges ? "Saved; newer changes pending" : "Saved",
@@ -309,6 +370,9 @@ export default function App() {
       draft: result.value.content,
       saving: false,
       saveStatus: null,
+      availability: "available",
+      externalConflict: null,
+      externalNotice: null,
     };
     setTabs((current) =>
       current.some((tab) => tab.file.relativePath === entry.relativePath)
@@ -340,6 +404,8 @@ export default function App() {
     setTabs([]);
     setActivePath(null);
     setSurface({ status: "idle" });
+    setExternalChanges(null);
+    externalReadSequence.current.clear();
   }, []);
 
   const renameOpenEntries = useCallback((oldRelativePath: string, entry: WorkspaceEntry) => {
@@ -382,6 +448,115 @@ export default function App() {
     return { openCount: affected.length, dirtyCount: affected.filter(isDirty).length };
   }, []);
 
+  const reloadExternalVersion = useCallback((relativePath: string) => {
+    setTabs((current) =>
+      current.map((tab) => {
+        if (tab.file.relativePath !== relativePath || !tab.externalConflict) return tab;
+        return {
+          ...tab,
+          file: tab.externalConflict,
+          draft: tab.externalConflict.content,
+          availability: "available",
+          externalConflict: null,
+          externalNotice: "Reloaded the external version.",
+          saveStatus: null,
+        };
+      })
+    );
+  }, []);
+
+  const keepLocalChanges = useCallback((relativePath: string) => {
+    setTabs((current) =>
+      current.map((tab) => {
+        if (tab.file.relativePath !== relativePath || !tab.externalConflict) return tab;
+        return {
+          ...tab,
+          file: { ...tab.file, modifiedAtMs: tab.externalConflict.modifiedAtMs },
+          availability: "available",
+          externalConflict: null,
+          externalNotice: "Keeping local changes. Save to overwrite the external version.",
+          saveStatus: null,
+        };
+      })
+    );
+  }, []);
+
+  useEffect(() => window.workspace.onDidChange((batch) => {
+    setExternalChanges(batch);
+
+    for (const snapshot of tabsRef.current) {
+      const deleted = batchDeletesPath(batch, snapshot.file.relativePath);
+      if (deleted) {
+        externalReadSequence.current.set(
+          snapshot.file.relativePath,
+          (externalReadSequence.current.get(snapshot.file.relativePath) ?? 0) + 1
+        );
+        setTabs((current) =>
+          current.map((tab) =>
+            tab.file.relativePath === snapshot.file.relativePath
+              ? {
+                  ...tab,
+                  availability: "unavailable",
+                  externalConflict: null,
+                  externalNotice: "The file was deleted externally; local editor content is preserved.",
+                  saveStatus: null,
+                }
+              : tab
+          )
+        );
+        continue;
+      }
+
+      const changed = batchChangesFile(batch, snapshot.file.relativePath);
+      if (!changed) continue;
+
+      const sequence = (externalReadSequence.current.get(snapshot.file.relativePath) ?? 0) + 1;
+      externalReadSequence.current.set(snapshot.file.relativePath, sequence);
+      void window.workspace.readFile(snapshot.file.relativePath).then((result) => {
+        if (externalReadSequence.current.get(snapshot.file.relativePath) !== sequence) return;
+        if (!result.ok) {
+          setTabs((current) =>
+            current.map((tab) =>
+              tab.file.relativePath === snapshot.file.relativePath
+                ? {
+                    ...tab,
+                    availability: "unavailable",
+                    externalConflict: null,
+                    externalNotice: result.error,
+                  }
+                : tab
+            )
+          );
+          return;
+        }
+        setTabs((current) =>
+          current.map((tab) => {
+            if (tab.file.relativePath !== snapshot.file.relativePath) return tab;
+            const update = resolveExternalFileUpdate(tab.file, tab.draft, result.value);
+            if (update.kind === "conflict") {
+              return {
+                ...tab,
+                availability: "available",
+                externalConflict: update.externalFile,
+                externalNotice: null,
+                saveStatus: null,
+              };
+            }
+            return {
+              ...tab,
+              file: update.file,
+              draft: update.draft,
+              availability: "available",
+              externalConflict: null,
+              externalNotice: "Reloaded after an external change.",
+              saveStatus: null,
+            };
+          })
+        );
+      });
+    }
+  }), []);
+
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -408,7 +583,7 @@ export default function App() {
     setTabs((current) =>
       current.map((tab) =>
         tab.file.relativePath === relativePath
-          ? { ...tab, draft: content, saveStatus: null }
+          ? { ...tab, draft: content, saveStatus: null, externalNotice: null }
           : tab
       )
     );
@@ -425,7 +600,7 @@ export default function App() {
       <header className="top-bar">
         <div className="brand-mark" aria-hidden="true">P</div>
         <h1>Proactive AI IDE</h1>
-        <span className="phase-label">Workspace tabs</span>
+        <span className="phase-label">Disk sync</span>
       </header>
 
       <div className="ide-layout">
@@ -439,6 +614,7 @@ export default function App() {
             onEntryRenamed={renameOpenEntries}
             onEntryDeleted={deleteOpenEntries}
             getDeleteImpact={getDeleteImpact}
+            externalChanges={externalChanges}
           />
         </aside>
 
@@ -455,6 +631,8 @@ export default function App() {
             onClose={(relativePath) => void closeTab(relativePath)}
             onChange={updateDraft}
             onSave={(relativePath) => void saveTab(relativePath)}
+            onReloadExternal={reloadExternalVersion}
+            onKeepLocal={keepLocalChanges}
           />
         </main>
 
@@ -476,7 +654,7 @@ export default function App() {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 3A</span>
+        <span>Phase 3B</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 

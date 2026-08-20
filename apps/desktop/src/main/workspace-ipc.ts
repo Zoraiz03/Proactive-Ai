@@ -21,6 +21,7 @@ import {
   WorkspaceFileWriteError,
   WorkspaceMutationError,
 } from "./workspace-files";
+import { WorkspaceWatcher } from "./workspace-watcher";
 
 let workspaceAuthorization: {
   rootPath: string;
@@ -107,7 +108,18 @@ function authorizedRoot(event: IpcMainInvokeEvent): string | null {
 
 export function registerWorkspaceIpc(
   getMainWindow: () => BrowserWindow | null
-): void {
+): () => Promise<void> {
+  let cleanupBoundWebContentsId: number | null = null;
+  const watcher = new WorkspaceWatcher((batch) => {
+    const mainWindow = getMainWindow();
+    if (
+      mainWindow &&
+      !mainWindow.isDestroyed() &&
+      workspaceAuthorization?.webContentsId === mainWindow.webContents.id
+    ) {
+      mainWindow.webContents.send(WORKSPACE_CHANNELS.changed, batch);
+    }
+  });
   ipcMain.handle(
     WORKSPACE_CHANNELS.openFolder,
     async (event): Promise<IpcResult<OpenWorkspace | null>> => {
@@ -132,6 +144,25 @@ export function registerWorkspaceIpc(
           rootPath: selected.rootPath,
           webContentsId: event.sender.id,
         };
+        void watcher.start(selected.rootPath).catch((error: unknown) => {
+          console.error(
+            "[desktop] workspace watcher failed:",
+            error instanceof Error ? error.message : "Unknown watcher error"
+          );
+        });
+        if (cleanupBoundWebContentsId !== event.sender.id) {
+          cleanupBoundWebContentsId = event.sender.id;
+          const webContentsId = event.sender.id;
+          event.sender.once("destroyed", () => {
+            if (workspaceAuthorization?.webContentsId === webContentsId) {
+              workspaceAuthorization = null;
+              void watcher.stop();
+            }
+            if (cleanupBoundWebContentsId === webContentsId) {
+              cleanupBoundWebContentsId = null;
+            }
+          });
+        }
         return { ok: true, value: { name: selected.name, entries } };
       } catch (error) {
         return { ok: false, error: publicError(error) };
@@ -216,9 +247,18 @@ export function registerWorkspaceIpc(
       }
 
       try {
+        const value = await writeWorkspaceTextFile(rootPath, request);
+        if (
+          typeof request === "object" &&
+          request !== null &&
+          "relativePath" in request &&
+          typeof request.relativePath === "string"
+        ) {
+          watcher.suppress([request.relativePath]);
+        }
         return {
           ok: true,
-          value: await writeWorkspaceTextFile(rootPath, request),
+          value,
         };
       } catch (error) {
         return publicFileWriteError(error);
@@ -237,7 +277,9 @@ export function registerWorkspaceIpc(
         return { ok: false, error: "Open a project folder first.", code: "access_denied" };
       }
       try {
-        return { ok: true, value: await createWorkspaceEntry(rootPath, request) };
+        const value = await createWorkspaceEntry(rootPath, request);
+        watcher.suppress([value.relativePath]);
+        return { ok: true, value };
       } catch (error) {
         return publicMutationError(error);
       }
@@ -255,7 +297,16 @@ export function registerWorkspaceIpc(
         return { ok: false, error: "Open a project folder first.", code: "access_denied" };
       }
       try {
-        return { ok: true, value: await renameWorkspaceEntry(rootPath, request) };
+        const value = await renameWorkspaceEntry(rootPath, request);
+        const oldRelativePath =
+          typeof request === "object" &&
+          request !== null &&
+          "relativePath" in request &&
+          typeof request.relativePath === "string"
+            ? request.relativePath
+            : "";
+        watcher.suppress([oldRelativePath, value.relativePath]);
+        return { ok: true, value };
       } catch (error) {
         return publicMutationError(error);
       }
@@ -276,10 +327,25 @@ export function registerWorkspaceIpc(
         return { ok: false, error: "Open a project folder first.", code: "access_denied" };
       }
       try {
-        return { ok: true, value: await deleteWorkspaceEntry(rootPath, relativePath) };
+        const value = await deleteWorkspaceEntry(rootPath, relativePath);
+        watcher.suppress([value.relativePath]);
+        return { ok: true, value };
       } catch (error) {
         return publicMutationError(error);
       }
     }
   );
+
+  return async () => {
+    workspaceAuthorization = null;
+    cleanupBoundWebContentsId = null;
+    await watcher.stop();
+    ipcMain.removeHandler(WORKSPACE_CHANNELS.openFolder);
+    ipcMain.removeHandler(WORKSPACE_CHANNELS.readDirectory);
+    ipcMain.removeHandler(WORKSPACE_CHANNELS.readFile);
+    ipcMain.removeHandler(WORKSPACE_CHANNELS.writeFile);
+    ipcMain.removeHandler(WORKSPACE_CHANNELS.createEntry);
+    ipcMain.removeHandler(WORKSPACE_CHANNELS.renameEntry);
+    ipcMain.removeHandler(WORKSPACE_CHANNELS.deleteEntry);
+  };
 }
