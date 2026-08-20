@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { app, BrowserWindow, session, type WebPreferences } from "electron";
+import { app, BrowserWindow, dialog, session, type WebPreferences } from "electron";
 import { registerWorkspaceIpc } from "./workspace-ipc";
 
 let mainWindow: BrowserWindow | null = null;
@@ -27,6 +27,19 @@ function createMainWindow(): BrowserWindow {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== window.webContents.getURL()) event.preventDefault();
+  });
+  window.webContents.on("will-prevent-unload", (event) => {
+    const choice = dialog.showMessageBoxSync(window, {
+      type: "warning",
+      buttons: ["Discard and Close", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      title: "Unsaved changes",
+      message: "The active file has unsaved changes.",
+      detail: "Close the desktop IDE and discard those changes?",
+    });
+    if (choice === 0) event.preventDefault();
   });
   window.webContents.once("did-finish-load", () => {
     console.info(

@@ -102,12 +102,14 @@ function TreeEntry({
 interface ExplorerProps {
   activeFilePath: string | null;
   onSelectFile: (entry: WorkspaceEntry) => void;
+  onBeforeWorkspaceOpen: () => Promise<boolean>;
   onWorkspaceOpened: () => void;
 }
 
 export default function Explorer({
   activeFilePath,
   onSelectFile,
+  onBeforeWorkspaceOpen,
   onWorkspaceOpened,
 }: ExplorerProps) {
   const [workspace, setWorkspace] = useState<OpenWorkspace | null>(null);
@@ -117,6 +119,7 @@ export default function Explorer({
 
   const openFolder = async () => {
     if (loading) return;
+    if (!(await onBeforeWorkspaceOpen())) return;
     setLoading(true);
     setError(null);
     const result = await window.workspace.openFolder();

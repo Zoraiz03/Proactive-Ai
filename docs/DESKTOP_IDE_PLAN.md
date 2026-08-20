@@ -19,7 +19,7 @@ implementation and its verification evidence in the changelog.
 | Phase | Status | Goal |
 |---|---|---|
 | Phase 1 | Complete | Secure Electron application shell |
-| Phase 2 | In Progress | Local projects, file explorer, Monaco editing, and saving |
+| Phase 2 | Complete | Local projects, file explorer, Monaco editing, and saving |
 | Phase 3 | Not Started | Complete file explorer and editor workflow |
 | Phase 4 | Not Started | Terminal, task output, and diagnostics |
 | Phase 5 | Not Started | Authenticated Observer AI integration |
@@ -171,25 +171,28 @@ Phase 2B required verification:
 - [x] **Complete** — Electron launches with the secure BrowserWindow flags.
 - [x] **Complete** — Existing web lint, tests, and production build pass.
 
-### Remaining Phase 2 work
+### Phase 2C — Monaco editing and secure file saving
 
-- [ ] **Not Started** — Open text and code files in Monaco Editor.
-- [ ] **Not Started** — Map common extensions to Monaco languages.
-- [ ] **Not Started** — Track dirty editor state.
-- [ ] **Not Started** — Add a typed, root-confined IPC method for writing an opened
-  file.
-- [ ] **Not Started** — Save the active file with Ctrl+S or Cmd+S.
-- [ ] **Not Started** — Warn before closing a window with unsaved changes.
+- [x] **Complete** — Open supported text and code files in Monaco Editor.
+- [x] **Complete** — Map common extensions to Monaco languages.
+- [x] **Complete** — Track dirty editor state and show a visible indicator.
+- [x] **Complete** — Add a typed, root-confined IPC method that can overwrite an
+  existing opened file without creating, renaming, or deleting files.
+- [x] **Complete** — Save the active file with a visible action and Ctrl+S or
+  Cmd+S.
+- [x] **Complete** — Require Save, Discard, or Cancel before switching away from
+  unsaved work.
+- [x] **Complete** — Warn before closing a window with unsaved changes.
 
-Required verification:
+Phase 2C required verification:
 
-- [ ] **Not Started** — Files inside the selected root can be listed, opened, edited,
+- [x] **Complete** — Files inside the selected root can be listed, opened, edited,
   and saved.
-- [ ] **Not Started** — Attempts to read or write outside the root are rejected.
-- [ ] **Not Started** — Binary and oversized-file handling is deterministic.
-- [ ] **Not Started** — Save shortcuts work on Windows/Linux and macOS.
-- [ ] **Not Started** — Relevant unit/integration tests pass.
-- [ ] **Not Started** — Desktop and web builds still pass.
+- [x] **Complete** — Attempts to read or write outside the root are rejected.
+- [x] **Complete** — Binary and oversized-file handling is deterministic.
+- [x] **Complete** — Save shortcuts work on Windows/Linux and macOS.
+- [x] **Complete** — Relevant unit/integration tests pass.
+- [x] **Complete** — Desktop and web builds still pass.
 
 ## Phase 3 — Explorer and editor workflow
 
@@ -352,6 +355,12 @@ Required verification:
 12. **Read only allowlisted UTF-8 files.** Phase 2B permits a fixed extension set,
     caps files at 2 MiB, rejects NUL bytes and invalid UTF-8, and returns content
     through one renderer-bound method without exposing absolute paths.
+13. **Overwrite only version-matched existing files.** Phase 2C saves through a
+    single typed IPC operation. The main process revalidates the canonical path,
+    extension, regular-file status, UTF-8 byte limit, and modification timestamp,
+    then opens with `r+` so a save cannot create a missing file.
+14. **Bundle Monaco locally.** Monaco and its workers live only in the isolated
+    desktop package and are loaded from the application bundle, not a CDN.
 
 ## Security rules
 
@@ -372,6 +381,9 @@ Required verification:
 - Permit file content reads only for the documented extension allowlist, require a
   regular file, cap reads at 2 MiB before and after loading, and reject NUL bytes or
   invalid UTF-8.
+- Permit writes only to an existing supported regular file inside the selected
+  root. Enforce the 2 MiB limit, reject stale modification timestamps, and never
+  expose a general-purpose write, create, rename, or delete API.
 - Do not read or transmit files until the user explicitly selects a project and,
   for AI context, explicitly asks for help.
 - Do not place Supabase service-role credentials, server encryption secrets, or AI
@@ -385,6 +397,57 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 2C complete
+
+Changed files:
+
+- Desktop package manifest and lockfile — added Monaco and its React integration
+  only inside `apps/desktop`.
+- `apps/desktop/src/shared/languages.ts` and `workspace.ts` — added language
+  mapping plus typed versioned-save IPC contracts.
+- `apps/desktop/src/main/workspace-files.ts`, `workspace-ipc.ts`, and `index.ts` —
+  added root-confined existing-file saves, stale-disk protection, safe errors, and
+  the native unsaved-close warning.
+- `apps/desktop/src/preload/index.ts` — exposed only the typed `writeFile` method.
+- `apps/desktop/src/renderer/src/App.tsx`, `Explorer.tsx`, `monaco.ts`, `main.tsx`,
+  and `styles.css` — added local Monaco editing, language workers, dirty/save
+  states, Save and shortcut behavior, and Save/Discard/Cancel navigation guards.
+- `apps/desktop/src/main/workspace-files.test.ts` — expanded coverage from 8 to 13
+  tests for language mapping and secure saves.
+- Desktop README and this roadmap — documented Phase 2C behavior and results.
+
+Security decisions:
+
+- The renderer still has no Node, filesystem, path, process, shell, or raw IPC
+  access; saving crosses one frozen typed preload method.
+- Saves repeat root, real-path, symlink, extension, regular-file, and size checks.
+- Files are opened with `r+`, so a disappeared or unrequested path is never created.
+- A modification timestamp issued with the read result prevents silently
+  overwriting a file changed by another process.
+- Monaco and language workers are bundled locally under the existing CSP.
+- The renderer's `beforeunload` guard is paired with Electron's main-process
+  `will-prevent-unload` event so closing unsaved work uses a native warning.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 13/13 tests passed, including successful
+  overwrite, stale-file refusal, no-new-file behavior, oversized/unsupported
+  saves, traversal rejection, and external-symlink rejection.
+- `npm --prefix apps/desktop run build` — strict main/preload/renderer TypeScript
+  checks and the production Electron Vite build passed.
+- `npm --prefix apps/desktop run preview` — the production app launched and was
+  visually verified; runtime logged `contextIsolation=true`,
+  `nodeIntegration=false`, and `sandbox=true`.
+- `npm run lint`, `npm test`, and `npm run build` — the unchanged web application
+  passed lint, its focused harness, and its production Next.js build.
+
+### 2026-08-20 — Phase 2C started
+
+- Marked only Monaco editing and secure existing-file saving **In Progress** before
+  implementation.
+- Explicitly deferred tabs, file creation/rename/delete, terminal, AI, Supabase,
+  authentication, and documentation features.
 
 ### 2026-08-20 — Phase 2B complete
 
@@ -555,14 +618,17 @@ Verification:
 | 2026-08-20 | Phase 2B file security tests | Complete | 8/8 extension, content, size, binary, and boundary tests passed. |
 | 2026-08-20 | Phase 2B desktop checks | Complete | TypeScript/build and secure Electron launch passed. |
 | 2026-08-20 | Phase 2B web regression | Complete | Existing lint, tests, and Next.js build passed. |
+| 2026-08-20 | Phase 2C secure save tests | Complete | 13/13 read, language-map, versioned-write, boundary, and no-create tests passed. |
+| 2026-08-20 | Phase 2C desktop checks | Complete | TypeScript/build and production Electron launch passed with secure flags. |
+| 2026-08-20 | Phase 2C web regression | Complete | Existing lint, tests, and Next.js build passed unchanged. |
 
 ## Recommended next task
 
-Replace the read-only viewer with **Monaco Editor for supported files**:
+Add **editor tabs and basic file operations** as Phase 3's first small slice:
 
-1. Add Monaco only to the isolated desktop renderer package.
-2. Reuse the Phase 2B secure read result and supported-file allowlist.
-3. Map supported extensions to Monaco languages.
-4. Keep Monaco read-only and preserve loading, empty, unsupported, and error states.
-5. Continue to defer editing, saving, tabs, terminal, AI, Supabase, authentication,
-   and documentation features.
+1. Preserve one dirty buffer per open tab and add keyboard tab navigation.
+2. Add narrowly scoped, root-confined create and rename operations.
+3. Design delete as an explicit, recoverable, confirmed action.
+4. Add Save All and external-change handling before filesystem watching.
+5. Continue to defer terminal, AI, Supabase, authentication, and documentation
+   features.

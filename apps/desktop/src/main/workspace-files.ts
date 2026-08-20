@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { open, readFile, readdir, realpath, stat } from "node:fs/promises";
 import {
   basename,
   extname,
@@ -11,6 +11,8 @@ import {
 import { TextDecoder } from "node:util";
 import type {
   FileReadErrorCode,
+  FileWriteErrorCode,
+  FileWriteRequest,
   WorkspaceEntry,
   WorkspaceTextFile,
 } from "../shared/workspace";
@@ -44,6 +46,15 @@ export class WorkspaceFileError extends WorkspaceAccessError {
   readonly code: FileReadErrorCode;
 
   constructor(message: string, code: FileReadErrorCode) {
+    super(message);
+    this.code = code;
+  }
+}
+
+export class WorkspaceFileWriteError extends WorkspaceAccessError {
+  readonly code: FileWriteErrorCode;
+
+  constructor(message: string, code: FileWriteErrorCode) {
     super(message);
     this.code = code;
   }
@@ -233,9 +244,91 @@ export async function readWorkspaceTextFile(
     );
   }
 
+  const finalStats = await stat(target.realPath);
+  if (
+    finalStats.mtimeMs !== fileStats.mtimeMs ||
+    finalStats.size !== fileStats.size
+  ) {
+    throw new WorkspaceFileError(
+      "This file changed while it was being opened. Try opening it again.",
+      "read_error"
+    );
+  }
+
   return {
     name: fileName,
     relativePath: target.relativePath,
     content,
+    modifiedAtMs: finalStats.mtimeMs,
   };
+}
+
+function validateFileWriteRequest(input: unknown): FileWriteRequest {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    !("relativePath" in input) ||
+    !("content" in input) ||
+    !("expectedModifiedAtMs" in input) ||
+    typeof input.relativePath !== "string" ||
+    typeof input.content !== "string" ||
+    typeof input.expectedModifiedAtMs !== "number" ||
+    !Number.isFinite(input.expectedModifiedAtMs) ||
+    input.expectedModifiedAtMs < 0
+  ) {
+    throw new WorkspaceFileWriteError("Invalid save request.", "access_denied");
+  }
+  return input as FileWriteRequest;
+}
+
+export async function writeWorkspaceTextFile(
+  rootPath: string,
+  input: unknown
+): Promise<{ modifiedAtMs: number }> {
+  const request = validateFileWriteRequest(input);
+  const normalized = normalizeWorkspaceRelativePath(request.relativePath);
+  const fileName = normalized.segments.at(-1) ?? "";
+  if (!isSupportedWorkspaceTextFile(fileName)) {
+    throw new WorkspaceFileWriteError(
+      "This file type is not supported by the editor.",
+      "unsupported"
+    );
+  }
+  if (Buffer.byteLength(request.content, "utf8") > MAX_TEXT_FILE_BYTES) {
+    throw new WorkspaceFileWriteError(
+      "This file is too large to save. The current limit is 2 MiB.",
+      "too_large"
+    );
+  }
+
+  const target = await resolveWorkspacePath(rootPath, normalized.relativePath);
+  const handle = await open(target.realPath, "r+").catch(() => {
+    throw new WorkspaceFileWriteError(
+      "The file is no longer available.",
+      "not_file"
+    );
+  });
+
+  try {
+    const currentStats = await handle.stat();
+    if (!currentStats.isFile()) {
+      throw new WorkspaceFileWriteError(
+        "Only existing text files can be saved.",
+        "not_file"
+      );
+    }
+    if (currentStats.mtimeMs !== request.expectedModifiedAtMs) {
+      throw new WorkspaceFileWriteError(
+        "This file changed on disk after it was opened. Reopen it before saving.",
+        "changed_on_disk"
+      );
+    }
+
+    await handle.truncate(0);
+    await handle.writeFile(request.content, { encoding: "utf8" });
+    await handle.sync();
+    return { modifiedAtMs: (await handle.stat()).mtimeMs };
+  } finally {
+    await handle.close();
+  }
 }

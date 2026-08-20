@@ -298,7 +298,7 @@ button.tree-row {
   background: #11151b;
 }
 
-.file-viewer {
+.file-editor {
   display: flex;
   height: calc(100% - 35px);
   min-height: 0;
@@ -319,42 +319,62 @@ button.tree-row {
   font-size: 11px;
 }
 
-.file-viewer-bar > span:first-child {
+.active-file-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.read-only-badge {
+.dirty-mark {
+  color: #d3a7ff;
+  font-weight: 800;
+}
+
+.save-status {
+  min-width: 0;
   margin-left: auto;
-  padding: 2px 6px;
-  border: 1px solid #373f4c;
-  border-radius: 999px;
-  color: #7f8a9b;
-  font-size: 9px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.code-viewer {
-  flex: 1;
+.save-status.success {
+  color: #7dcda6;
+}
+
+.save-status.error {
+  color: #e58b92;
+}
+
+.save-button {
+  min-width: 56px;
+  padding: 4px 10px;
+  border: 1px solid #5e4a94;
+  border-radius: 5px;
+  background: #6e56cf;
+  color: #f8f6ff;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.save-button:hover:not(:disabled) {
+  background: #8067df;
+}
+
+.save-button:disabled {
+  border-color: #373f4c;
+  background: #242a34;
+  color: #697587;
+  cursor: default;
+}
+
+.monaco-host {
   min-height: 0;
-  margin: 0;
-  overflow: auto;
-  padding: 18px 20px 40px;
-  color: #d8dee9;
-  background: #11151b;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  line-height: 1.65;
-  tab-size: 2;
-  white-space: pre;
-}
-
-.code-viewer:focus-visible {
-  outline: 1px solid #6e56cf;
-  outline-offset: -1px;
+  flex: 1;
+  overflow: hidden;
 }
 
 .editor-state {
@@ -369,7 +389,7 @@ button.tree-row {
   text-align: center;
 }
 
-.file-viewer .editor-state {
+.file-editor .editor-state {
   height: 100%;
 }
 
@@ -513,6 +533,65 @@ button.tree-row {
   color: #f8f6ff;
   font-size: 10px;
   letter-spacing: 0.02em;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(6 8 11 / 70%);
+}
+
+.unsaved-dialog {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid #3d4552;
+  border-radius: 9px;
+  background: #1b2028;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 50%);
+}
+
+.unsaved-dialog h2 {
+  margin: 0 0 8px;
+  color: #e2e6ed;
+  font-size: 15px;
+}
+
+.unsaved-dialog p {
+  margin: 0;
+  color: #929cab;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.dialog-actions button {
+  padding: 6px 12px;
+  border: 1px solid #414a58;
+  border-radius: 5px;
+  background: #252c35;
+  color: #c8ced7;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.dialog-actions button:hover {
+  background: #303844;
+}
+
+.dialog-actions button.primary {
+  border-color: #765dc5;
+  background: #6e56cf;
+  color: white;
 }
 
 @media (max-width: 900px) {
