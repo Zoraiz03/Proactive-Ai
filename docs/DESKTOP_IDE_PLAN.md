@@ -19,7 +19,7 @@ implementation and its verification evidence in the changelog.
 | Phase | Status | Goal |
 |---|---|---|
 | Phase 1 | Complete | Secure Electron application shell |
-| Phase 2 | Not Started | Local projects, file explorer, Monaco editing, and saving |
+| Phase 2 | In Progress | Local projects, file explorer, Monaco editing, and saving |
 | Phase 3 | Not Started | Complete file explorer and editor workflow |
 | Phase 4 | Not Started | Terminal, task output, and diagnostics |
 | Phase 5 | Not Started | Authenticated Observer AI integration |
@@ -40,28 +40,27 @@ Proactive-Ai/
 │       └── src/
 │           ├── main/            # Trusted Electron main process
 │           │   ├── index.ts
-│           │   ├── filesystem.ts
-│           │   └── terminal.ts
+│           │   ├── workspace-files.ts
+│           │   └── workspace-ipc.ts
 │           ├── preload/         # Narrow, typed IPC bridge
 │           │   └── index.ts
 │           ├── renderer/        # Sandboxed React interface
 │           │   ├── App.tsx
-│           │   ├── components/
-│           │   ├── state/
-│           │   └── styles/
+│           │   ├── Explorer.tsx
+│           │   └── styles.css
 │           └── shared/          # IPC contracts shared by Electron processes
-│               └── ipc-types.ts
+│               └── workspace.ts
 ├── packages/                    # Optional, introduced only when justified
 │   └── shared/                  # Framework-independent reusable logic
 └── docs/
     └── DESKTOP_IDE_PLAN.md
 ```
 
-The desktop application should begin as an independent package. Its Electron
-dependencies, build output, and TypeScript configuration must remain isolated
-from the root Next.js package. The root TypeScript configuration currently
-includes all TypeScript files, so `apps/desktop` will need to be explicitly
-excluded from the web TypeScript project when the desktop package is created.
+The desktop application is an independent package. Its Electron dependencies,
+build output, lockfile, and TypeScript configuration remain isolated from the root
+Next.js package. The existing Next.js build currently passes without changing its
+root configuration; add an explicit exclusion later only if future desktop types
+create a verified conflict.
 
 ## Reuse strategy
 
@@ -124,20 +123,42 @@ Required verification:
 **Goal:** Open a local folder, navigate text files, edit them in Monaco, and save
 changes safely.
 
-- [ ] **Not Started** — Add a native folder-selection dialog.
-- [ ] **Not Started** — Store the currently authorized project root in main-process
+### Phase 2A — Local project folder and read-only Explorer
+
+- [x] **Complete** — Add a native folder-selection dialog.
+- [x] **Complete** — Store the authorized workspace root only in main-process
   memory.
-- [ ] **Not Started** — Add typed IPC contracts for folder selection, directory
-  listing, file reading, and file writing.
-- [ ] **Not Started** — Validate every filesystem path against the authorized root.
-- [ ] **Not Started** — Handle symlinks without allowing access outside the root.
-- [ ] **Not Started** — Ignore `.git`, `node_modules`, build output, and other heavy
-  generated directories by default.
+- [x] **Complete** — Add minimal typed preload methods for folder selection and
+  immediate directory listing.
+- [x] **Complete** — Validate relative paths and real paths against the authorized
+  root.
+- [x] **Complete** — Allow only symlinks whose resolved targets remain inside the
+  authorized root.
+- [x] **Complete** — Ignore `node_modules`, `.git`, `dist`, `build`, and `.next`.
+- [x] **Complete** — Render an expandable tree that loads child folders lazily.
+- [x] **Complete** — Add empty, loading, cancellation, and safe error states.
+- [x] **Complete** — Keep files read-only and leave the Editor placeholder intact.
+
+Phase 2A required verification:
+
+- [x] **Complete** — Focused workspace-boundary and directory-listing tests pass.
+- [x] **Complete** — Desktop TypeScript and production builds pass.
+- [x] **Complete** — Electron launches and the folder-selection/expansion flow is
+  verified against a deterministic local workspace fixture.
+- [x] **Complete** — Runtime still reports `contextIsolation=true`,
+  `nodeIntegration=false`, and `sandbox=true`.
+- [x] **Complete** — Existing web lint, tests, and production build pass.
+
+### Remaining Phase 2 work
+
+- [ ] **Not Started** — Add a typed, root-confined IPC method for reading selected
+  text-file contents.
 - [ ] **Not Started** — Detect and reject unsupported binary files.
-- [ ] **Not Started** — Render a lazy-loading folder/file explorer.
 - [ ] **Not Started** — Open text and code files in Monaco Editor.
 - [ ] **Not Started** — Map common extensions to Monaco languages.
 - [ ] **Not Started** — Track dirty editor state.
+- [ ] **Not Started** — Add a typed, root-confined IPC method for writing an opened
+  file.
 - [ ] **Not Started** — Save the active file with Ctrl+S or Cmd+S.
 - [ ] **Not Started** — Warn before closing a window with unsaved changes.
 
@@ -304,6 +325,11 @@ Required verification:
    context, and destructive file operations require visible user intent.
 9. **Use an isolated Electron Vite package.** Phase 1 uses a local package and
    lockfile under `apps/desktop`; the root web package and commands are unchanged.
+10. **Expose relative workspace entries only.** Phase 2A retains the canonical root
+    in main-process memory and gives the renderer names, relative paths, entry types,
+    and safe-symlink indicators only.
+11. **Load the tree on demand.** The main process lists one directory level per IPC
+    request; the renderer requests children only when a folder is expanded.
 
 ## Security rules
 
@@ -317,6 +343,10 @@ Required verification:
   and runtime validation where input crosses a trust boundary.
 - Resolve and validate filesystem paths in the main process. Reject traversal and
   symlink escapes outside the user-selected project root.
+- Canonicalize both the selected root and every requested target with `realpath`.
+  Broken symlinks and symlinks resolving outside the root must not be returned.
+- Keep absolute local paths out of renderer responses and visible error messages.
+- Limit directory listing size and ignore generated dependency/build directories.
 - Do not read or transmit files until the user explicitly selects a project and,
   for AI context, explicitly asks for help.
 - Do not place Supabase service-role credentials, server encryption secrets, or AI
@@ -330,6 +360,61 @@ Required verification:
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-20 — Phase 2A complete
+
+Changed files:
+
+- `apps/desktop/src/shared/workspace.ts` — typed IPC channel, result, workspace,
+  entry, and preload bridge contracts.
+- `apps/desktop/src/main/workspace-files.ts` — root-confined path normalization,
+  canonical real-path validation, safe symlink handling, ignore rules, sorting, and
+  immediate directory listing.
+- `apps/desktop/src/main/workspace-ipc.ts` — trusted-window sender checks, native
+  folder selection, in-memory workspace authorization, and safe public errors.
+- `apps/desktop/src/main/index.ts` — workspace IPC registration while preserving all
+  secure BrowserWindow settings.
+- `apps/desktop/src/preload/index.ts` — two narrow methods only: open a folder and
+  list a selected-root-relative directory.
+- `apps/desktop/src/renderer/src/Explorer.tsx`, `App.tsx`, `styles.css`, and
+  `global.d.ts` — Open Folder UI, lazy expandable tree, responsive states, and typed
+  renderer bridge.
+- `apps/desktop/src/main/workspace-files.test.ts` and `package.json` — focused Node
+  tests and desktop test command.
+- Desktop TypeScript configs and README — shared contract coverage and Phase 2A
+  usage description.
+
+Security decisions:
+
+- The renderer has no direct Node, filesystem, path, shell, terminal, or process
+  access.
+- Only the current main window may invoke the two allowlisted workspace channels,
+  and its selected root authorization is bound to that renderer instance.
+- The renderer never receives the absolute workspace root.
+- All renderer paths are untrusted relative strings and are checked lexically and
+  after symlink resolution.
+- External/broken symlinks and non-file/non-directory entries are omitted.
+- Directory reads are non-recursive, lazy, read-only, and limited to 5,000 immediate
+  entries.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 4/4 tests passed for traversal rejection,
+  absolute-path rejection, ignored directories, lazy child listing, safe internal
+  symlinks, and blocked external symlinks.
+- `npm --prefix apps/desktop run build` — TypeScript and production build passed.
+- `npm --prefix apps/desktop run dev` — Electron launched and logged
+  `contextIsolation=true`, `nodeIntegration=false`, and `sandbox=true`.
+- `npm run lint` — existing web lint passed with no warnings or errors.
+- `npm test` — existing web suggestion harness passed.
+- `npm run build` — existing Next.js production build passed.
+
+### 2026-08-20 — Phase 2A started
+
+- Marked only the local-folder and read-only Explorer slice **In Progress** before
+  implementation.
+- Explicitly deferred file reading, Monaco, editing, saving, terminal, AI, Supabase,
+  authentication, and documentation features.
 
 ### 2026-08-20 — Phase 1 complete
 
@@ -386,17 +471,16 @@ Verification:
 | 2026-08-20 | Phase 1 desktop type/build | Complete | Electron main, preload, and renderer bundles built successfully. |
 | 2026-08-20 | Phase 1 launch smoke test | Complete | Desktop launched; runtime logged secure BrowserWindow flags. |
 | 2026-08-20 | Existing web regression checks | Complete | Lint, tests, and Next.js production build passed. |
+| 2026-08-20 | Phase 2A path security tests | Complete | 4/4 traversal, ignore, lazy-listing, and symlink tests passed. |
+| 2026-08-20 | Phase 2A desktop checks | Complete | TypeScript/build and secure Electron launch passed. |
+| 2026-08-20 | Phase 2A web regression | Complete | Existing lint, tests, and Next.js build passed. |
 
 ## Recommended next task
 
-Begin the first, security-focused slice of **Phase 2 — Local projects, explorer,
-Monaco, and saving**:
+Open a selected text file in the **Editor placeholder**:
 
-1. Define strict typed IPC contracts for folder selection and directory listing.
-2. Add a native folder picker in the main process.
-3. Retain the selected root only in main-process memory.
-4. Validate paths and symlinks against that authorized root.
-5. Render a read-only, lazy project tree and add focused path-boundary tests.
-
-Opening file contents, Monaco editing, and saving should follow only after this
-filesystem boundary passes its security checks.
+1. Add one typed, read-only IPC method for a selected relative file path.
+2. Reuse the Phase 2A canonical-root and symlink boundary.
+3. Reject binary and oversized files before returning content.
+4. Let file rows select and display plain text in the existing Editor area.
+5. Keep editing, saving, and Monaco explicitly deferred.

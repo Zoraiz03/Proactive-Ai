@@ -105,6 +105,185 @@ input {
   border-right: 1px solid #2b313b;
 }
 
+.explorer-content {
+  display: flex;
+  height: calc(100% - 35px);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.open-folder-button {
+  margin: 4px 10px 10px;
+  padding: 7px 10px;
+  border: 1px solid #4c3e77;
+  border-radius: 6px;
+  background: #6e56cf;
+  color: #f8f6ff;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.open-folder-button:hover:not(:disabled) {
+  background: #8067df;
+}
+
+.open-folder-button:focus-visible,
+.tree-row:focus-visible {
+  outline: 2px solid #b483ff;
+  outline-offset: -2px;
+}
+
+.open-folder-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.explorer-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 22px;
+  color: #687385;
+  text-align: center;
+}
+
+.explorer-empty span {
+  font-size: 24px;
+}
+
+.explorer-empty p {
+  max-width: 170px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.explorer-error {
+  margin: 0 10px 9px;
+  padding: 8px;
+  border: 1px solid rgb(224 108 117 / 35%);
+  border-radius: 5px;
+  background: rgb(224 108 117 / 8%);
+  color: #e58b92;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.workspace-tree {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+
+.workspace-tree ul,
+.tree-children ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 10px;
+  border-top: 1px solid #252c35;
+  border-bottom: 1px solid #252c35;
+  color: #b9c0cb;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-entry {
+  margin: 0;
+  padding: 0;
+}
+
+.tree-row {
+  display: flex;
+  width: 100%;
+  height: 25px;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding-top: 0;
+  padding-right: 8px;
+  padding-bottom: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #b2bac7;
+  font-size: 11px;
+  text-align: left;
+}
+
+button.tree-row {
+  cursor: pointer;
+}
+
+.tree-row:hover {
+  background: #202630;
+}
+
+.tree-chevron {
+  width: 9px;
+  flex: 0 0 9px;
+  color: #697587;
+  font-size: 13px;
+}
+
+.tree-icon {
+  width: 13px;
+  flex: 0 0 13px;
+  color: #7f8a9b;
+  font-size: 10px;
+}
+
+.folder-icon {
+  color: #b094f4;
+}
+
+.tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.symlink-mark {
+  margin-left: auto;
+  color: #697587;
+  font-size: 9px;
+}
+
+.tree-message {
+  margin: 3px 10px 5px 42px;
+  color: #697587;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.tree-error {
+  color: #e58b92;
+}
+
+.root-empty {
+  margin-top: 12px;
+  text-align: center;
+}
+
 .editor-panel {
   grid-area: editor;
   background: #11151b;

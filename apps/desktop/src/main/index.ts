@@ -1,5 +1,8 @@
 import { join } from "node:path";
 import { app, BrowserWindow, session, type WebPreferences } from "electron";
+import { registerWorkspaceIpc } from "./workspace-ipc";
+
+let mainWindow: BrowserWindow | null = null;
 
 function createMainWindow(): BrowserWindow {
   const webPreferences: WebPreferences = {
@@ -9,7 +12,7 @@ function createMainWindow(): BrowserWindow {
     sandbox: true,
     webSecurity: true,
   };
-  const mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 760,
@@ -20,25 +23,29 @@ function createMainWindow(): BrowserWindow {
     webPreferences,
   });
 
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (url !== mainWindow.webContents.getURL()) event.preventDefault();
+  mainWindow = window;
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-navigate", (event, url) => {
+    if (url !== window.webContents.getURL()) event.preventDefault();
   });
-  mainWindow.webContents.once("did-finish-load", () => {
+  window.webContents.once("did-finish-load", () => {
     console.info(
       `[desktop] shell ready (contextIsolation=${String(webPreferences.contextIsolation)}, nodeIntegration=${String(webPreferences.nodeIntegration)}, sandbox=${String(webPreferences.sandbox)})`
     );
-    mainWindow.show();
+    window.show();
+  });
+  window.once("closed", () => {
+    if (mainWindow === window) mainWindow = null;
   });
 
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   if (rendererUrl) {
-    void mainWindow.loadURL(rendererUrl);
+    void window.loadURL(rendererUrl);
   } else {
-    void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    void window.loadFile(join(__dirname, "../renderer/index.html"));
   }
 
-  return mainWindow;
+  return window;
 }
 
 app.whenReady().then(() => {
@@ -46,6 +53,7 @@ app.whenReady().then(() => {
     callback(false);
   });
 
+  registerWorkspaceIpc(() => mainWindow);
   createMainWindow();
 
   app.on("activate", () => {

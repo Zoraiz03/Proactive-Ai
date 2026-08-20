@@ -1,3 +1,5 @@
+import Explorer from "./Explorer";
+
 function PanelTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="panel-title">{children}</h2>;
 }
@@ -21,13 +23,13 @@ export default function App() {
           P
         </div>
         <h1>Proactive AI IDE</h1>
-        <span className="phase-label">Desktop shell</span>
+        <span className="phase-label">Local explorer</span>
       </header>
 
       <div className="ide-layout">
         <aside className="panel explorer-panel">
           <PanelTitle>Explorer</PanelTitle>
-          <Placeholder icon="◇">Project files will appear here.</Placeholder>
+          <Explorer />
         </aside>
 
         <main className="panel editor-panel">
@@ -55,8 +57,8 @@ export default function App() {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 1</span>
-        <span>Secure shell ready</span>
+        <span>Phase 2A</span>
+        <span>Read-only workspace</span>
       </footer>
     </div>
   );
