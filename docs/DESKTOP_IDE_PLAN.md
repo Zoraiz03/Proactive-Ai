@@ -4,6 +4,12 @@ This document is the living implementation plan for adding an Electron desktop
 IDE to Proactive AI Workspace without replacing or breaking the existing Next.js
 web application.
 
+The product vision and scope for this pivot are defined in
+[`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md). Future implementation phases
+follow that desktop product direction while preserving the existing browser
+application as the backend/API, Supabase account and data layer, provider-key
+management system, and web prototype.
+
 Update this document before and after every desktop-IDE task. A task may be
 marked **Complete** only after all checks listed for that task pass. Record the
 implementation and its verification evidence in the changelog.
@@ -1164,7 +1170,11 @@ Verification:
 
 ## Recommended next task
 
-Connect the manual **Ask Observer** panel to the existing AI backend with selected-code
-and diagnostic context. Implement the documented request-scoped bearer validation,
-keep tokens and requests in Electron main, preserve web cookie authentication and
-RLS, and do not introduce proactive or automatic AI behavior.
+The desktop pivot's next recommended implementation phase is **desktop
+authentication and secure session handling**. This corresponds to Phase 5A and
+has now been completed and verified in the current implementation. With that
+foundation complete, the active next step is Phase 5B: connect the manual **Ask
+Observer** panel to the existing AI backend with user-approved code and diagnostic
+context. Implement the documented request-scoped bearer validation, keep tokens
+and requests in Electron main, preserve web cookie authentication and RLS, and do
+not introduce proactive or automatic AI requests.
