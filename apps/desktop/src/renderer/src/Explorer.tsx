@@ -156,6 +156,7 @@ type OperationDialog =
 
 interface ExplorerProps {
   openedWorkspace: OpenWorkspace | null;
+  workspaceOpen: boolean;
   activeFilePath: string | null;
   onSelectFile: (entry: WorkspaceEntry) => void;
   onBeforeWorkspaceOpen: () => Promise<boolean>;
@@ -165,6 +166,7 @@ interface ExplorerProps {
   getDeleteImpact: (entry: WorkspaceEntry) => DeleteImpact;
   externalChanges: WorkspaceChangeBatch | null;
   onStatus: (message: string, kind?: "info" | "success" | "error") => void;
+  commandRequest: { token: number; action: "open-folder" | "new-file" | "new-folder" } | null;
 }
 
 function parentPath(relativePath: string): string {
@@ -173,6 +175,7 @@ function parentPath(relativePath: string): string {
 
 export default function Explorer({
   openedWorkspace,
+  workspaceOpen,
   activeFilePath,
   onSelectFile,
   onBeforeWorkspaceOpen,
@@ -182,6 +185,7 @@ export default function Explorer({
   getDeleteImpact,
   externalChanges,
   onStatus,
+  commandRequest,
 }: ExplorerProps) {
   const [workspace, setWorkspace] = useState<OpenWorkspace | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -197,6 +201,12 @@ export default function Explorer({
   const [externalStatus, setExternalStatus] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!workspaceOpen) {
+      setWorkspace(null);
+      setSelectedEntry(null);
+      setExpandedPaths(new Set());
+      return;
+    }
     if (!openedWorkspace) return;
     setWorkspace(openedWorkspace);
     setSelectedEntry(null);
@@ -204,7 +214,7 @@ export default function Explorer({
     setExpandedPaths(new Set());
     setRefreshVersion((version) => version + 1);
     setError(null);
-  }, [openedWorkspace]);
+  }, [openedWorkspace, workspaceOpen]);
 
   const openFolder = async () => {
     if (loading || !(await onBeforeWorkspaceOpen())) return;
@@ -296,6 +306,12 @@ export default function Explorer({
     setDialogName("");
     setDialogError(null);
   };
+
+  useEffect(() => {
+    if (!commandRequest) return;
+    if (commandRequest.action === "open-folder") void openFolder();
+    else startCreate(commandRequest.action === "new-file" ? "create-file" : "create-directory");
+  }, [commandRequest?.token]);
 
   const startRename = () => {
     if (!selectedEntry) return;

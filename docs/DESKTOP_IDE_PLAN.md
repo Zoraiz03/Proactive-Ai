@@ -32,6 +32,7 @@ implementation and its verification evidence in the changelog.
 | Phase 6 | Complete | Markdown documentation editing, safe preview, navigation, and manual Observer help |
 | Phase 7A | Complete | Secure global project search |
 | Phase 7B | Complete | Recent projects and secure workspace reopening |
+| Phase 7C | Complete | Typed command palette and keyboard-first navigation |
 | Phase 8 | Not Started | Packaging, signing, updates, and release checks |
 
 ## Recommended folder structure
@@ -506,6 +507,37 @@ Required verification:
 - [x] **Complete** — Persisted and renderer-visible schemas contain only their documented metadata.
 - [x] **Complete** — Desktop tests/type/build and existing web tests/lint/build pass.
 
+## Phase 7C — Command Palette and keyboard-first navigation
+
+**Goal:** Search for and run a bounded registry of existing IDE actions without
+weakening renderer isolation or embedded editor/terminal keyboard behavior.
+
+- [x] **Complete** — Open a centered searchable command dialog with Ctrl/Cmd+Shift+P.
+- [x] **Complete** — Add fuzzy command-name filtering, command shortcut labels, an
+  empty state, and visible selected/focus states.
+- [x] **Complete** — Support Up/Down wrapping, Enter execution, Escape/click-away
+  closing, dialog/listbox semantics, and previous-focus restoration.
+- [x] **Complete** — Define one typed 20-command registry with centralized availability
+  reasons, execution handlers, duplicate-ID rejection, and shortcut-conflict rejection.
+- [x] **Complete** — Dispatch file, search, view, terminal, run, Observer, Markdown,
+  workspace-close, and Welcome actions through their existing owners rather than
+  duplicating filesystem, terminal, runner, editor, or Observer logic.
+- [x] **Complete** — Add a narrow authenticated Close Workspace operation so File:
+  Close Workspace and Window: Open Welcome Screen reuse the main-process lifecycle
+  and existing unsaved-file confirmation.
+- [x] **Complete** — Preserve terminal Ctrl+S/Ctrl+R input, Monaco shortcuts, and the
+  intentionally global palette/search/Observer shortcuts.
+- [x] **Complete** — Keep customizable shortcuts, shortcut editing, arbitrary commands,
+  Git, proactive AI, and unrelated redesign outside Phase 7C.
+
+Required verification:
+
+- [x] **Complete** — Palette open/close, fuzzy filtering, keyboard movement, execution,
+  disabled behavior, duplicate IDs/shortcuts, Escape focus restoration, and embedded
+  terminal/Monaco shortcut protection pass focused tests.
+- [x] **Complete** — All 20 required command IDs are present exactly once.
+- [x] **Complete** — Desktop tests/type/build and existing web tests/lint/build pass.
+
 ## Phase 8 — Packaging and release readiness
 
 **Goal:** Produce secure, installable, supportable desktop releases.
@@ -658,6 +690,18 @@ Required verification:
     non-directory, unlisted, or replaced-symlink targets, then reuses the normal
     workspace activation, watcher, terminal, runner, and search lifecycle. Startup
     intentionally shows Welcome; automatic last-workspace reopening is deferred.
+33. **Use one closed, typed command registry.** Phase 7C defines stable command IDs,
+    names, optional shortcut labels, centralized disabled-reason functions, and typed
+    handlers as the sole palette source. Registry construction rejects duplicate IDs
+    and conflicting shortcut labels. Fuzzy search only selects registered entries;
+    there is no command text evaluation, dynamic import, shell parsing, or arbitrary
+    IPC dispatch.
+34. **Dispatch actions to their existing owners.** App-level save/run/workspace actions
+    reuse existing callbacks. Typed request tokens ask Explorer, BottomPanel, and
+    Observer to invoke their existing New/Open, terminal/view, and focus behavior.
+    Close Workspace is the only added preload method and calls the existing authenticated
+    main-process clear lifecycle. Ctrl/Cmd+Shift+P is intentionally global, while
+    save/run shortcuts yield to xterm so terminal control input remains intact.
 
 ### Desktop-to-backend authentication boundary
 
@@ -688,6 +732,9 @@ headers return 401, and authorization data is not logged.
   limitation requires otherwise.
 - Never expose `ipcRenderer`, `fs`, `child_process`, `shell`, or arbitrary command
   execution directly to renderer code.
+- Command Palette may dispatch only compile-time registered command IDs to typed
+  in-renderer handlers. Never interpret the search query as code, a path, IPC channel,
+  shell command, terminal input, or AI prompt.
 - Define and validate every IPC request and response with strict TypeScript types
   and runtime validation where input crosses a trust boundary.
 - Resolve and validate filesystem paths in the main process. Reject traversal and
@@ -748,6 +795,38 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-31 — Phase 7C complete
+
+Changed files:
+
+- `apps/desktop/src/renderer/src/commands.ts` — added the typed 20-command registry,
+  availability rules, shortcut labels, registry collision checks, fuzzy matching,
+  and embedded-terminal shortcut protection.
+- Command Palette renderer/state/styles — added the accessible searchable overlay,
+  reducer-driven keyboard navigation, disabled reasons, empty state, visible focus,
+  execution guard, and focus restoration.
+- Desktop App, Explorer, BottomPanel, and ObserverPanel — connected registry handlers
+  to existing save/run/search/Markdown/Observer and typed component-owned action hooks;
+  terminal/output/Observer commands now move focus to their existing surfaces.
+- Workspace shared/main/preload boundary — added one authenticated Close Workspace
+  operation backed by the existing cleanup lifecycle and Welcome state.
+- Desktop tests/configuration/plan — added seven focused palette/registry/shortcut
+  tests, included them in the desktop suite, and recorded Phase 7C architecture/results.
+
+Verification and limitations:
+
+- `npm --prefix apps/desktop test` passed 67/67 tests, including all requested palette,
+  registry, execution, disabled-state, collision, focus, and shortcut-protection cases.
+  Strict main/preload/renderer TypeScript and the Electron production build passed.
+- Root manual-suggestion tests, lint, and the Next.js production build passed with no
+  web application source changes.
+- The registry and shortcuts are fixed in this release. There are no aliases, custom
+  shortcuts, shortcut editor, command history, recently used ranking, extension-contributed
+  commands, or arbitrary command execution.
+- Toggle Terminal and Toggle Output activate and focus the existing bottom-panel view;
+  they do not collapse or resize the panel. Automated interaction/state tests cover the
+  keyboard model; signed-in visual Electron smoke testing remains a manual step.
 
 ### 2026-08-31 — Phase 7B complete
 
@@ -1494,10 +1573,12 @@ Verification:
 | 2026-08-31 | Phase 7B recent-project tests | Complete | 60/60 desktop tests passed, including add, deduplication, ordering, limit, removal, unavailable paths, schema privacy, and replaced-symlink reopening. |
 | 2026-08-31 | Phase 7B desktop checks | Complete | Strict main/preload/renderer TypeScript and the Electron production build passed. |
 | 2026-08-31 | Phase 7B web regression | Complete | Existing root tests, lint, and Next.js production build passed with no web application source changes. |
+| 2026-08-31 | Phase 7C command tests | Complete | 67/67 desktop tests passed, including palette state, fuzzy filtering, navigation, execution, disabled reasons, registry collisions, focus restoration, and terminal/Monaco shortcut protection. |
+| 2026-08-31 | Phase 7C desktop checks | Complete | Strict main/preload/renderer TypeScript and the Electron production build passed. |
+| 2026-08-31 | Phase 7C web regression | Complete | Existing root tests, lint, and Next.js production build passed with no web application source changes. |
 
 ## Recommended next task
 
-Implement **Command Palette and keyboard-first navigation**. Provide a bounded set of
-explicit IDE actions, searchable labels and shortcuts, focus management, and safe
-dispatch through existing renderer/preload capabilities without adding arbitrary
-commands, filesystem access, Git behavior, or new AI automation.
+Implement **Settings and Privacy Center**. Centralize user-visible desktop preferences,
+privacy explanations, stored-data controls, and safe defaults without exposing secrets,
+adding arbitrary configuration execution, or changing existing web behavior.

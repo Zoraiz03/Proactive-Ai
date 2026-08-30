@@ -31,6 +31,8 @@ interface BottomPanelProps {
   outputFocusToken: number;
   onDiagnosticClick: (diagnostic: RunDiagnostic) => void;
   onStatus: (message: string, kind?: IdeOutputMessage["kind"]) => void;
+  commandRequest: { token: number; action: "terminal" | "output" | "new-terminal" } | null;
+  onTerminalStateChange: (state: { active: boolean; creating: boolean }) => void;
 }
 
 function exitDescription(reason: string, exitCode: number | null): string {
@@ -48,12 +50,15 @@ export default function BottomPanel({
   outputFocusToken,
   onDiagnosticClick,
   onStatus,
+  commandRequest,
+  onTerminalStateChange,
 }: BottomPanelProps) {
   const [activeView, setActiveView] = useState<"terminal" | "output">("terminal");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const outputHostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -213,6 +218,22 @@ export default function BottomPanel({
     }
   };
 
+  useEffect(() => {
+    onTerminalStateChange({ active: Boolean(sessionId), creating });
+  }, [creating, onTerminalStateChange, sessionId]);
+
+  useEffect(() => {
+    if (!commandRequest) return;
+    if (commandRequest.action === "new-terminal") void createTerminal();
+    else if (commandRequest.action === "terminal") {
+      setActiveView("terminal");
+      requestAnimationFrame(() => terminalRef.current?.focus());
+    } else {
+      setActiveView("output");
+      requestAnimationFrame(() => outputHostRef.current?.focus());
+    }
+  }, [commandRequest?.token]);
+
   return (
     <div className="bottom-workspace">
       <div className="bottom-tabs" role="tablist" aria-label="Terminal and output">
@@ -264,7 +285,12 @@ export default function BottomPanel({
         {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
       </div>
 
-      <div className={`bottom-view output-view ${activeView === "output" ? "active" : ""}`}>
+      <div
+        ref={outputHostRef}
+        className={`bottom-view output-view ${activeView === "output" ? "active" : ""}`}
+        tabIndex={-1}
+        aria-label="IDE output"
+      >
         {!run && messages.length === 0 ? (
           <div className="output-empty">IDE status messages will appear here.</div>
         ) : (

@@ -48,6 +48,14 @@ import ObserverPanel, { type ObserverStatus } from "./ObserverPanel";
 import MarkdownPreview from "./MarkdownPreview";
 import SearchPanel from "./SearchPanel";
 import WelcomeScreen from "./WelcomeScreen";
+import CommandPalette from "./CommandPalette";
+import {
+  resolveCommands,
+  shouldOpenCommandPalette,
+  shouldPreserveTerminalShortcut,
+  type CommandHandlers,
+  type CommandState,
+} from "./commands";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -515,6 +523,17 @@ export default function App({ user, onSignOut }: AppProps) {
   const [markdownViewModes, setMarkdownViewModes] = useState<Record<string, MarkdownViewMode>>({});
   const [sidebarView, setSidebarView] = useState<"explorer" | "search">("explorer");
   const [searchFocusToken, setSearchFocusToken] = useState(0);
+  const [commandPaletteToken, setCommandPaletteToken] = useState(0);
+  const [explorerCommandRequest, setExplorerCommandRequest] = useState<{
+    token: number;
+    action: "open-folder" | "new-file" | "new-folder";
+  } | null>(null);
+  const [bottomCommandRequest, setBottomCommandRequest] = useState<{
+    token: number;
+    action: "terminal" | "output" | "new-terminal";
+  } | null>(null);
+  const [terminalState, setTerminalState] = useState({ active: false, creating: false });
+  const [observerFocusToken, setObserverFocusToken] = useState(0);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -952,6 +971,7 @@ export default function App({ user, onSignOut }: AppProps) {
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        if (shouldPreserveTerminalShortcut(event.target, "save")) return;
         event.preventDefault();
         if (activePath) void saveTab(activePath);
       }
@@ -1067,6 +1087,7 @@ export default function App({ user, onSignOut }: AppProps) {
   useEffect(() => {
     const handleRunShortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r") {
+        if (shouldPreserveTerminalShortcut(event.target, "run")) return;
         event.preventDefault();
         void runCurrentFile();
       }
@@ -1231,6 +1252,139 @@ export default function App({ user, onSignOut }: AppProps) {
     }
   }, [canOpenWorkspace, onSignOut]);
 
+  const saveAll = useCallback(async () => {
+    for (const tab of tabsRef.current.filter(isDirty)) {
+      if (!(await saveTab(tab.file.relativePath))) return;
+    }
+  }, [saveTab]);
+
+  const closeCurrentWorkspace = useCallback(async () => {
+    if (!workspaceOpen || !(await canOpenWorkspace())) return;
+    const result = await window.workspace.closeWorkspace();
+    if (!result.ok) {
+      appendOutput(result.error, "error");
+      return;
+    }
+    requestSequence.current += 1;
+    setTabs([]);
+    setActivePath(null);
+    setSurface({ status: "idle" });
+    setExternalChanges(null);
+    externalReadSequence.current.clear();
+    setWorkspaceOpen(false);
+    setOpenedWorkspace(null);
+    setWorkspaceVersion((current) => current + 1);
+    setRunOutput(null);
+    setEditorLocation(null);
+    setObserverSnapshot(null);
+    setObserverSuggestion(null);
+    setObserverError(null);
+    setObserverStatus("idle");
+    setObserverRequestPath(null);
+    setSentContextSummary(null);
+    setInsertRequest(null);
+    setMarkdownViewModes({});
+    setSidebarView("explorer");
+    appendOutput("Workspace closed. Welcome screen opened.");
+  }, [appendOutput, canOpenWorkspace, workspaceOpen]);
+
+  const issueExplorerCommand = useCallback((action: "open-folder" | "new-file" | "new-folder") => {
+    if (action !== "open-folder") setSidebarView("explorer");
+    setExplorerCommandRequest({ token: Date.now() + Math.random(), action });
+  }, []);
+
+  const issueBottomCommand = useCallback((action: "terminal" | "output" | "new-terminal") => {
+    setBottomCommandRequest({ token: Date.now() + Math.random(), action });
+  }, []);
+
+  const commandState = useMemo<CommandState>(() => ({
+    workspaceOpen,
+    activeFile: Boolean(activeTab),
+    activeFileSavable: Boolean(
+      activeTab && activeTab.availability === "available" && !activeTab.externalConflict
+    ),
+    dirtyFileCount: tabs.filter(isDirty).length,
+    activeFileRunnable: Boolean(activeTab && runSupport(activeTab.file.name) === "supported"),
+    runActive: runOutput?.status === "running",
+    terminalActive: terminalState.active,
+    terminalCreating: terminalState.creating,
+    observerCanAsk: Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion,
+    markdownActive: activeIsMarkdown,
+    welcomeOpen: !workspaceOpen,
+  }), [
+    activeIsMarkdown,
+    activeTab,
+    observerRequest,
+    observerStatus,
+    observerSuggestion,
+    runOutput?.status,
+    tabs,
+    terminalState,
+    workspaceOpen,
+  ]);
+
+  const commandHandlers = useMemo<CommandHandlers>(() => ({
+    "file.openFolder": () => issueExplorerCommand("open-folder"),
+    "file.closeWorkspace": () => void closeCurrentWorkspace(),
+    "file.save": () => { if (activePath) void saveTab(activePath); },
+    "file.saveAll": () => void saveAll(),
+    "file.newFile": () => issueExplorerCommand("new-file"),
+    "file.newFolder": () => issueExplorerCommand("new-folder"),
+    "search.findInFiles": () => {
+      setSidebarView("search");
+      setSearchFocusToken((current) => current + 1);
+    },
+    "view.showExplorer": () => setSidebarView("explorer"),
+    "view.showSearch": () => {
+      setSidebarView("search");
+      setSearchFocusToken((current) => current + 1);
+    },
+    "view.toggleTerminal": () => issueBottomCommand("terminal"),
+    "view.toggleOutput": () => issueBottomCommand("output"),
+    "view.focusObserver": () => setObserverFocusToken((current) => current + 1),
+    "terminal.new": () => issueBottomCommand("new-terminal"),
+    "run.currentFile": () => void runCurrentFile(),
+    "run.stop": () => void stopCurrentRun(),
+    "observer.ask": () => void askObserver(),
+    "markdown.edit": () => {
+      if (activePath) setMarkdownViewModes((current) => ({ ...current, [activePath]: "edit" }));
+    },
+    "markdown.preview": () => {
+      if (activePath) setMarkdownViewModes((current) => ({ ...current, [activePath]: "preview" }));
+    },
+    "markdown.split": () => {
+      if (activePath) setMarkdownViewModes((current) => ({ ...current, [activePath]: "split" }));
+    },
+    "window.openWelcome": () => void closeCurrentWorkspace(),
+  }), [
+    activePath,
+    askObserver,
+    closeCurrentWorkspace,
+    issueBottomCommand,
+    issueExplorerCommand,
+    runCurrentFile,
+    saveAll,
+    saveTab,
+    stopCurrentRun,
+  ]);
+
+  const resolvedCommands = useMemo(
+    () => resolveCommands(commandState, commandHandlers),
+    [commandHandlers, commandState]
+  );
+
+  useEffect(() => {
+    const handleCommandPaletteShortcut = (event: KeyboardEvent) => {
+      if (unsavedPrompt) return;
+      if (!shouldOpenCommandPalette(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCommandPaletteToken((current) => current + 1);
+    };
+    window.addEventListener("keydown", handleCommandPaletteShortcut, { capture: true });
+    return () => window.removeEventListener("keydown", handleCommandPaletteShortcut, { capture: true });
+  }, [unsavedPrompt]);
+
   const hasDirtyTabs = tabs.some(isDirty);
   useEffect(() => {
     const preventUnsavedClose = (event: BeforeUnloadEvent) => {
@@ -1289,6 +1443,7 @@ export default function App({ user, onSignOut }: AppProps) {
           <div className={`sidebar-view ${sidebarView === "explorer" ? "active" : ""}`}>
             <Explorer
               openedWorkspace={openedWorkspace}
+              workspaceOpen={workspaceOpen}
               activeFilePath={activePath}
               onSelectFile={(entry) => void selectFile(entry)}
               onBeforeWorkspaceOpen={canOpenWorkspace}
@@ -1298,6 +1453,7 @@ export default function App({ user, onSignOut }: AppProps) {
               getDeleteImpact={getDeleteImpact}
               externalChanges={externalChanges}
               onStatus={appendOutput}
+              commandRequest={explorerCommandRequest}
             />
           </div>
           <div className={`sidebar-view ${sidebarView === "search" ? "active" : ""}`}>
@@ -1373,6 +1529,7 @@ export default function App({ user, onSignOut }: AppProps) {
             onCopy={() => void copySnippet()}
             onInsert={insertObserverSnippet}
             onDismiss={dismissObserver}
+            focusToken={observerFocusToken}
           />
         </aside>
 
@@ -1385,12 +1542,14 @@ export default function App({ user, onSignOut }: AppProps) {
             outputFocusToken={outputFocusToken}
             onDiagnosticClick={(diagnostic) => void focusDiagnostic(diagnostic)}
             onStatus={appendOutput}
+            commandRequest={bottomCommandRequest}
+            onTerminalStateChange={setTerminalState}
           />
         </section>
       </div>
 
       <footer className="status-bar">
-        <span>Phase 7B</span>
+        <span>Phase 7C</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
@@ -1411,6 +1570,11 @@ export default function App({ user, onSignOut }: AppProps) {
           </section>
         </div>
       )}
+      <CommandPalette
+        commands={resolvedCommands}
+        openToken={commandPaletteToken}
+        onClosed={() => undefined}
+      />
     </div>
   );
 }

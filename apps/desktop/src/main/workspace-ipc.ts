@@ -224,6 +224,17 @@ export function registerWorkspaceIpc(
   );
 
   ipcMain.handle(
+    WORKSPACE_CHANNELS.closeWorkspace,
+    async (event): Promise<IpcResult<void>> => {
+      if (!isTrustedSender(event, getMainWindow) || !authorizedRoot(event)) {
+        return { ok: false, error: "Workspace close request was rejected." };
+      }
+      await clearWorkspace();
+      return { ok: true, value: undefined };
+    }
+  );
+
+  ipcMain.handle(
     WORKSPACE_CHANNELS.reopenRecent,
     async (event, value: unknown): Promise<IpcResult<OpenWorkspace>> => {
       if (!isTrustedSender(event, getMainWindow)) {
@@ -481,7 +492,6 @@ export function registerWorkspaceIpc(
   const clearWorkspace = async () => {
     const webContentsId = workspaceAuthorization?.webContentsId;
     workspaceAuthorization = null;
-    cleanupBoundWebContentsId = null;
     lifecycle.onWorkspaceClosed(webContentsId);
     searchService.cancel();
     await watcher.stop();
@@ -492,6 +502,7 @@ export function registerWorkspaceIpc(
     cleanup: async () => {
       await clearWorkspace();
       ipcMain.removeHandler(WORKSPACE_CHANNELS.openFolder);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.closeWorkspace);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.recentList);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.reopenRecent);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.removeRecent);

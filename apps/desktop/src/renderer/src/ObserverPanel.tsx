@@ -8,6 +8,7 @@ import {
   OBSERVER_PROVIDERS,
   OBSERVER_PROVIDER_LABELS,
 } from "../../shared/observer";
+import { useEffect, useRef } from "react";
 
 export type ObserverStatus = "idle" | "thinking" | "ready" | "error";
 
@@ -28,6 +29,7 @@ interface ObserverPanelProps {
   onCopy: () => void;
   onInsert: () => void;
   onDismiss: () => void;
+  focusToken: number;
 }
 
 export default function ObserverPanel({
@@ -47,9 +49,16 @@ export default function ObserverPanel({
   onCopy,
   onInsert,
   onDismiss,
+  focusToken,
 }: ObserverPanelProps) {
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (focusToken > 0) workspaceRef.current?.focus();
+  }, [focusToken]);
+
   return (
-    <div className="observer-workspace">
+    <div ref={workspaceRef} className="observer-workspace" tabIndex={-1} aria-label="Observer panel">
       <div className="observer-controls">
         <label>
           <span>Request mode</span>

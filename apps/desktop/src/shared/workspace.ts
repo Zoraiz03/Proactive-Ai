@@ -1,5 +1,6 @@
 export const WORKSPACE_CHANNELS = {
   openFolder: "workspace:open-folder",
+  closeWorkspace: "workspace:close",
   recentList: "workspace:recent-list",
   reopenRecent: "workspace:reopen-recent",
   removeRecent: "workspace:remove-recent",
@@ -109,6 +110,7 @@ export type IpcResult<T> =
 
 export interface WorkspaceBridge {
   openFolder: () => Promise<IpcResult<OpenWorkspace | null>>;
+  closeWorkspace: () => Promise<IpcResult<void>>;
   listRecent: () => Promise<IpcResult<RecentWorkspace[]>>;
   reopenRecent: (id: string) => Promise<IpcResult<OpenWorkspace>>;
   removeRecent: (id: string) => Promise<IpcResult<RecentWorkspace[]>>;
