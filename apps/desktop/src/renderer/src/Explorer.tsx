@@ -155,10 +155,11 @@ type OperationDialog =
   | { kind: "delete"; entry: WorkspaceEntry; impact: DeleteImpact };
 
 interface ExplorerProps {
+  openedWorkspace: OpenWorkspace | null;
   activeFilePath: string | null;
   onSelectFile: (entry: WorkspaceEntry) => void;
   onBeforeWorkspaceOpen: () => Promise<boolean>;
-  onWorkspaceOpened: () => void;
+  onWorkspaceOpened: (workspace: OpenWorkspace) => void;
   onEntryRenamed: (oldRelativePath: string, entry: WorkspaceEntry) => void;
   onEntryDeleted: (relativePath: string, kind: WorkspaceEntry["kind"]) => void;
   getDeleteImpact: (entry: WorkspaceEntry) => DeleteImpact;
@@ -171,6 +172,7 @@ function parentPath(relativePath: string): string {
 }
 
 export default function Explorer({
+  openedWorkspace,
   activeFilePath,
   onSelectFile,
   onBeforeWorkspaceOpen,
@@ -194,6 +196,16 @@ export default function Explorer({
   const [dialogBusy, setDialogBusy] = useState(false);
   const [externalStatus, setExternalStatus] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!openedWorkspace) return;
+    setWorkspace(openedWorkspace);
+    setSelectedEntry(null);
+    setRevealPath(null);
+    setExpandedPaths(new Set());
+    setRefreshVersion((version) => version + 1);
+    setError(null);
+  }, [openedWorkspace]);
+
   const openFolder = async () => {
     if (loading || !(await onBeforeWorkspaceOpen())) return;
     setLoading(true);
@@ -205,12 +217,7 @@ export default function Explorer({
       return;
     }
     if (result.value) {
-      onWorkspaceOpened();
-      setWorkspace(result.value);
-      setSelectedEntry(null);
-      setRevealPath(null);
-      setExpandedPaths(new Set());
-      setRefreshVersion((version) => version + 1);
+      onWorkspaceOpened(result.value);
     }
   };
 

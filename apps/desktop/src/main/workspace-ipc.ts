@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, type WebContents } from "electron";
 import {
   WORKSPACE_CHANNELS,
   type IpcResult,
@@ -28,6 +28,11 @@ import {
   type WorkspaceSearchCompletion,
 } from "../shared/search";
 import { WorkspaceSearchService } from "./workspace-search";
+import {
+  prepareRecentWorkspace,
+  RecentProjectsStore,
+  validateRecentId,
+} from "./recent-projects";
 
 let workspaceAuthorization: {
   rootPath: string;
@@ -117,7 +122,8 @@ export function registerWorkspaceIpc(
   lifecycle: {
     onWorkspaceOpened: (rootPath: string, webContentsId: number) => void;
     onWorkspaceClosed: (webContentsId?: number) => void;
-  }
+  },
+  userDataPath: string
 ): { clearWorkspace: () => Promise<void>; cleanup: () => Promise<void> } {
   let cleanupBoundWebContentsId: number | null = null;
   const watcher = new WorkspaceWatcher((batch) => {
@@ -131,6 +137,44 @@ export function registerWorkspaceIpc(
     }
   });
   const searchService = new WorkspaceSearchService();
+  const recentProjects = new RecentProjectsStore(userDataPath);
+
+  const activateWorkspace = async (
+    rootPath: string,
+    name: string,
+    webContentsId: number,
+    sender: WebContents
+  ): Promise<OpenWorkspace> => {
+    const entries = await readWorkspaceDirectory(rootPath, "");
+    searchService.cancel();
+    workspaceAuthorization = { rootPath, webContentsId };
+    lifecycle.onWorkspaceOpened(rootPath, webContentsId);
+    void watcher.start(rootPath).catch((error: unknown) => {
+      console.error(
+        "[desktop] workspace watcher failed:",
+        error instanceof Error ? error.message : "Unknown watcher error"
+      );
+    });
+    if (cleanupBoundWebContentsId !== webContentsId) {
+      cleanupBoundWebContentsId = webContentsId;
+      sender.once("destroyed", () => {
+        if (workspaceAuthorization?.webContentsId === webContentsId) {
+          workspaceAuthorization = null;
+          void watcher.stop();
+          lifecycle.onWorkspaceClosed(webContentsId);
+        }
+        if (cleanupBoundWebContentsId === webContentsId) cleanupBoundWebContentsId = null;
+      });
+    }
+    await recentProjects.add(rootPath, name).catch((error: unknown) => {
+      console.error(
+        "[desktop] recent project metadata could not be saved:",
+        error instanceof Error ? error.message : "Unknown storage error"
+      );
+    });
+    return { name, entries };
+  };
+
   ipcMain.handle(
     WORKSPACE_CHANNELS.openFolder,
     async (event): Promise<IpcResult<OpenWorkspace | null>> => {
@@ -150,36 +194,75 @@ export function registerWorkspaceIpc(
         }
 
         const selected = await prepareWorkspaceRoot(selection.filePaths[0]);
-        const entries = await readWorkspaceDirectory(selected.rootPath, "");
-        searchService.cancel();
-        workspaceAuthorization = {
-          rootPath: selected.rootPath,
-          webContentsId: event.sender.id,
+        return {
+          ok: true,
+          value: await activateWorkspace(
+            selected.rootPath,
+            selected.name,
+            event.sender.id,
+            event.sender
+          ),
         };
-        lifecycle.onWorkspaceOpened(selected.rootPath, event.sender.id);
-        void watcher.start(selected.rootPath).catch((error: unknown) => {
-          console.error(
-            "[desktop] workspace watcher failed:",
-            error instanceof Error ? error.message : "Unknown watcher error"
-          );
-        });
-        if (cleanupBoundWebContentsId !== event.sender.id) {
-          cleanupBoundWebContentsId = event.sender.id;
-          const webContentsId = event.sender.id;
-          event.sender.once("destroyed", () => {
-            if (workspaceAuthorization?.webContentsId === webContentsId) {
-              workspaceAuthorization = null;
-              void watcher.stop();
-              lifecycle.onWorkspaceClosed(webContentsId);
-            }
-            if (cleanupBoundWebContentsId === webContentsId) {
-              cleanupBoundWebContentsId = null;
-            }
-          });
-        }
-        return { ok: true, value: { name: selected.name, entries } };
       } catch (error) {
         return { ok: false, error: publicError(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    WORKSPACE_CHANNELS.recentList,
+    async (event) => {
+      if (!isTrustedSender(event, getMainWindow)) {
+        return { ok: false, error: "Recent projects request was rejected." };
+      }
+      try {
+        return { ok: true, value: await recentProjects.listPublic() };
+      } catch {
+        return { ok: false, error: "Recent projects could not be loaded." };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    WORKSPACE_CHANNELS.reopenRecent,
+    async (event, value: unknown): Promise<IpcResult<OpenWorkspace>> => {
+      if (!isTrustedSender(event, getMainWindow)) {
+        return { ok: false, error: "Recent project request was rejected." };
+      }
+      const id = validateRecentId(value);
+      if (!id) return { ok: false, error: "This project is not in the recent projects list." };
+      try {
+        const selected = await prepareRecentWorkspace(recentProjects, id);
+        return {
+          ok: true,
+          value: await activateWorkspace(
+            selected.rootPath,
+            selected.name,
+            event.sender.id,
+            event.sender
+          ),
+        };
+      } catch {
+        return {
+          ok: false,
+          error: "This project folder is missing or inaccessible. You can remove it from Recents.",
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    WORKSPACE_CHANNELS.removeRecent,
+    async (event, value: unknown) => {
+      if (!isTrustedSender(event, getMainWindow)) {
+        return { ok: false, error: "Recent project request was rejected." };
+      }
+      const id = validateRecentId(value);
+      if (!id) return { ok: false, error: "Recent project identifier is invalid." };
+      try {
+        return { ok: true, value: await recentProjects.remove(id) };
+      } catch {
+        return { ok: false, error: "The recent project could not be removed." };
       }
     }
   );
@@ -409,6 +492,9 @@ export function registerWorkspaceIpc(
     cleanup: async () => {
       await clearWorkspace();
       ipcMain.removeHandler(WORKSPACE_CHANNELS.openFolder);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.recentList);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.reopenRecent);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.removeRecent);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.readDirectory);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.readFile);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.writeFile);

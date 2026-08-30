@@ -98,7 +98,7 @@ app.whenReady().then(() => {
       terminalIpc?.controller.clearWorkspace(webContentsId);
       runIpc?.controller.clearWorkspace(webContentsId);
     },
-  });
+  }, app.getPath("userData"));
   app.once("will-quit", () => {
     observerIpc.cleanup();
     authIpc.cleanup();

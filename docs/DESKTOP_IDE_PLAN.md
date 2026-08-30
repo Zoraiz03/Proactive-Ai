@@ -31,7 +31,7 @@ implementation and its verification evidence in the changelog.
 | Phase 5 | Complete | Authenticated manual Observer AI integration |
 | Phase 6 | Complete | Markdown documentation editing, safe preview, navigation, and manual Observer help |
 | Phase 7A | Complete | Secure global project search |
-| Phase 7B | Not Started | Recent projects and workspace reopening |
+| Phase 7B | Complete | Recent projects and secure workspace reopening |
 | Phase 8 | Not Started | Packaging, signing, updates, and release checks |
 
 ## Recommended folder structure
@@ -483,9 +483,28 @@ Required verification:
 
 **Goal:** Reopen user-approved projects safely without weakening workspace authorization.
 
-- [ ] **Not Started** — Define non-sensitive recent-project metadata and retention.
-- [ ] **Not Started** — Reauthorize persisted paths and handle missing/moved folders.
-- [ ] **Not Started** — Add explicit recent-project and reopen-last-workspace controls.
+- [x] **Complete** — Show a welcome screen with Open Folder, a clear first-use state,
+  and up to 10 recent projects with name, shortened path, timestamp, and Remove action.
+- [x] **Complete** — Persist only canonical path, display name, and last-opened timestamp
+  in an owner-only JSON file under Electron's application-data directory.
+- [x] **Complete** — Deduplicate canonical paths, order by newest timestamp, move a
+  reopened project to the top, and enforce the 10-project limit.
+- [x] **Complete** — Expose only opaque identifiers and shortened display paths to the
+  renderer; keep canonical paths and all storage access in Electron main.
+- [x] **Complete** — Reopen only list-authorized projects through canonical folder and
+  directory-read validation, rejecting missing, non-directory, changed, or replaced-
+  symlink paths with a removable error state.
+- [x] **Complete** — Preserve the existing dirty-tab confirmation and workspace process
+  cleanup when switching through either Open Folder entry point or a recent project.
+- [x] **Complete** — Default startup to the welcome screen. The newest recent entry
+  remembers the last workspace, but automatic reopening remains disabled.
+
+Required verification:
+
+- [x] **Complete** — Add, deduplication, timestamp ordering, 10-item limit, and removal pass.
+- [x] **Complete** — Missing/non-directory/unlisted paths and replaced-symlink reopening fail safely.
+- [x] **Complete** — Persisted and renderer-visible schemas contain only their documented metadata.
+- [x] **Complete** — Desktop tests/type/build and existing web tests/lint/build pass.
 
 ## Phase 8 — Packaging and release readiness
 
@@ -627,6 +646,18 @@ Required verification:
     `.env*`, credential/secret files, and private-key formats. Result parsing repeats
     directory, supported-extension, secret-basename, include/exclude, and root-relative
     checks before a path reaches the renderer.
+31. **Persist only bounded recent-workspace metadata in app data.** Phase 7B stores a
+    versioned, owner-only JSON file under Electron `userData`, outside the repository
+    and browser storage. Each of at most 10 entries contains only a canonical path,
+    display name, and last-opened timestamp. Reopening deduplicates and promotes the
+    project; no file content, session/token, terminal, diagnostic, or AI data is stored.
+32. **Keep recent paths behind the main-process authorization boundary.** The renderer
+    receives a SHA-256-derived opaque identifier, folder name, shortened two-segment
+    display path, and timestamp—not the canonical path. Reopen/remove requests use the
+    opaque identifier. Main resolves it against stored metadata, rejects missing,
+    non-directory, unlisted, or replaced-symlink targets, then reuses the normal
+    workspace activation, watcher, terminal, runner, and search lifecycle. Startup
+    intentionally shows Welcome; automatic last-workspace reopening is deferred.
 
 ### Desktop-to-backend authentication boundary
 
@@ -664,6 +695,8 @@ headers return 401, and authorization data is not logged.
 - Canonicalize both the selected root and every requested target with `realpath`.
   Broken symlinks and symlinks resolving outside the root must not be returned.
 - Keep absolute local paths out of renderer responses and visible error messages.
+  Recent-project responses use only an opaque identifier and a shortened display path;
+  the persisted canonical path remains in Electron main's app-data file.
 - Run global search only from the authenticated window and currently authorized
   canonical workspace. Use a fixed binary and argument array, never a shell command;
   disable ripgrep configuration/environment inheritance, do not follow symlinks, and
@@ -715,6 +748,38 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-31 — Phase 7B complete
+
+Changed files:
+
+- `apps/desktop/src/main/recent-projects.ts` and focused tests — added versioned,
+  atomic, owner-only app-data persistence; normalization, ordering, deduplication,
+  retention, opaque identifiers, safe display paths, removal, and secure reopen checks.
+- Desktop workspace main/preload/shared contracts — added authenticated List Recent,
+  Reopen Recent, and Remove Recent operations while retaining main-process paths and
+  reusing the existing workspace activation lifecycle.
+- Desktop renderer — added the startup Welcome screen, Open Folder action, empty/error/
+  loading states, bounded Recent Projects list, shortened paths, timestamps, removal,
+  and Explorer synchronization after a welcome/recent open.
+- Desktop plan/test command — included the new focused test suite and recorded Phase 7B
+  architecture, privacy rules, verification evidence, and limitations.
+
+Verification and limitations:
+
+- `npm --prefix apps/desktop test` passed 60/60 tests, including six focused recent-
+  project storage and reopen tests. Strict main/preload/renderer TypeScript and the
+  Electron production build passed.
+- Root manual-suggestion tests, lint, and the Next.js production build passed with no
+  web application source changes.
+- Startup always shows Welcome and does not automatically reopen the last workspace.
+  A future setting may opt into automatic reopen after its UX and recovery behavior
+  are approved.
+- Recents do not track renamed or moved projects automatically. Such entries show a
+  clear unavailable message and remain removable. No recent-project cloud sync,
+  pinning, custom labels, or project thumbnails are included.
+- Automated tests cover persistence and security behavior; signed-in interactive
+  Electron smoke testing remains part of the manual steps and future packaged-release checks.
 
 ### 2026-08-30 — Phase 7A complete
 
@@ -1426,10 +1491,13 @@ Verification:
 | 2026-08-30 | Phase 7A search tests | Complete | 54/54 desktop tests passed, including text/case/word/regex modes, patterns, ignores, secrets, binary/large files, limits, cancellation, symlinks, and Monaco selection mapping. |
 | 2026-08-30 | Phase 7A desktop checks | Complete | Strict main/preload/renderer TypeScript and Electron production build passed with the pinned platform ripgrep dependency. |
 | 2026-08-30 | Phase 7A web regression | Complete | Existing root tests, lint, and Next.js production build passed with no web application source changes. |
+| 2026-08-31 | Phase 7B recent-project tests | Complete | 60/60 desktop tests passed, including add, deduplication, ordering, limit, removal, unavailable paths, schema privacy, and replaced-symlink reopening. |
+| 2026-08-31 | Phase 7B desktop checks | Complete | Strict main/preload/renderer TypeScript and the Electron production build passed. |
+| 2026-08-31 | Phase 7B web regression | Complete | Existing root tests, lint, and Next.js production build passed with no web application source changes. |
 
 ## Recommended next task
 
-Implement **recent projects and workspace reopening**. Persist only bounded,
-non-sensitive project metadata, require the same canonical-path authorization checks
-when reopening, handle moved/missing folders safely, and preserve the existing
-unsaved-work and process-cleanup protections.
+Implement **Command Palette and keyboard-first navigation**. Provide a bounded set of
+explicit IDE actions, searchable labels and shortcuts, focus management, and safe
+dispatch through existing renderer/preload capabilities without adding arbitrary
+commands, filesystem access, Git behavior, or new AI automation.

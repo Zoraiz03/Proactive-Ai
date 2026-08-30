@@ -21,6 +21,7 @@ import type {
   WorkspaceChangeBatch,
   WorkspaceEntry,
   WorkspaceTextFile,
+  OpenWorkspace,
 } from "../../shared/workspace";
 import type { RunDiagnostic } from "../../shared/runner";
 import type { DesktopAuthUser } from "../../shared/auth";
@@ -46,6 +47,7 @@ import BottomPanel, { type IdeOutputMessage, type RunOutputState } from "./Botto
 import ObserverPanel, { type ObserverStatus } from "./ObserverPanel";
 import MarkdownPreview from "./MarkdownPreview";
 import SearchPanel from "./SearchPanel";
+import WelcomeScreen from "./WelcomeScreen";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -492,6 +494,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [externalChanges, setExternalChanges] = useState<WorkspaceChangeBatch | null>(null);
   const [unsavedPrompt, setUnsavedPrompt] = useState<UnsavedPrompt | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [openedWorkspace, setOpenedWorkspace] = useState<OpenWorkspace | null>(null);
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [outputMessages, setOutputMessages] = useState<IdeOutputMessage[]>([]);
   const [runOutput, setRunOutput] = useState<RunOutputState | null>(null);
@@ -762,7 +765,7 @@ export default function App({ user, onSignOut }: AppProps) {
     return true;
   }, [askAboutUnsavedChanges, saveTab]);
 
-  const clearWorkspaceTabs = useCallback(() => {
+  const clearWorkspaceTabs = useCallback((workspace: OpenWorkspace) => {
     requestSequence.current += 1;
     setTabs([]);
     setActivePath(null);
@@ -770,6 +773,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setExternalChanges(null);
     externalReadSequence.current.clear();
     setWorkspaceOpen(true);
+    setOpenedWorkspace(workspace);
     setWorkspaceVersion((current) => current + 1);
     setRunOutput(null);
     setEditorLocation(null);
@@ -1284,6 +1288,7 @@ export default function App({ user, onSignOut }: AppProps) {
           </div>
           <div className={`sidebar-view ${sidebarView === "explorer" ? "active" : ""}`}>
             <Explorer
+              openedWorkspace={openedWorkspace}
               activeFilePath={activePath}
               onSelectFile={(entry) => void selectFile(entry)}
               onBeforeWorkspaceOpen={canOpenWorkspace}
@@ -1308,6 +1313,12 @@ export default function App({ user, onSignOut }: AppProps) {
 
         <main className="panel editor-panel">
           <PanelTitle>Editor</PanelTitle>
+          {!workspaceOpen ? (
+            <WelcomeScreen
+              onBeforeOpen={canOpenWorkspace}
+              onWorkspaceOpened={clearWorkspaceTabs}
+            />
+          ) : (
           <EditorWorkspace
             tabs={tabs}
             activePath={activePath}
@@ -1334,6 +1345,7 @@ export default function App({ user, onSignOut }: AppProps) {
               setMarkdownViewModes((current) => ({ ...current, [activePath]: mode }));
             }}
           />
+          )}
         </main>
 
         <aside className="panel observer-panel">
@@ -1378,7 +1390,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 7A</span>
+        <span>Phase 7B</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 

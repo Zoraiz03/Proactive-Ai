@@ -46,6 +46,9 @@ import {
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
+  listRecent: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.recentList),
+  reopenRecent: (id: string) => ipcRenderer.invoke(WORKSPACE_CHANNELS.reopenRecent, id),
+  removeRecent: (id: string) => ipcRenderer.invoke(WORKSPACE_CHANNELS.removeRecent, id),
   readDirectory: (relativePath: string) =>
     ipcRenderer.invoke(WORKSPACE_CHANNELS.readDirectory, relativePath),
   readFile: (relativePath: string) =>
