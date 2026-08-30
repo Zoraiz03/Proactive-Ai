@@ -13,6 +13,7 @@ const MONACO_LANGUAGES: Readonly<Record<string, string>> = {
   ".css": "css",
   ".json": "json",
   ".md": "markdown",
+  ".mdx": "markdown",
   ".txt": "plaintext",
   ".yml": "yaml",
   ".yaml": "yaml",

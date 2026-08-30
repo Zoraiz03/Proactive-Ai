@@ -3,6 +3,11 @@ import type { editor as MonacoEditor } from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { monacoLanguageForFile } from "../../shared/languages";
 import {
+  extractMarkdownHeadings,
+  isMarkdownFile,
+  type MarkdownViewMode,
+} from "../../shared/markdown";
+import {
   batchChangesFile,
   batchDeletesPath,
   resolveExternalFileUpdate,
@@ -26,6 +31,8 @@ import {
   isObserverAskShortcut,
   isObserverDismissShortcut,
   observerContextSummary,
+  CODE_OBSERVER_MODES,
+  DOCUMENT_OBSERVER_MODES,
   OBSERVER_MODE_LABELS,
   relevantObserverRunError,
   type ObserverMode,
@@ -36,6 +43,7 @@ import {
 import Explorer from "./Explorer";
 import BottomPanel, { type IdeOutputMessage, type RunOutputState } from "./BottomPanel";
 import ObserverPanel, { type ObserverStatus } from "./ObserverPanel";
+import MarkdownPreview from "./MarkdownPreview";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -131,6 +139,8 @@ interface EditorWorkspaceProps {
   onObserverContextChange: (snapshot: EditorObserverSnapshot) => void;
   insertRequest: ObserverInsertRequest | null;
   onInsertComplete: (id: number, inserted: boolean) => void;
+  markdownViewMode: MarkdownViewMode;
+  onMarkdownViewModeChange: (mode: MarkdownViewMode) => void;
 }
 
 function EditorWorkspace({
@@ -150,6 +160,8 @@ function EditorWorkspace({
   onObserverContextChange,
   insertRequest,
   onInsertComplete,
+  markdownViewMode,
+  onMarkdownViewModeChange,
 }: EditorWorkspaceProps) {
   const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
@@ -206,12 +218,35 @@ function EditorWorkspace({
   }, [activePath, insertRequest]);
 
   const support = activeTab ? runSupport(activeTab.file.name) : "unsupported";
+  const markdownActive = Boolean(activeTab && isMarkdownFile(activeTab.file.name));
+  const headings = useMemo(
+    () => markdownActive && activeTab ? extractMarkdownHeadings(activeTab.draft) : [],
+    [activeTab, markdownActive]
+  );
   const runDisabled = !activeTab || support !== "supported" || activeTab.availability !== "available" || Boolean(activeTab.externalConflict);
   const runHint = support === "typescript"
     ? "TypeScript runner not configured"
     : support === "unsupported" && activeTab
       ? "This file type cannot be run"
       : null;
+
+  useEffect(() => {
+    if (!markdownActive || markdownViewMode !== "preview") return;
+    editorRef.current = null;
+    editorDisposablesRef.current.forEach((disposable) => disposable.dispose());
+    editorDisposablesRef.current = [];
+  }, [markdownActive, markdownViewMode]);
+
+  const navigateToHeading = (line: number, id: string) => {
+    if (markdownViewMode !== "preview" && editorRef.current) {
+      editorRef.current.setPosition({ lineNumber: line, column: 1 });
+      editorRef.current.revealLineInCenter(line);
+      editorRef.current.focus();
+    }
+    if (markdownViewMode !== "edit") {
+      requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start" }));
+    }
+  };
 
   return (
     <div className="editor-workspace">
@@ -262,21 +297,38 @@ function EditorWorkspace({
               {activeTab.file.relativePath}
               {isDirty(activeTab) && <span className="dirty-mark"> •</span>}
             </span>
-            {runHint && <span className="run-hint">{runHint}</span>}
+            {markdownActive && (
+              <div className="documentation-toolbar" role="group" aria-label="Markdown view">
+                {(["edit", "preview", "split"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={markdownViewMode === mode ? "active" : ""}
+                    aria-pressed={markdownViewMode === mode}
+                    onClick={() => onMarkdownViewModeChange(mode)}
+                  >
+                    {mode[0].toUpperCase() + mode.slice(1)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!markdownActive && runHint && <span className="run-hint">{runHint}</span>}
             {activeTab.saveStatus && (
               <span className={`save-status ${activeTab.saveStatus.kind}`} role="status">
                 {activeTab.saveStatus.message}
               </span>
             )}
-            <button
-              type="button"
-              className={running ? "run-button stop" : "run-button"}
-              onClick={running ? onStop : onRun}
-              disabled={!running && runDisabled}
-              title={running ? "Stop running file" : "Run current file (Ctrl+R / Cmd+R)"}
-            >
-              {running ? "■ Stop" : isDirty(activeTab) && support === "supported" ? "▶ Save & Run" : "▶ Run"}
-            </button>
+            {!markdownActive && (
+              <button
+                type="button"
+                className={running ? "run-button stop" : "run-button"}
+                onClick={running ? onStop : onRun}
+                disabled={!running && runDisabled}
+                title={running ? "Stop running file" : "Run current file (Ctrl+R / Cmd+R)"}
+              >
+                {running ? "■ Stop" : isDirty(activeTab) && support === "supported" ? "▶ Save & Run" : "▶ Run"}
+              </button>
+            )}
             <button
               type="button"
               className="save-button"
@@ -311,8 +363,27 @@ function EditorWorkspace({
           ) : activeTab.externalNotice ? (
             <div className="external-file-banner notice" role="status">{activeTab.externalNotice}</div>
           ) : null}
-          <div className="monaco-host">
-            <Editor
+          <div className={markdownActive ? `markdown-workspace ${markdownViewMode}` : "monaco-host"}>
+            {markdownActive && (
+              <nav className="markdown-outline" aria-label="Document outline">
+                <strong>Outline</strong>
+                {headings.length ? headings.map((heading) => (
+                  <button
+                    key={heading.id}
+                    type="button"
+                    style={{ paddingLeft: `${8 + (heading.level - 1) * 10}px` }}
+                    title={`Line ${heading.line}: ${heading.text}`}
+                    onClick={() => navigateToHeading(heading.line, heading.id)}
+                  >
+                    {heading.text}
+                  </button>
+                )) : <span>No headings</span>}
+              </nav>
+            )}
+            <div className={markdownActive ? "markdown-content" : "code-editor-content"}>
+            {(!markdownActive || markdownViewMode !== "preview") && (
+              <div className={markdownActive ? "markdown-editor-pane" : "code-editor-pane"}>
+              <Editor
               path={activeTab.file.relativePath}
               value={activeTab.draft}
               language={monacoLanguageForFile(activeTab.file.name)}
@@ -370,6 +441,12 @@ function EditorWorkspace({
                 wordWrap: "on",
               }}
             />
+              </div>
+            )}
+            {markdownActive && markdownViewMode !== "edit" && (
+              <MarkdownPreview source={activeTab.draft} />
+            )}
+            </div>
           </div>
         </div>
       ) : surface.status === "loading" ? (
@@ -419,6 +496,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [sentContextSummary, setSentContextSummary] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [insertRequest, setInsertRequest] = useState<ObserverInsertRequest | null>(null);
+  const [markdownViewModes, setMarkdownViewModes] = useState<Record<string, MarkdownViewMode>>({});
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -452,18 +530,26 @@ export default function App({ user, onSignOut }: AppProps) {
     () => tabs.find((tab) => tab.file.relativePath === activePath) ?? null,
     [activePath, tabs]
   );
+  const activeIsMarkdown = Boolean(activeTab && isMarkdownFile(activeTab.file.name));
+  const activeMarkdownViewMode = activePath ? markdownViewModes[activePath] ?? "edit" : "edit";
+  const observerModes = activeIsMarkdown ? DOCUMENT_OBSERVER_MODES : CODE_OBSERVER_MODES;
+  const activeObserverMode: ObserverMode = observerModes.some((mode) => mode === observerMode)
+    ? observerMode
+    : activeIsMarkdown ? "explain_document" : "explain";
+
   const observerRequest = useMemo<ObserverRequest | null>(() => {
     if (!activeTab || activeTab.availability !== "available" || activeTab.externalConflict) return null;
     const snapshot = observerSnapshot?.relativePath === activeTab.file.relativePath
       ? observerSnapshot
       : null;
-    const diagnostic = observerMode === "fix_error"
+    const diagnostic = activeObserverMode === "fix_error"
       ? runOutput?.diagnostics.find((item) => item.relativePath === activeTab.file.relativePath)
       : undefined;
     const fallbackNearbyCode = activeTab.draft.split("\n").slice(0, 41).join("\n");
     return createObserverRequest({
       provider: observerProvider,
-      mode: observerMode,
+      mode: activeObserverMode,
+      kind: activeIsMarkdown ? "doc" : "code",
       fileName: activeTab.file.name,
       language: monacoLanguageForFile(activeTab.file.name),
       content: activeTab.draft,
@@ -488,7 +574,7 @@ export default function App({ user, onSignOut }: AppProps) {
           })
         : undefined,
     });
-  }, [activeTab, observerMode, observerProvider, observerSnapshot, runOutput]);
+  }, [activeIsMarkdown, activeObserverMode, activeTab, observerProvider, observerSnapshot, runOutput]);
   const currentContextSummary = observerRequest ? observerContextSummary(observerRequest) : null;
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
@@ -679,6 +765,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverRequestPath(null);
     setSentContextSummary(null);
     setInsertRequest(null);
+    setMarkdownViewModes({});
     appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
   }, [appendOutput]);
 
@@ -700,6 +787,12 @@ export default function App({ user, onSignOut }: AppProps) {
       if (!current) return current;
       return replaceWorkspaceEntryPath(current, oldRelativePath, entry);
     });
+    setMarkdownViewModes((current) => Object.fromEntries(
+      Object.entries(current).map(([path, mode]) => [
+        replaceWorkspaceEntryPath(path, oldRelativePath, entry),
+        mode,
+      ])
+    ));
   }, []);
 
   const deleteOpenEntries = useCallback((relativePath: string, kind: WorkspaceEntry["kind"]) => {
@@ -713,6 +806,9 @@ export default function App({ user, onSignOut }: AppProps) {
       return remaining.at(-1)?.file.relativePath ?? null;
     });
     setSurface({ status: "idle" });
+    setMarkdownViewModes((current) => Object.fromEntries(
+      Object.entries(current).filter(([path]) => !workspaceEntryContainsPath(path, relativePath, kind))
+    ));
   }, []);
 
   const getDeleteImpact = useCallback((entry: WorkspaceEntry) => {
@@ -1020,7 +1116,12 @@ export default function App({ user, onSignOut }: AppProps) {
     observerSuggestion,
     observerRequestPath,
     activePath,
-    Boolean(activeTab && activeTab.availability === "available" && !activeTab.externalConflict)
+    Boolean(
+      activeTab &&
+      activeTab.availability === "available" &&
+      !activeTab.externalConflict &&
+      (!activeIsMarkdown || activeMarkdownViewMode !== "preview")
+    )
   );
 
   const insertObserverSnippet = useCallback(() => {
@@ -1173,13 +1274,19 @@ export default function App({ user, onSignOut }: AppProps) {
             onObserverContextChange={setObserverSnapshot}
             insertRequest={insertRequest}
             onInsertComplete={finishObserverInsert}
+            markdownViewMode={activeMarkdownViewMode}
+            onMarkdownViewModeChange={(mode) => {
+              if (!activePath) return;
+              setMarkdownViewModes((current) => ({ ...current, [activePath]: mode }));
+            }}
           />
         </main>
 
         <aside className="panel observer-panel">
           <PanelTitle>Observer</PanelTitle>
           <ObserverPanel
-            mode={observerMode}
+            mode={activeObserverMode}
+            modes={observerModes}
             provider={observerProvider}
             status={observerStatus}
             contextSummary={observerStatus === "idle" ? currentContextSummary : sentContextSummary}
@@ -1217,7 +1324,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 5B</span>
+        <span>Phase 6</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 

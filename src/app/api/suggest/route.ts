@@ -6,7 +6,9 @@ import { decrypt } from "@/lib/server/crypto";
 import { getSuggestion, ProviderError, Provider } from "@/lib/server/providers";
 
 const ProviderSchema = z.enum(["gemini", "deepseek", "openai", "anthropic", "demo"]);
-const ModeSchema = z.enum(["explain", "fix_error", "improve_code", "continue_code", "generate_tests"]);
+const CodeModeSchema = z.enum(["explain", "fix_error", "improve_code", "continue_code", "generate_tests"]);
+const DocumentModeSchema = z.enum(["explain_document", "improve_writing", "summarize", "generate_readme_section"]);
+const ModeSchema = z.union([CodeModeSchema, DocumentModeSchema]);
 
 const WebBody = z.object({
   client: z.literal("web").optional(),
@@ -27,6 +29,7 @@ const DesktopBody = z.object({
   client: z.literal("desktop"),
   provider: ProviderSchema,
   mode: ModeSchema,
+  kind: z.enum(["code", "doc"]),
   fileName: z.string().min(1).max(255).regex(/^[^\\/]+$/),
   language: z.string().min(1).max(64),
   source: z.enum(["selection", "cursor", "diagnostic"]),
@@ -48,6 +51,12 @@ const DesktopBody = z.object({
     [".npmrc", ".pypirc", ".netrc", "credentials", "id_rsa", "id_ed25519"].includes(normalizedFileName) ||
     /\.(?:pem|key|p12|pfx)$/.test(normalizedFileName);
   if (sensitive) context.addIssue({ code: z.ZodIssueCode.custom, message: "Sensitive files cannot be sent." });
+  const codeModes = CodeModeSchema.options as readonly string[];
+  const documentModes = DocumentModeSchema.options as readonly string[];
+  if ((body.kind === "code" && !codeModes.includes(body.mode)) ||
+      (body.kind === "doc" && !documentModes.includes(body.mode))) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Request mode does not match the active file type." });
+  }
   if (!body.selectedCode && !body.nearbyCode && !body.diagnostic && !body.activeFile) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "No focused context was provided." });
   }
@@ -66,7 +75,7 @@ const DesktopBody = z.object({
   if (body.runError && !body.diagnostic) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Run error context requires a diagnostic." });
   }
-  if (body.activeFile && body.mode !== "generate_tests") {
+  if (body.activeFile && !["generate_tests", "explain_document", "summarize", "generate_readme_section"].includes(body.mode)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Full active-file context is not allowed for this mode." });
   }
 });
@@ -101,7 +110,7 @@ export async function POST(req: Request) {
   const web = "context" in parsed.data ? parsed.data : null;
   const provider = parsed.data.provider;
   const fileName = parsed.data.fileName.split(/[\\/]/).at(-1) ?? "untitled";
-  const kind = web?.kind ?? "code";
+  const kind = desktop?.kind ?? web?.kind ?? "code";
   const context = desktop
     ? {
         selectedText: desktop.selectedCode,
@@ -169,6 +178,7 @@ export async function POST(req: Request) {
           client: desktop ? "desktop" : "web",
           authMethod: method,
           mode: context.mode,
+          kind,
           contextSource: context.source ?? (context.selectedText ? "selection" : "cursor"),
           language: context.language ?? null,
           hasSelection: Boolean(context.selectedText),

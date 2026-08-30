@@ -4,7 +4,6 @@ import type {
   ObserverSuggestion,
 } from "../../shared/observer";
 import {
-  OBSERVER_MODES,
   OBSERVER_MODE_LABELS,
   OBSERVER_PROVIDERS,
   OBSERVER_PROVIDER_LABELS,
@@ -14,6 +13,7 @@ export type ObserverStatus = "idle" | "thinking" | "ready" | "error";
 
 interface ObserverPanelProps {
   mode: ObserverMode;
+  modes: readonly ObserverMode[];
   provider: ObserverProvider;
   status: ObserverStatus;
   contextSummary: string | null;
@@ -32,6 +32,7 @@ interface ObserverPanelProps {
 
 export default function ObserverPanel({
   mode,
+  modes,
   provider,
   status,
   contextSummary,
@@ -57,7 +58,7 @@ export default function ObserverPanel({
             onChange={(event) => onModeChange(event.target.value as ObserverMode)}
             disabled={status === "thinking"}
           >
-            {OBSERVER_MODES.map((value) => (
+            {modes.map((value) => (
               <option key={value} value={value}>{OBSERVER_MODE_LABELS[value]}</option>
             ))}
           </select>
@@ -78,7 +79,7 @@ export default function ObserverPanel({
           <span aria-hidden="true">◎</span>
           <p>{contextSummary ?? (mode === "fix_error"
             ? "Run the active file and select Fix Error when a diagnostic is available."
-            : "Open a supported code file to choose focused context.")}</p>
+            : "Open a supported code or Markdown file to choose focused context.")}</p>
         </div>
         <button
           type="button"

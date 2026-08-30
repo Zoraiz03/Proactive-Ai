@@ -51,6 +51,7 @@ const SUPPORTED_TEXT_EXTENSIONS = new Set([
   ".css",
   ".json",
   ".md",
+  ".mdx",
   ".txt",
   ".yml",
   ".yaml",

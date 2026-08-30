@@ -3,6 +3,10 @@ import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, utimes, writeF
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   isSupportedWorkspaceTextFile,
   createWorkspaceEntry,
@@ -19,6 +23,11 @@ import {
   writeWorkspaceTextFile,
 } from "./workspace-files.ts";
 import { monacoLanguageForFile } from "../shared/languages.ts";
+import {
+  extractMarkdownHeadings,
+  isMarkdownFile,
+  safeMarkdownUrl,
+} from "../shared/markdown.ts";
 import {
   replaceWorkspaceEntryPath,
   workspaceEntryContainsPath,
@@ -55,6 +64,8 @@ import {
   type DesktopAuthProvider,
 } from "./auth-controller.ts";
 import {
+  CODE_OBSERVER_MODES,
+  DOCUMENT_OBSERVER_MODES,
   OBSERVER_MODES,
   canInsertObserverSnippet,
   copyObserverSnippet,
@@ -194,6 +205,7 @@ test("recognizes every supported text and code extension", () => {
     "file.css",
     "file.json",
     "file.md",
+    "file.mdx",
     "file.txt",
     "file.yml",
     "file.yaml",
@@ -246,8 +258,83 @@ test("maps supported extensions to Monaco languages", () => {
   assert.equal(monacoLanguageForFile("component.tsx"), "typescript");
   assert.equal(monacoLanguageForFile("script.py"), "python");
   assert.equal(monacoLanguageForFile("README.md"), "markdown");
+  assert.equal(monacoLanguageForFile("guide.mdx"), "markdown");
   assert.equal(monacoLanguageForFile("config.YAML"), "yaml");
   assert.equal(monacoLanguageForFile("unknown"), "plaintext");
+});
+
+test("detects Markdown files and extracts a navigable outline outside code fences", () => {
+  assert.equal(isMarkdownFile("README.md"), true);
+  assert.equal(isMarkdownFile("guide.MDX"), true);
+  assert.equal(isMarkdownFile("notes.txt"), false);
+  assert.deepEqual(extractMarkdownHeadings([
+    "# Product **Vision**",
+    "",
+    "Overview",
+    "--------",
+    "",
+    "```md",
+    "# Not an outline heading",
+    "```",
+    "",
+    "### [Safety](#safety)",
+  ].join("\n")), [
+    { id: "markdown-heading-1", level: 1, line: 1, text: "Product Vision" },
+    { id: "markdown-heading-3", level: 2, line: 3, text: "Overview" },
+    { id: "markdown-heading-10", level: 3, line: 10, text: "Safety" },
+  ]);
+});
+
+test("renders common Markdown and GFM without raw HTML or executable links", () => {
+  const markdown = [
+    "# Safe preview",
+    "",
+    "> A blockquote",
+    "",
+    "- [x] Complete",
+    "",
+    "| Feature | State |",
+    "| --- | --- |",
+    "| Preview | Ready |",
+    "",
+    "```ts",
+    "const safe = true;",
+    "```",
+    "",
+    "[safe](https://example.com) [unsafe](javascript:alert(1))",
+    "",
+    "<script>alert('x')</script>",
+    "<div onclick=\"alert(1)\">unsafe html</div>",
+  ].join("\n");
+  const rendered = renderToStaticMarkup(createElement(
+    ReactMarkdown,
+    { remarkPlugins: [remarkGfm], skipHtml: true, urlTransform: safeMarkdownUrl },
+    markdown
+  ));
+  assert.match(rendered, /<h1>Safe preview<\/h1>/);
+  assert.match(rendered, /<blockquote>/);
+  assert.match(rendered, /type="checkbox"/);
+  assert.match(rendered, /<table>/);
+  assert.match(rendered, /language-ts/);
+  assert.match(rendered, /href="https:\/\/example.com"/);
+  assert.doesNotMatch(rendered, /<script|onclick=|javascript:/i);
+  assert.equal(safeMarkdownUrl("data:text/html,bad"), "");
+  assert.equal(safeMarkdownUrl("vbscript:bad"), "");
+  assert.equal(safeMarkdownUrl("#safe-preview"), "#safe-preview");
+});
+
+test("renders a bounded large Markdown document within the desktop test budget", () => {
+  const source = Array.from({ length: 2_000 }, (_, index) =>
+    `## Section ${index + 1}\n\nDocumentation paragraph ${index + 1}.`
+  ).join("\n\n");
+  const startedAt = performance.now();
+  const rendered = renderToStaticMarkup(createElement(
+    ReactMarkdown,
+    { remarkPlugins: [remarkGfm], skipHtml: true, urlTransform: safeMarkdownUrl },
+    source
+  ));
+  assert.match(rendered, /Section 2000/);
+  assert.ok(performance.now() - startedAt < 5_000, "large Markdown render exceeded five seconds");
 });
 
 test("maps only approved run extensions to controlled commands", () => {
@@ -503,17 +590,18 @@ test("blocks desktop authentication when secure OS encryption is unavailable", a
   controller.dispose();
 });
 
-test("builds focused Observer requests for every manual mode", () => {
-  for (const mode of OBSERVER_MODES) {
+test("builds focused Observer requests for every code mode", () => {
+  for (const mode of CODE_OBSERVER_MODES) {
     const request = createObserverRequest({
       provider: "demo",
       mode,
+      kind: "code",
       fileName: "app.ts",
       language: "typescript",
       content: "export function add(a: number, b: number) { return a + b; }",
       cursorLine: 1,
       cursorColumn: 8,
-      selectedCode: mode === "fix_error" ? undefined : "return a + b;",
+      selectedCode: mode === "fix_error" || mode === "generate_tests" ? undefined : "return a + b;",
       nearbyCode: "export function add(a: number, b: number) { return a + b; }",
       diagnostic: mode === "fix_error"
         ? { fileName: "app.ts", line: 1, column: 8, message: "Cannot find name 'a'." }
@@ -528,10 +616,46 @@ test("builds focused Observer requests for every manual mode", () => {
   }
 });
 
+test("builds focused, explicit requests for every documentation mode", () => {
+  for (const mode of DOCUMENT_OBSERVER_MODES) {
+    const request = createObserverRequest({
+      provider: "demo",
+      mode,
+      kind: "doc",
+      fileName: "README.md",
+      language: "markdown",
+      content: "# Product\n\nA focused project description.",
+      cursorLine: 3,
+      cursorColumn: 4,
+      selectedCode: mode === "improve_writing" ? "A focused project description." : undefined,
+      nearbyCode: "# Product\n\nA focused project description.",
+    });
+    assert.ok(request, mode);
+    assert.equal(request.kind, "doc");
+    assert.equal(validateObserverRequest(request)?.mode, mode);
+    assert.equal(
+      request.activeFile !== undefined,
+      ["explain_document", "summarize", "generate_readme_section"].includes(mode)
+    );
+  }
+  assert.equal(createObserverRequest({
+    provider: "demo",
+    mode: "summarize",
+    kind: "code",
+    fileName: "app.ts",
+    language: "typescript",
+    content: "export {};",
+    cursorLine: 1,
+    cursorColumn: 1,
+    nearbyCode: "export {};",
+  }), null);
+});
+
 test("prefers selection, falls back to cursor context, and scopes diagnostics", () => {
   const selected = createObserverRequest({
     provider: "gemini",
     mode: "explain",
+    kind: "code",
     fileName: "app.ts",
     language: "typescript",
     content: "const answer = 42;",
@@ -550,6 +674,7 @@ test("prefers selection, falls back to cursor context, and scopes diagnostics", 
   const cursor = createObserverRequest({
     provider: "gemini",
     mode: "continue_code",
+    kind: "code",
     fileName: "app.ts",
     language: "typescript",
     content: "const answer = 42;",
@@ -563,6 +688,7 @@ test("prefers selection, falls back to cursor context, and scopes diagnostics", 
   const diagnostic = createObserverRequest({
     provider: "gemini",
     mode: "fix_error",
+    kind: "code",
     fileName: "app.ts",
     language: "typescript",
     content: "missing();",
@@ -588,6 +714,7 @@ test("blocks sensitive files and limits active-file context to test generation",
   assert.equal(createObserverRequest({
     provider: "demo",
     mode: "explain",
+    kind: "code",
     fileName: ".env",
     language: "plaintext",
     content: "SECRET=value",
@@ -598,6 +725,7 @@ test("blocks sensitive files and limits active-file context to test generation",
   const improve = createObserverRequest({
     provider: "demo",
     mode: "improve_code",
+    kind: "code",
     fileName: "safe.ts",
     language: "typescript",
     content: "const safe = true;",
@@ -655,15 +783,17 @@ test("sends every Observer mode with a bearer token and handles outcomes and API
     fakeFetch
   );
   for (const mode of OBSERVER_MODES) {
+    const documentationMode = DOCUMENT_OBSERVER_MODES.includes(mode as typeof DOCUMENT_OBSERVER_MODES[number]);
     const request = createObserverRequest({
       provider: "demo",
       mode,
-      fileName: "app.ts",
-      language: "typescript",
-      content: "export const ready = true;",
+      kind: documentationMode ? "doc" : "code",
+      fileName: documentationMode ? "README.md" : "app.ts",
+      language: documentationMode ? "markdown" : "typescript",
+      content: documentationMode ? "# Ready\n\nProject notes." : "export const ready = true;",
       cursorLine: 1,
       cursorColumn: 1,
-      nearbyCode: "export const ready = true;",
+      nearbyCode: documentationMode ? "# Ready\n\nProject notes." : "export const ready = true;",
       diagnostic: mode === "fix_error"
         ? { fileName: "app.ts", line: 1, column: 1, message: "Test error" }
         : undefined,
@@ -682,6 +812,7 @@ test("sends every Observer mode with a bearer token and handles outcomes and API
   const failed = await failing.ask(createObserverRequest({
     provider: "demo",
     mode: "explain",
+    kind: "code",
     fileName: "app.ts",
     language: "typescript",
     content: "const value = 1;",
@@ -705,6 +836,7 @@ test("rejects signed-out Observer calls before making a network request", async 
   const request = createObserverRequest({
     provider: "demo",
     mode: "explain",
+    kind: "code",
     fileName: "app.ts",
     language: "typescript",
     content: "const value = 1;",
@@ -726,6 +858,29 @@ test("overwrites an existing supported file and returns its new disk version", a
 
   assert.equal(await readFile(join(workspaceRoot, "editable.ts"), "utf8"), "const value = 2;\n");
   assert.equal(Number.isFinite(saved.modifiedAtMs), true);
+});
+
+test("round-trips MDX as inert Markdown source and preserves external-change conflicts", async () => {
+  const path = join(workspaceRoot, "phase6.mdx");
+  await writeFile(path, "# Guide\n\n<Component onclick={danger} />\n");
+  const opened = await readWorkspaceTextFile(workspaceRoot, "phase6.mdx");
+  assert.equal(opened.content, "# Guide\n\n<Component onclick={danger} />\n");
+  const saved = await writeWorkspaceTextFile(workspaceRoot, {
+    relativePath: opened.relativePath,
+    content: "# Guide\n\nEdited source.\n",
+    expectedModifiedAtMs: opened.modifiedAtMs,
+  });
+  await writeFile(path, "# External\n");
+  const changed = await readWorkspaceTextFile(workspaceRoot, "phase6.mdx");
+  const localDraft = "# Guide\n\nUnsaved local source.\n";
+  const conflict = resolveExternalFileUpdate(
+    { ...opened, content: "# Guide\n\nEdited source.\n", modifiedAtMs: saved.modifiedAtMs },
+    localDraft,
+    changed
+  );
+  assert.equal(conflict.kind, "conflict");
+  assert.equal(localDraft, "# Guide\n\nUnsaved local source.\n");
+  if (conflict.kind === "conflict") assert.equal(conflict.externalFile.content, "# External\n");
 });
 
 test("refuses to overwrite a file that changed after it was opened", async () => {

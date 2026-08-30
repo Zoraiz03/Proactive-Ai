@@ -193,6 +193,13 @@ Local project files remain local by default. The desktop authorizes one selected
 workspace, validates every privileged request in the main process, and transmits
 only context explicitly approved for a particular Observer request.
 
+Markdown remains source text owned by the existing Monaco tab/save/conflict model.
+`.md` and `.mdx` previews are inert, sanitized GitHub-flavored Markdown: raw HTML and
+MDX components are not executed, remote images are not loaded, and executable URL
+schemes are rejected. Documentation Observer requests remain manual and are limited
+to focused context from the one active document; automatic code/document comparison
+and multi-file collection are reserved for a separately approved future phase.
+
 ## 10. Phased roadmap
 
 1. **Secure desktop foundation** — Establish the isolated Electron shell, safe

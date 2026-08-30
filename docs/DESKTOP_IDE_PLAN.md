@@ -29,7 +29,7 @@ implementation and its verification evidence in the changelog.
 | Phase 3 | In Progress | Complete file explorer and editor workflow |
 | Phase 4 | In Progress | Terminal, task output, and diagnostics |
 | Phase 5 | Complete | Authenticated manual Observer AI integration |
-| Phase 6 | Not Started | Documentation editing and preview |
+| Phase 6 | Complete | Markdown documentation editing, safe preview, navigation, and manual Observer help |
 | Phase 7 | Not Started | Packaging, signing, updates, and release checks |
 
 ## Recommended folder structure
@@ -419,22 +419,33 @@ Phase 5B required verification:
 
 **Goal:** Edit and navigate project documentation without corrupting source formats.
 
-- [ ] **Not Started** — Add Markdown source editing in Monaco.
-- [ ] **Not Started** — Add a sanitized Markdown preview.
-- [ ] **Not Started** — Add side-by-side editor/preview mode.
-- [ ] **Not Started** — Add navigation for headings and documentation files.
-- [ ] **Not Started** — Decide whether TipTap rich-text documents are a separate file
-  type instead of converting Markdown to stored HTML.
-- [ ] **Not Started** — Add Observer requests for selected or complete documentation.
-- [ ] **Not Started** — Add explicit context selection for related code and documents.
+- [x] **Complete** — Edit `.md` and `.mdx` source in Monaco while `.txt` remains
+  ordinary plain text.
+- [x] **Complete** — Render a safe GitHub-flavored Markdown preview with raw HTML,
+  remote images, and executable URL schemes disabled.
+- [x] **Complete** — Add Edit, Preview, and side-by-side Split modes plus the existing
+  safe Save action.
+- [x] **Complete** — Build a heading outline from Markdown source and navigate to the
+  corresponding editor line or preview heading.
+- [x] **Complete** — Keep rich-text conversion, TipTap, DOCX/PDF editing, collaboration,
+  and export outside Phase 6; Markdown remains the source of truth.
+- [x] **Complete** — Add Explain this document, Improve writing, Summarize, and Generate
+  README section to the explicitly triggered Observer workflow.
+- [x] **Complete** — Restrict documentation requests to the active document's selection,
+  cursor neighborhood, or mode-approved bounded active content; related files are not
+  collected automatically.
 
 Required verification:
 
-- [ ] **Not Started** — Markdown round-trips without source corruption.
-- [ ] **Not Started** — Preview content is sanitized.
-- [ ] **Not Started** — Large documents remain responsive.
-- [ ] **Not Started** — Documentation Observer requests contain only approved context.
-- [ ] **Not Started** — Desktop and web builds still pass.
+- [x] **Complete** — `.mdx` source round-trips without conversion and existing dirty,
+  save, stale-write, and external-change protections remain in force.
+- [x] **Complete** — Renderer tests cover headings, links, tables, code blocks,
+  blockquotes, task lists, raw HTML/scripts/event handlers, and executable URLs.
+- [x] **Complete** — A bounded 2,000-section document renders within the desktop test
+  budget; preview virtualization is deferred.
+- [x] **Complete** — All four documentation Observer modes pass focused-context and
+  bearer-transport tests without project-wide collection.
+- [x] **Complete** — Desktop tests/type/build and existing web tests/lint/build pass.
 
 ## Phase 7 — Packaging and release readiness
 
@@ -553,6 +564,16 @@ Required verification:
     current cursor only while its original file is still active and available. Insert
     uses Monaco editor operations with undo support and records an accepted outcome;
     dismiss clears immediately and records a dismissed outcome.
+27. **Keep Markdown source authoritative and rendering inert.** Phase 6 detects only
+    `.md` and `.mdx` as documentation files; `.txt` remains plain text. Monaco owns
+    the editable draft in every mode. Preview uses `react-markdown` with `remark-gfm`,
+    `skipHtml`, no raw-HTML/MDX execution plugin, no remote image rendering, and an
+    allowlist for link schemes. MDX is previewed as inert Markdown, never evaluated.
+28. **Scope documentation AI to one active file.** Documentation Observer requests
+    reuse the validated desktop bearer boundary and contain a basename plus selected
+    text, nearby text, or—only for Explain, Summarize, and Generate README section—a
+    user-triggered active document capped at 50,000 characters. No related source,
+    documentation, workspace snapshot, or comparison is gathered automatically.
 
 ### Desktop-to-backend authentication boundary
 
@@ -616,7 +637,8 @@ headers return 401, and authorization data is not logged.
 - Validate and strip every Observer request in Electron main. Permit selected code
   or a bounded cursor neighborhood; permit a matching diagnostic and bounded current
   run error only for Fix Error; permit bounded active-file content only for Generate
-  Tests. Reject sensitive basenames and never send absolute paths.
+  Tests and the approved documentation modes. Reject sensitive basenames and never
+  send absolute paths or automatically collect another project file.
 - Never start an Observer network request from file changes, cursor movement,
   diagnostics, terminal output, timers, or application startup. A visible Ask action
   is required for every request.
@@ -633,6 +655,38 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-30 — Phase 6 complete
+
+Changed files:
+
+- Desktop Markdown core and renderer — added `.mdx` to the safe text allowlist,
+  Markdown detection, heading extraction, safe URL filtering, a raw-HTML-disabled GFM
+  preview, Edit/Preview/Split controls, an outline, navigation, and documentation
+  styling while retaining Monaco drafts and the existing Save/conflict flow.
+- Desktop and server Observer contracts — added four documentation modes, strict
+  code/document mode matching, bounded active-document rules, focused context
+  summaries, server-side prompts, and existing authenticated outcome logging.
+- Desktop dependencies/tests — pinned `react-markdown` and `remark-gfm`; added coverage
+  for rendering safety/features, `.mdx` round-trip and conflicts, large documents,
+  all documentation modes, and bearer transport.
+- Documentation — recorded the rendering/privacy architecture, verification evidence,
+  limitations, and packaging as the next phase.
+
+Verification and limitations:
+
+- `npm --prefix apps/desktop test` passed 45/45 tests and the desktop production build
+  passed strict main/preload/renderer TypeScript checks.
+- Root manual-suggestion/auth/RLS tests, lint, and the Next.js production build passed;
+  the web UI and cookie authentication path remain unchanged.
+- Preview intentionally ignores raw HTML/MDX components and images. It does not provide
+  syntax highlighting, document export, rich-text editing, multi-file documentation
+  context, or automatic code/document comparison. Very large previews are not
+  virtualized.
+- The production dependency audit still reports one low and one moderate advisory
+  through Monaco's `dompurify` dependency. The automated force-fix proposes a breaking
+  Monaco downgrade, so it is deferred for explicit dependency review in release
+  readiness; the Phase 6 Markdown preview does not import DOMPurify or raw HTML.
 
 ### 2026-08-30 — Phase 5B complete
 
@@ -1276,11 +1330,13 @@ Verification:
 | 2026-08-30 | Phase 5B API/RLS regression | Complete | Strict bearer parsing/configuration and existing ownership RLS policy guards passed; cookie fallback remains intact. |
 | 2026-08-30 | Phase 5B desktop checks | Complete | Strict TypeScript, production build, and renderer/preload secret-value scan passed. |
 | 2026-08-30 | Phase 5B web regression | Complete | Existing manual harness and Next.js production build passed with additive bearer support. |
+| 2026-08-30 | Phase 6 Markdown and Observer tests | Complete | 45/45 desktop tests passed for safe GFM rendering, outlines, `.mdx` round-trip/conflicts, large documents, four documentation modes, privacy, and bearer transport. |
+| 2026-08-30 | Phase 6 desktop checks | Complete | Strict main/preload/renderer TypeScript and the Electron production build passed. |
+| 2026-08-30 | Phase 6 web regression | Complete | Existing root tests, lint, and Next.js production build passed with no web UI changes. |
 
 ## Recommended next task
 
-Build the **Markdown documentation workspace**: Markdown source editing in Monaco,
-sanitized preview, side-by-side mode, and heading navigation. Preserve Markdown as
-the source of truth, keep document context explicit and bounded, and do not add
-rich-text conversion, proactive Observer requests, Git integration, or autonomous
-editing.
+Begin **packaging and first-release readiness**: choose supported operating-system
+and CPU targets, configure metadata and icons, package `node-pty`, harden production
+content/security policies, and plan signing, notarization, installers, updates, and
+clean-machine smoke tests. Do not expand product features during release hardening.

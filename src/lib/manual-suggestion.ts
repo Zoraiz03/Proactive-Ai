@@ -2,7 +2,16 @@ export interface EditorRequestContext {
   selectedText?: string;
   cursorLine?: number;
   nearbyContent?: string;
-  mode?: "explain" | "fix_error" | "improve_code" | "continue_code" | "generate_tests";
+  mode?:
+    | "explain"
+    | "fix_error"
+    | "improve_code"
+    | "continue_code"
+    | "generate_tests"
+    | "explain_document"
+    | "improve_writing"
+    | "summarize"
+    | "generate_readme_section";
   language?: string;
   source?: "selection" | "cursor" | "diagnostic";
   client?: "web" | "desktop";

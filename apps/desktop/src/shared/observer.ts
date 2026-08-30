@@ -1,12 +1,21 @@
 import type { IpcResult } from "./workspace";
 
-export const OBSERVER_MODES = [
+export const CODE_OBSERVER_MODES = [
   "explain",
   "fix_error",
   "improve_code",
   "continue_code",
   "generate_tests",
 ] as const;
+
+export const DOCUMENT_OBSERVER_MODES = [
+  "explain_document",
+  "improve_writing",
+  "summarize",
+  "generate_readme_section",
+] as const;
+
+export const OBSERVER_MODES = [...CODE_OBSERVER_MODES, ...DOCUMENT_OBSERVER_MODES] as const;
 
 export const OBSERVER_PROVIDERS = [
   "gemini",
@@ -25,6 +34,7 @@ export const OBSERVER_CHANNELS = {
 export type ObserverMode = typeof OBSERVER_MODES[number];
 export type ObserverProvider = typeof OBSERVER_PROVIDERS[number];
 export type ObserverContextSource = "selection" | "cursor" | "diagnostic";
+export type ObserverKind = "code" | "doc";
 
 export const OBSERVER_MODE_LABELS: Readonly<Record<ObserverMode, string>> = {
   explain: "Explain",
@@ -32,6 +42,10 @@ export const OBSERVER_MODE_LABELS: Readonly<Record<ObserverMode, string>> = {
   improve_code: "Improve Code",
   continue_code: "Continue Code",
   generate_tests: "Generate Tests",
+  explain_document: "Explain this document",
+  improve_writing: "Improve writing",
+  summarize: "Summarize",
+  generate_readme_section: "Generate README section",
 };
 
 export const OBSERVER_PROVIDER_LABELS: Readonly<Record<ObserverProvider, string>> = {
@@ -61,6 +75,7 @@ export interface ObserverDiagnosticContext {
 export interface ObserverRequest {
   provider: ObserverProvider;
   mode: ObserverMode;
+  kind: ObserverKind;
   fileName: string;
   language: string;
   source: ObserverContextSource;
@@ -99,6 +114,7 @@ export interface ObserverBridge {
 export interface CreateObserverRequestInput {
   provider: ObserverProvider;
   mode: ObserverMode;
+  kind: ObserverKind;
   fileName: string;
   language: string;
   content: string;
@@ -128,6 +144,7 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
     return null;
   }
   if (!OBSERVER_MODES.includes(input.mode) || !OBSERVER_PROVIDERS.includes(input.provider)) return null;
+  if (!isObserverModeForKind(input.mode, input.kind)) return null;
   if (input.mode === "fix_error" && !input.diagnostic) return null;
   const cursorLine = Math.max(1, Math.trunc(input.cursorLine));
   const cursorColumn = Math.max(1, Math.trunc(input.cursorColumn));
@@ -146,7 +163,11 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
     : diagnostic
       ? "diagnostic"
       : "cursor";
-  const activeFile = input.mode === "generate_tests" && input.content.length <= OBSERVER_LIMITS.activeFile
+  const fullContextMode = input.mode === "generate_tests" ||
+    input.mode === "explain_document" ||
+    input.mode === "summarize" ||
+    input.mode === "generate_readme_section";
+  const activeFile = fullContextMode && !selectedCode && input.content.length <= OBSERVER_LIMITS.activeFile
     ? bounded(input.content, OBSERVER_LIMITS.activeFile)
     : undefined;
   const runError = diagnostic
@@ -157,6 +178,7 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
   return {
     provider: input.provider,
     mode: input.mode,
+    kind: input.kind,
     fileName,
     language: input.language.slice(0, 64) || "plaintext",
     source,
@@ -171,12 +193,23 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
 }
 
 export function observerContextSummary(request: ObserverRequest): string {
-  if (request.source === "selection") return `Sending selected code from ${request.fileName}`;
+  if (request.source === "selection") {
+    return `Sending selected ${request.kind === "doc" ? "text" : "code"} from ${request.fileName}`;
+  }
   if (request.source === "diagnostic" && request.diagnostic) {
     return `Sending error on line ${request.diagnostic.line} from ${request.fileName}`;
   }
-  if (request.activeFile) return `Sending active file ${request.fileName} for test generation`;
-  return `Sending nearby code around line ${request.cursorLine} from ${request.fileName}`;
+  if (request.activeFile) {
+    if (request.mode === "generate_tests") return `Sending active file ${request.fileName} for test generation`;
+    return `Sending active document ${request.fileName} for ${OBSERVER_MODE_LABELS[request.mode].toLowerCase()}`;
+  }
+  return `Sending nearby ${request.kind === "doc" ? "text" : "code"} around line ${request.cursorLine} from ${request.fileName}`;
+}
+
+export function isObserverModeForKind(mode: ObserverMode, kind: ObserverKind): boolean {
+  return kind === "doc"
+    ? DOCUMENT_OBSERVER_MODES.includes(mode as typeof DOCUMENT_OBSERVER_MODES[number])
+    : CODE_OBSERVER_MODES.includes(mode as typeof CODE_OBSERVER_MODES[number]);
 }
 
 export function relevantObserverRunError(
@@ -244,6 +277,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
   if (
     !OBSERVER_PROVIDERS.includes(request.provider as ObserverProvider) ||
     !OBSERVER_MODES.includes(request.mode as ObserverMode) ||
+    !["code", "doc"].includes(request.kind ?? "") ||
     !["selection", "cursor", "diagnostic"].includes(request.source ?? "") ||
     typeof request.fileName !== "string" || !request.fileName || request.fileName.length > 255 ||
     /[\\/]/.test(request.fileName) || isSensitiveObserverFile(request.fileName) ||
@@ -254,8 +288,9 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
     !optionalBoundedString(request.activeFile, OBSERVER_LIMITS.activeFile) ||
     !optionalBoundedString(request.runError, OBSERVER_LIMITS.runError)
   ) return null;
+  if (!isObserverModeForKind(request.mode as ObserverMode, request.kind as ObserverKind)) return null;
   if (!request.selectedCode && !request.nearbyCode && !request.activeFile && !request.diagnostic) return null;
-  if (request.activeFile && request.mode !== "generate_tests") return null;
+  if (request.activeFile && !["generate_tests", "explain_document", "summarize", "generate_readme_section"].includes(request.mode as string)) return null;
   if (request.mode === "fix_error" && !request.diagnostic) return null;
   if (request.runError && !request.diagnostic) return null;
   if (request.source === "selection" && !request.selectedCode) return null;
@@ -274,6 +309,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
   return {
     provider: request.provider as ObserverProvider,
     mode: request.mode as ObserverMode,
+    kind: request.kind as ObserverKind,
     fileName: request.fileName,
     language: request.language,
     source: request.source as ObserverContextSource,

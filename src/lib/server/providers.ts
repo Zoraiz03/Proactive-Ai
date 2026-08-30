@@ -37,7 +37,7 @@ export class ProviderError extends Error {
 function requestReason(ctx: SuggestContext): string {
   const mode = ctx.context.mode ?? "improve_code";
   const source = ctx.context.source === "selection" || ctx.context.selectedText
-    ? "selected code"
+    ? ctx.kind === "doc" ? "selected document text" : "selected code"
     : ctx.context.source === "diagnostic"
       ? "a selected diagnostic"
       : ctx.kind === "doc"
@@ -55,6 +55,10 @@ function buildPrompt(ctx: SuggestContext) {
     improve_code: "Suggest one concrete improvement to correctness, clarity, maintainability, or performance.",
     continue_code: "Continue the code naturally from the cursor while matching the existing style and intent.",
     generate_tests: "Generate focused tests for the supplied code, covering important behavior and one useful edge case.",
+    explain_document: "Explain the document's purpose, structure, and important technical meaning clearly.",
+    improve_writing: "Improve the focused writing for clarity, accuracy, concision, and a professional technical tone.",
+    summarize: "Summarize the active document into a concise, accurate overview without inventing details.",
+    generate_readme_section: "Generate one useful README section that fits the active document's existing content and tone.",
   }[mode];
   const target =
     kind === "code" ? `the code file "${fileName}"` : `the document "${fileName}"`;
@@ -64,7 +68,9 @@ function buildPrompt(ctx: SuggestContext) {
       ? `The user selected this diagnostic from ${context.diagnostic.fileName}:${context.diagnostic.line}:${context.diagnostic.column}:\n${context.diagnostic.message}\nNearby code:\n${context.nearbyContent ?? "(unavailable)"}${context.runError ? `\nRelevant run error:\n${context.runError}` : ""}`
     : kind === "code"
       ? `The cursor is on line ${context.cursorLine ?? "unknown"}. Nearby code:\n${context.nearbyContent ?? "(unavailable)"}`
-      : "No text is selected, so review the complete document.";
+      : context.activeFileIncluded
+        ? "No text is selected, so review only the explicitly included active document."
+        : `The cursor is on line ${context.cursorLine ?? "unknown"}. Nearby document text:\n${context.nearbyContent ?? "(unavailable)"}`;
   const reason = requestReason(ctx);
   return `You are the Observer in Proactive AI IDE. The user explicitly clicked Ask Observer while working on ${target}. ${modeInstructions} Offer one concise, high-value response. Do not imply that background monitoring or stuck detection triggered this request.
 
