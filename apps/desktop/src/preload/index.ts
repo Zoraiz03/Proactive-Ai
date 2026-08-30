@@ -37,6 +37,12 @@ import {
   type ObserverOutcomeRequest,
   type ObserverRequest,
 } from "../shared/observer";
+import {
+  SEARCH_CHANNELS,
+  type WorkspaceSearchBatch,
+  type WorkspaceSearchBridge,
+  type WorkspaceSearchRequest,
+} from "../shared/search";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -62,6 +68,18 @@ const workspaceBridge: WorkspaceBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("workspace", workspaceBridge);
+
+const workspaceSearchBridge: WorkspaceSearchBridge = Object.freeze({
+  search: (request: WorkspaceSearchRequest) => ipcRenderer.invoke(SEARCH_CHANNELS.start, request),
+  cancel: (searchId?: string) => ipcRenderer.invoke(SEARCH_CHANNELS.cancel, searchId),
+  onBatch: (listener: (batch: WorkspaceSearchBatch) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, batch: WorkspaceSearchBatch) => listener(batch);
+    ipcRenderer.on(SEARCH_CHANNELS.batch, wrapped);
+    return () => ipcRenderer.removeListener(SEARCH_CHANNELS.batch, wrapped);
+  },
+});
+
+contextBridge.exposeInMainWorld("workspaceSearch", workspaceSearchBridge);
 
 const terminalBridge: TerminalBridge = Object.freeze({
   create: (request: TerminalCreateRequest) =>

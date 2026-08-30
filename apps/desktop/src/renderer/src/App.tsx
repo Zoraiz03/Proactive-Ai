@@ -24,6 +24,7 @@ import type {
 } from "../../shared/workspace";
 import type { RunDiagnostic } from "../../shared/runner";
 import type { DesktopAuthUser } from "../../shared/auth";
+import { searchMatchSelection, type WorkspaceSearchMatch } from "../../shared/search";
 import {
   canInsertObserverSnippet,
   copyObserverSnippet,
@@ -44,6 +45,7 @@ import Explorer from "./Explorer";
 import BottomPanel, { type IdeOutputMessage, type RunOutputState } from "./BottomPanel";
 import ObserverPanel, { type ObserverStatus } from "./ObserverPanel";
 import MarkdownPreview from "./MarkdownPreview";
+import SearchPanel from "./SearchPanel";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -82,6 +84,7 @@ interface EditorLocation {
   relativePath: string;
   line: number;
   column: number;
+  endColumn?: number;
   token: number;
 }
 
@@ -187,7 +190,12 @@ function EditorWorkspace({
 
   useEffect(() => {
     if (!focusLocation || focusLocation.relativePath !== activePath || !editorRef.current) return;
-    editorRef.current.setPosition({ lineNumber: focusLocation.line, column: focusLocation.column });
+    editorRef.current.setSelection({
+      startLineNumber: focusLocation.line,
+      startColumn: focusLocation.column,
+      endLineNumber: focusLocation.line,
+      endColumn: focusLocation.endColumn ?? focusLocation.column,
+    });
     editorRef.current.revealLineInCenter(focusLocation.line);
     editorRef.current.focus();
   }, [activePath, focusLocation]);
@@ -421,7 +429,12 @@ function EditorWorkspace({
                   instance.onDidChangeModel(emitObserverContext),
                 ];
                 if (focusLocation?.relativePath === activeTab.file.relativePath) {
-                  instance.setPosition({ lineNumber: focusLocation.line, column: focusLocation.column });
+                  instance.setSelection({
+                    startLineNumber: focusLocation.line,
+                    startColumn: focusLocation.column,
+                    endLineNumber: focusLocation.line,
+                    endColumn: focusLocation.endColumn ?? focusLocation.column,
+                  });
                   instance.revealLineInCenter(focusLocation.line);
                   instance.focus();
                 }
@@ -497,6 +510,8 @@ export default function App({ user, onSignOut }: AppProps) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [insertRequest, setInsertRequest] = useState<ObserverInsertRequest | null>(null);
   const [markdownViewModes, setMarkdownViewModes] = useState<Record<string, MarkdownViewMode>>({});
+  const [sidebarView, setSidebarView] = useState<"explorer" | "search">("explorer");
+  const [searchFocusToken, setSearchFocusToken] = useState(0);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -1062,6 +1077,31 @@ export default function App({ user, onSignOut }: AppProps) {
     setEditorLocation({ ...diagnostic, token: Date.now() });
   }, [selectFile]);
 
+  const focusSearchMatch = useCallback(async (match: WorkspaceSearchMatch) => {
+    const name = match.relativePath.split("/").at(-1) ?? match.relativePath;
+    if (isMarkdownFile(name)) {
+      setMarkdownViewModes((current) => ({ ...current, [match.relativePath]: "edit" }));
+    }
+    await selectFile({
+      name,
+      relativePath: match.relativePath,
+      kind: "file",
+      isSymbolicLink: false,
+    });
+    setEditorLocation({ ...searchMatchSelection(match), token: Date.now() });
+  }, [selectFile]);
+
+  useEffect(() => {
+    const handleGlobalSearchShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.key.toLowerCase() !== "f") return;
+      event.preventDefault();
+      setSidebarView("search");
+      setSearchFocusToken((current) => current + 1);
+    };
+    window.addEventListener("keydown", handleGlobalSearchShortcut, { capture: true });
+    return () => window.removeEventListener("keydown", handleGlobalSearchShortcut, { capture: true });
+  }, []);
+
   const askObserver = useCallback(async () => {
     if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion) return;
     observerRequestInFlight.current = true;
@@ -1238,18 +1278,32 @@ export default function App({ user, onSignOut }: AppProps) {
 
       <div className="ide-layout">
         <aside className="panel explorer-panel">
-          <PanelTitle>Explorer</PanelTitle>
-          <Explorer
-            activeFilePath={activePath}
-            onSelectFile={(entry) => void selectFile(entry)}
-            onBeforeWorkspaceOpen={canOpenWorkspace}
-            onWorkspaceOpened={clearWorkspaceTabs}
-            onEntryRenamed={renameOpenEntries}
-            onEntryDeleted={deleteOpenEntries}
-            getDeleteImpact={getDeleteImpact}
-            externalChanges={externalChanges}
-            onStatus={appendOutput}
-          />
+          <div className="sidebar-tabs" role="tablist" aria-label="Project sidebar">
+            <button type="button" role="tab" aria-selected={sidebarView === "explorer"} className={sidebarView === "explorer" ? "active" : ""} onClick={() => setSidebarView("explorer")}>Explorer</button>
+            <button type="button" role="tab" aria-selected={sidebarView === "search"} className={sidebarView === "search" ? "active" : ""} onClick={() => { setSidebarView("search"); setSearchFocusToken((current) => current + 1); }}>Search</button>
+          </div>
+          <div className={`sidebar-view ${sidebarView === "explorer" ? "active" : ""}`}>
+            <Explorer
+              activeFilePath={activePath}
+              onSelectFile={(entry) => void selectFile(entry)}
+              onBeforeWorkspaceOpen={canOpenWorkspace}
+              onWorkspaceOpened={clearWorkspaceTabs}
+              onEntryRenamed={renameOpenEntries}
+              onEntryDeleted={deleteOpenEntries}
+              getDeleteImpact={getDeleteImpact}
+              externalChanges={externalChanges}
+              onStatus={appendOutput}
+            />
+          </div>
+          <div className={`sidebar-view ${sidebarView === "search" ? "active" : ""}`}>
+            <SearchPanel
+              active={sidebarView === "search"}
+              workspaceOpen={workspaceOpen}
+              workspaceVersion={workspaceVersion}
+              focusToken={searchFocusToken}
+              onOpenMatch={(match) => void focusSearchMatch(match)}
+            />
+          </div>
         </aside>
 
         <main className="panel editor-panel">
@@ -1324,7 +1378,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 6</span>
+        <span>Phase 7A</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 

@@ -79,6 +79,19 @@ import {
   type ObserverMode,
 } from "../shared/observer.ts";
 import { ObserverApiClient } from "./observer-client.ts";
+import {
+  WorkspaceSearchService,
+  buildRipgrepSearchArguments,
+  isDefaultSearchSecret,
+  searchProcessEnvironment,
+} from "./workspace-search.ts";
+import {
+  searchMatchSelection,
+  searchPathMatchesPatterns,
+  validateWorkspaceSearchRequest,
+  type WorkspaceSearchMatch,
+  type WorkspaceSearchRequest,
+} from "../shared/search.ts";
 
 let temporaryDirectory = "";
 let workspaceRoot = "";
@@ -101,6 +114,8 @@ before(async () => {
   await mkdir(join(workspaceRoot, "dist"));
   await mkdir(join(workspaceRoot, "build"));
   await mkdir(join(workspaceRoot, ".next"));
+  await mkdir(join(workspaceRoot, "coverage"));
+  await mkdir(join(workspaceRoot, "search"));
   await mkdir(outsideDirectory);
   await writeFile(join(workspaceRoot, "README.md"), "workspace");
   await writeFile(join(workspaceRoot, "src", "index.ts"), "export {};");
@@ -112,6 +127,26 @@ before(async () => {
   await writeFile(join(workspaceRoot, "empty.txt"), "");
   await writeFile(join(workspaceRoot, "editable.ts"), "const value = 1;\n");
   await writeFile(join(workspaceRoot, "stale.ts"), "const stale = false;\n");
+  await writeFile(join(workspaceRoot, ".gitignore"), "search/gitignored.ts\n");
+  await writeFile(join(workspaceRoot, "search", "normal.ts"), [
+    "const title = 'Needle';",
+    "const partial = 'needlework';",
+    "const exact = 'needle';",
+  ].join("\n"));
+  await writeFile(join(workspaceRoot, "search", "include.ts"), "const sharedPattern = true;\n");
+  await writeFile(join(workspaceRoot, "search", "include.js"), "const sharedPattern = false;\n");
+  await writeFile(join(workspaceRoot, "search", "excluded.ts"), "const sharedPattern = 'excluded';\n");
+  await writeFile(join(workspaceRoot, "search", "gitignored.ts"), "const hiddenNeedle = true;\n");
+  await writeFile(join(workspaceRoot, "search", "many.ts"), "limitNeedle\n".repeat(20));
+  await writeFile(join(workspaceRoot, "search", "credentials.json"), "{\"secretNeedle\":true}\n");
+  await writeFile(join(workspaceRoot, "search", ".env.local"), "secretNeedle=true\n");
+  await writeFile(join(workspaceRoot, "search", "binary.txt"), Buffer.from("binaryNeedle\0hidden"));
+  await writeFile(join(workspaceRoot, "search", "oversized.ts"), Buffer.concat([
+    Buffer.from("oversizedNeedle\n"),
+    Buffer.alloc(1024 * 1024, 0x61),
+  ]));
+  await writeFile(join(workspaceRoot, "coverage", "covered.ts"), "const secretNeedle = true;\n");
+  await writeFile(join(workspaceRoot, "node_modules", "dependency.ts"), "const secretNeedle = true;\n");
   await writeFile(join(workspaceRoot, "operations", "delete-me.ts"), "delete me\n");
   await writeFile(join(workspaceRoot, "operations", "rename-me.ts"), "rename me\n");
   await writeFile(join(workspaceRoot, "operations", "duplicate.ts"), "duplicate\n");
@@ -137,6 +172,29 @@ before(async () => {
 after(async () => {
   await rm(temporaryDirectory, { recursive: true, force: true });
 });
+
+let searchSequence = 0;
+function searchRequest(overrides: Partial<WorkspaceSearchRequest> = {}): WorkspaceSearchRequest {
+  return {
+    searchId: `search-${++searchSequence}`,
+    query: "needle",
+    caseSensitive: false,
+    wholeWord: false,
+    regularExpression: false,
+    resultLimit: 500,
+    ...overrides,
+  };
+}
+
+async function collectSearch(request: WorkspaceSearchRequest) {
+  const matches: WorkspaceSearchMatch[] = [];
+  const completion = await new WorkspaceSearchService().search(
+    workspaceRoot,
+    request,
+    (batch) => matches.push(...batch.matches)
+  );
+  return { matches, completion };
+}
 
 test("normalizes safe paths and rejects traversal and absolute paths", () => {
   assert.deepEqual(normalizeWorkspaceRelativePath("src/nested"), {
@@ -335,6 +393,109 @@ test("renders a bounded large Markdown document within the desktop test budget",
   ));
   assert.match(rendered, /Section 2000/);
   assert.ok(performance.now() - startedAt < 5_000, "large Markdown render exceeded five seconds");
+});
+
+test("validates bounded search requests and builds an argument-only ripgrep command", () => {
+  const request = searchRequest({ query: "value; rm -rf", regularExpression: false });
+  assert.deepEqual(validateWorkspaceSearchRequest(request), request);
+  assert.equal(validateWorkspaceSearchRequest({ ...request, query: "" }), null);
+  assert.equal(validateWorkspaceSearchRequest({ ...request, resultLimit: 9 }), null);
+  assert.equal(validateWorkspaceSearchRequest({ ...request, includePattern: "!**/.env" }), null);
+  const args = buildRipgrepSearchArguments(request);
+  assert.equal(args.includes("--fixed-strings"), true);
+  assert.equal(args.includes("--no-follow"), true);
+  assert.equal(args.includes("--no-config"), true);
+  assert.equal(args.at(-2), "value; rm -rf");
+  assert.equal(args.at(-1), ".");
+  assert.deepEqual(searchProcessEnvironment({
+    PATH: "/bin",
+    API_SECRET: "must-not-leak",
+    LANG: "en_US.UTF-8",
+    TMPDIR: "/tmp/search",
+  }), { LANG: "en_US.UTF-8", TMPDIR: "/tmp/search" });
+});
+
+test("searches supported workspace text normally and reports accurate locations", async () => {
+  const { matches, completion } = await collectSearch(searchRequest());
+  const normal = matches.filter((match) => match.relativePath === "search/normal.ts");
+  assert.equal(completion.cancelled, false);
+  assert.equal(normal.length, 3);
+  assert.deepEqual(normal.map((match) => match.line), [1, 2, 3]);
+  assert.equal(normal[0].column, 16);
+  assert.equal(normal[0].preview.slice(normal[0].previewMatchStart, normal[0].previewMatchStart + normal[0].previewMatchLength), "Needle");
+});
+
+test("supports case-sensitive, whole-word, and regular-expression workspace search", async () => {
+  const caseMatches = (await collectSearch(searchRequest({ query: "Needle", caseSensitive: true }))).matches
+    .filter((match) => match.relativePath === "search/normal.ts");
+  assert.equal(caseMatches.length, 1);
+  const wholeWordMatches = (await collectSearch(searchRequest({ wholeWord: true }))).matches
+    .filter((match) => match.relativePath === "search/normal.ts");
+  assert.deepEqual(wholeWordMatches.map((match) => match.line), [1, 3]);
+  const regexMatches = (await collectSearch(searchRequest({ query: "needle(?:work)?", regularExpression: true }))).matches
+    .filter((match) => match.relativePath === "search/normal.ts");
+  assert.deepEqual(regexMatches.map((match) => match.line), [1, 2, 3]);
+});
+
+test("applies comma-separated include and exclude glob patterns", async () => {
+  assert.equal(searchPathMatchesPatterns("src/app.ts", "src/**, tests/**", "**/*.test.ts"), true);
+  assert.equal(searchPathMatchesPatterns("src/app.test.ts", "src/**", "**/*.test.ts"), false);
+  const { matches } = await collectSearch(searchRequest({
+    query: "sharedPattern",
+    includePattern: "search/*.ts",
+    excludePattern: "**/excluded.ts",
+  }));
+  assert.deepEqual(matches.map((match) => match.relativePath), ["search/include.ts"]);
+});
+
+test("respects gitignore and mandatory folder and secret exclusions", async () => {
+  assert.equal(isDefaultSearchSecret("nested/.env.production"), true);
+  assert.equal(isDefaultSearchSecret("nested/credentials.json"), true);
+  assert.equal(isDefaultSearchSecret("src/app.ts"), false);
+  const { matches } = await collectSearch(searchRequest({ query: "secretNeedle" }));
+  assert.deepEqual(matches, []);
+  const ignored = await collectSearch(searchRequest({ query: "hiddenNeedle" }));
+  assert.deepEqual(ignored.matches, []);
+  assert.deepEqual((await collectSearch(searchRequest({ query: "binaryNeedle" }))).matches, []);
+  assert.deepEqual((await collectSearch(searchRequest({ query: "oversizedNeedle" }))).matches, []);
+});
+
+test("truncates at the configured result limit", async () => {
+  const { matches, completion } = await collectSearch(searchRequest({ query: "limitNeedle", resultLimit: 10 }));
+  assert.equal(matches.length, 10);
+  assert.equal(completion.matchCount, 10);
+  assert.equal(completion.truncated, true);
+});
+
+test("cancels an active workspace search", async () => {
+  const service = new WorkspaceSearchService();
+  const request = searchRequest({ query: "needle" });
+  const pending = service.search(workspaceRoot, request, () => undefined);
+  assert.equal(service.cancel(request.searchId), true);
+  assert.equal((await pending).cancelled, true);
+});
+
+test("does not follow a workspace symlink or return paths outside the authorized root", async () => {
+  await writeFile(join(outsideDirectory, "outside.ts"), "outsideNeedle\n");
+  const { matches } = await collectSearch(searchRequest({ query: "outsideNeedle" }));
+  assert.deepEqual(matches, []);
+});
+
+test("maps a search result to the exact Monaco selection without changing its path", () => {
+  assert.deepEqual(searchMatchSelection({
+    relativePath: "search/normal.ts",
+    line: 2,
+    column: 18,
+    endColumn: 28,
+    preview: "const partial = 'needlework';",
+    previewMatchStart: 17,
+    previewMatchLength: 10,
+  }), {
+    relativePath: "search/normal.ts",
+    line: 2,
+    column: 18,
+    endColumn: 28,
+  });
 });
 
 test("maps only approved run extensions to controlled commands", () => {

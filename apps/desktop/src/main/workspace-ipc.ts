@@ -22,6 +22,12 @@ import {
   WorkspaceMutationError,
 } from "./workspace-files";
 import { WorkspaceWatcher } from "./workspace-watcher";
+import {
+  SEARCH_CHANNELS,
+  validateWorkspaceSearchRequest,
+  type WorkspaceSearchCompletion,
+} from "../shared/search";
+import { WorkspaceSearchService } from "./workspace-search";
 
 let workspaceAuthorization: {
   rootPath: string;
@@ -124,6 +130,7 @@ export function registerWorkspaceIpc(
       mainWindow.webContents.send(WORKSPACE_CHANNELS.changed, batch);
     }
   });
+  const searchService = new WorkspaceSearchService();
   ipcMain.handle(
     WORKSPACE_CHANNELS.openFolder,
     async (event): Promise<IpcResult<OpenWorkspace | null>> => {
@@ -144,6 +151,7 @@ export function registerWorkspaceIpc(
 
         const selected = await prepareWorkspaceRoot(selection.filePaths[0]);
         const entries = await readWorkspaceDirectory(selected.rootPath, "");
+        searchService.cancel();
         workspaceAuthorization = {
           rootPath: selected.rootPath,
           webContentsId: event.sender.id,
@@ -342,11 +350,57 @@ export function registerWorkspaceIpc(
     }
   );
 
+  ipcMain.handle(
+    SEARCH_CHANNELS.start,
+    async (event, value: unknown): Promise<IpcResult<WorkspaceSearchCompletion>> => {
+      if (!isTrustedSender(event, getMainWindow)) {
+        return { ok: false, error: "Search request was rejected." };
+      }
+      const rootPath = authorizedRoot(event);
+      if (!rootPath) return { ok: false, error: "Open a project folder first." };
+      const request = validateWorkspaceSearchRequest(value);
+      if (!request) return { ok: false, error: "Search options are invalid." };
+      try {
+        const value = await searchService.search(rootPath, request, (batch) => {
+          const mainWindow = getMainWindow();
+          if (
+            mainWindow && !mainWindow.isDestroyed() &&
+            mainWindow.webContents.id === event.sender.id &&
+            authorizedRoot(event) === rootPath
+          ) mainWindow.webContents.send(SEARCH_CHANNELS.batch, batch);
+        });
+        return { ok: true, value };
+      } catch {
+        return {
+          ok: false,
+          error: request.regularExpression
+            ? "The regular expression is invalid or unsupported."
+            : "Workspace search could not be completed.",
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    SEARCH_CHANNELS.cancel,
+    async (event, searchId: unknown): Promise<IpcResult<void>> => {
+      if (!isTrustedSender(event, getMainWindow) || !authorizedRoot(event)) {
+        return { ok: false, error: "Search request was rejected." };
+      }
+      if (searchId !== undefined && (typeof searchId !== "string" || searchId.length > 80)) {
+        return { ok: false, error: "Search cancellation is invalid." };
+      }
+      searchService.cancel(searchId);
+      return { ok: true, value: undefined };
+    }
+  );
+
   const clearWorkspace = async () => {
     const webContentsId = workspaceAuthorization?.webContentsId;
     workspaceAuthorization = null;
     cleanupBoundWebContentsId = null;
     lifecycle.onWorkspaceClosed(webContentsId);
+    searchService.cancel();
     await watcher.stop();
   };
 
@@ -361,6 +415,8 @@ export function registerWorkspaceIpc(
       ipcMain.removeHandler(WORKSPACE_CHANNELS.createEntry);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.renameEntry);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.deleteEntry);
+      ipcMain.removeHandler(SEARCH_CHANNELS.start);
+      ipcMain.removeHandler(SEARCH_CHANNELS.cancel);
     },
   };
 }

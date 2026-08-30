@@ -30,7 +30,9 @@ implementation and its verification evidence in the changelog.
 | Phase 4 | In Progress | Terminal, task output, and diagnostics |
 | Phase 5 | Complete | Authenticated manual Observer AI integration |
 | Phase 6 | Complete | Markdown documentation editing, safe preview, navigation, and manual Observer help |
-| Phase 7 | Not Started | Packaging, signing, updates, and release checks |
+| Phase 7A | Complete | Secure global project search |
+| Phase 7B | Not Started | Recent projects and workspace reopening |
+| Phase 8 | Not Started | Packaging, signing, updates, and release checks |
 
 ## Recommended folder structure
 
@@ -263,7 +265,7 @@ Phase 3B required verification:
 - [ ] **Not Started** — Add Save, Save As, and Save All commands.
 - [x] **Complete** — Detect external file changes and offer reload/keep choices.
 - [x] **Complete** — Add automatic workspace refresh and filesystem watching.
-- [ ] **Not Started** — Add find-in-file and project search.
+- [x] **Complete** — Add secure global project search; single-file Find remains future work.
 - [ ] **Not Started** — Persist non-sensitive window and recent-project preferences.
 
 Required verification:
@@ -447,7 +449,45 @@ Required verification:
   bearer-transport tests without project-wide collection.
 - [x] **Complete** — Desktop tests/type/build and existing web tests/lint/build pass.
 
-## Phase 7 — Packaging and release readiness
+## Phase 7A — Global project search
+
+**Goal:** Search supported files in the authorized local workspace without giving
+the renderer filesystem or process access.
+
+- [x] **Complete** — Add Explorer/Search sidebar views and Ctrl/Cmd+Shift+F focus.
+- [x] **Complete** — Add case-sensitive, whole-word, regular-expression, include,
+  exclude, and configurable result-limit controls.
+- [x] **Complete** — Debounce requests, terminate superseded searches, expose Cancel,
+  and show loading, empty, error, cancelled, and truncated states.
+- [x] **Complete** — Run pinned ripgrep outside the renderer with `shell: false`, a
+  fixed argument array, a filtered environment, JSON parsing, and 50-match batches.
+- [x] **Complete** — Group results by relative file path with line numbers and
+  highlighted previews.
+- [x] **Complete** — Open matches through the existing secure file/tab flow and select
+  the exact line/column range in Monaco without replacing dirty drafts.
+- [x] **Complete** — Respect project `.gitignore`, skip symlinks, binaries, files over
+  1 MiB, generated/dependency folders, and default secret/credential/private-key files.
+- [x] **Complete** — Keep search-and-replace, command palette, Git, recent projects,
+  proactive Observer, and new AI behavior outside Phase 7A.
+
+Required verification:
+
+- [x] **Complete** — Normal, case-sensitive, whole-word, and Rust-regex searches pass.
+- [x] **Complete** — Include/exclude patterns, batching, result limits, and cancellation pass.
+- [x] **Complete** — `.gitignore`, ignored folders, binary/large files, secret files,
+  traversal-safe relative paths, and no-follow symlink behavior pass.
+- [x] **Complete** — Result-to-Monaco selection mapping and existing tab protections pass.
+- [x] **Complete** — Desktop tests/type/build and existing web tests/lint/build pass.
+
+## Phase 7B — Recent projects and workspace reopening
+
+**Goal:** Reopen user-approved projects safely without weakening workspace authorization.
+
+- [ ] **Not Started** — Define non-sensitive recent-project metadata and retention.
+- [ ] **Not Started** — Reauthorize persisted paths and handle missing/moved folders.
+- [ ] **Not Started** — Add explicit recent-project and reopen-last-workspace controls.
+
+## Phase 8 — Packaging and release readiness
 
 **Goal:** Produce secure, installable, supportable desktop releases.
 
@@ -574,6 +614,19 @@ Required verification:
     text, nearby text, or—only for Explain, Summarize, and Generate README section—a
     user-triggered active document capped at 50,000 characters. No related source,
     documentation, workspace snapshot, or comparison is gathered automatically.
+29. **Search through a bounded subprocess, never renderer filesystem APIs.** Phase 7A
+    pins `@vscode/ripgrep`, spawns its absolute binary from Electron main with an
+    argument array, `shell: false`, no config file, a minimal environment, the
+    authorized canonical root as `cwd`, and no symlink following. Main validates the
+    request, parses JSON output, revalidates every relative supported-file result,
+    batches matches, enforces a 10–2,000 result limit, and kills previous/cancelled
+    searches. Preload exposes only Search, Cancel, and typed result-batch operations.
+30. **Layer project ignores with mandatory privacy exclusions.** Ripgrep respects the
+    workspace `.gitignore`, skips binary and files over 1 MiB, and receives mandatory
+    case-insensitive exclusions for `.git`, dependencies/build output, coverage,
+    `.env*`, credential/secret files, and private-key formats. Result parsing repeats
+    directory, supported-extension, secret-basename, include/exclude, and root-relative
+    checks before a path reaches the renderer.
 
 ### Desktop-to-backend authentication boundary
 
@@ -611,6 +664,13 @@ headers return 401, and authorization data is not logged.
 - Canonicalize both the selected root and every requested target with `realpath`.
   Broken symlinks and symlinks resolving outside the root must not be returned.
 - Keep absolute local paths out of renderer responses and visible error messages.
+- Run global search only from the authenticated window and currently authorized
+  canonical workspace. Use a fixed binary and argument array, never a shell command;
+  disable ripgrep configuration/environment inheritance, do not follow symlinks, and
+  validate every emitted path before forwarding a bounded batch.
+- Search only supported extensions and exclude `.git`, `node_modules`, `.next`, `dist`,
+  `build`, `coverage`, binary/large files, `.env*`, credentials, secrets, and private
+  keys even when user include patterns are broad.
 - Limit directory listing size and ignore generated dependency/build directories.
 - Permit file content reads only for the documented extension allowlist, require a
   regular file, cap reads at 2 MiB before and after loading, and reject NUL bytes or
@@ -655,6 +715,36 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-30 — Phase 7A complete
+
+Changed files:
+
+- `apps/desktop/src/shared/search.ts` — added bounded request/result contracts, runtime
+  validation, include/exclude matching, batch/completion types, and Monaco selection mapping.
+- Desktop main/workspace IPC — added the pinned ripgrep search service, fixed safe
+  arguments, filtered environment, `.gitignore` support, mandatory ignores, JSON result
+  parsing, batching, limits, cancellation, and authenticated workspace lifecycle cleanup.
+- Desktop preload/renderer — added a purpose-specific Search/Cancel/batch bridge,
+  Explorer/Search tabs, Ctrl/Cmd+Shift+F, debounced controls, all result states, grouped
+  highlighted matches, and existing-tab Monaco navigation.
+- Desktop tests/dependencies — pinned `@vscode/ripgrep` and added focused integration
+  coverage using a temporary workspace and the packaged-platform binary.
+
+Verification and limitations:
+
+- `npm --prefix apps/desktop test` passed 54/54 tests. Strict main/preload/renderer
+  TypeScript and the Electron production build passed.
+- Root manual-suggestion tests, lint, and the Next.js production build passed with no
+  web application source changes.
+- Search reads saved disk content only. An already-open dirty tab is preserved, so a
+  disk-result line can be stale relative to unsaved edits; no draft is overwritten.
+- Include/exclude fields accept comma-separated `*`, `?`, and `**` globs. Brace
+  expansion, negated include syntax, search-and-replace, persisted queries, and
+  multiline/PCRE-only expressions are not included.
+- Release packaging must verify that the platform ripgrep binary is included and
+  executable on every supported target; Phase 7A verifies development and production
+  bundles, not installers.
 
 ### 2026-08-30 — Phase 6 complete
 
@@ -1333,10 +1423,13 @@ Verification:
 | 2026-08-30 | Phase 6 Markdown and Observer tests | Complete | 45/45 desktop tests passed for safe GFM rendering, outlines, `.mdx` round-trip/conflicts, large documents, four documentation modes, privacy, and bearer transport. |
 | 2026-08-30 | Phase 6 desktop checks | Complete | Strict main/preload/renderer TypeScript and the Electron production build passed. |
 | 2026-08-30 | Phase 6 web regression | Complete | Existing root tests, lint, and Next.js production build passed with no web UI changes. |
+| 2026-08-30 | Phase 7A search tests | Complete | 54/54 desktop tests passed, including text/case/word/regex modes, patterns, ignores, secrets, binary/large files, limits, cancellation, symlinks, and Monaco selection mapping. |
+| 2026-08-30 | Phase 7A desktop checks | Complete | Strict main/preload/renderer TypeScript and Electron production build passed with the pinned platform ripgrep dependency. |
+| 2026-08-30 | Phase 7A web regression | Complete | Existing root tests, lint, and Next.js production build passed with no web application source changes. |
 
 ## Recommended next task
 
-Begin **packaging and first-release readiness**: choose supported operating-system
-and CPU targets, configure metadata and icons, package `node-pty`, harden production
-content/security policies, and plan signing, notarization, installers, updates, and
-clean-machine smoke tests. Do not expand product features during release hardening.
+Implement **recent projects and workspace reopening**. Persist only bounded,
+non-sensitive project metadata, require the same canonical-path authorization checks
+when reopening, handle moved/missing folders safely, and preserve the existing
+unsaved-work and process-cleanup protections.
