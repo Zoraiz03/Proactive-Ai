@@ -11,6 +11,10 @@ export default defineConfig(({ mode }) => {
     desktopEnvironment.DESKTOP_SUPABASE_PUBLISHABLE_KEY ??
     webEnvironment.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
     webEnvironment.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  const apiBaseUrl = process.env.DESKTOP_API_BASE_URL ??
+    desktopEnvironment.DESKTOP_API_BASE_URL ??
+    webEnvironment.NEXT_PUBLIC_APP_URL ??
+    (mode === "development" ? "http://127.0.0.1:3000" : "");
 
   return {
     main: {
@@ -18,6 +22,7 @@ export default defineConfig(({ mode }) => {
       define: {
         __DESKTOP_SUPABASE_URL__: JSON.stringify(supabaseUrl),
         __DESKTOP_SUPABASE_PUBLISHABLE_KEY__: JSON.stringify(publishableKey),
+        __DESKTOP_API_BASE_URL__: JSON.stringify(apiBaseUrl),
       },
     },
     preload: {

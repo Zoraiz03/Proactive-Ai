@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { authenticateApiRequest } from "@/lib/supabase/request-auth";
 
 const Body = z.object({ outcome: z.enum(["accepted", "dismissed"]) });
 const Params = z.object({ id: z.string().uuid() });
@@ -15,11 +15,9 @@ export async function POST(
     return NextResponse.json({ error: "Invalid suggestion outcome." }, { status: 400 });
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  const authenticated = await authenticateApiRequest(req);
+  if (!authenticated) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  const { supabase, user } = authenticated;
 
   const { data: suggestion, error: suggestionError } = await supabase
     .from("suggestions")

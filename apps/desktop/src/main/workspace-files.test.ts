@@ -54,6 +54,20 @@ import {
   type AuthenticatedSession,
   type DesktopAuthProvider,
 } from "./auth-controller.ts";
+import {
+  OBSERVER_MODES,
+  canInsertObserverSnippet,
+  copyObserverSnippet,
+  createObserverRequest,
+  isObserverAskShortcut,
+  isObserverDismissShortcut,
+  isSensitiveObserverFile,
+  observerContextSummary,
+  relevantObserverRunError,
+  validateObserverRequest,
+  type ObserverMode,
+} from "../shared/observer.ts";
+import { ObserverApiClient } from "./observer-client.ts";
 
 let temporaryDirectory = "";
 let workspaceRoot = "";
@@ -404,6 +418,7 @@ class FakeDesktopAuthProvider implements DesktopAuthProvider {
   }
 
   async signOut(): Promise<void> { this.signOutCount += 1; }
+  async getAccessToken(): Promise<string | null> { return "access-user-1"; }
   onSessionChanged(listener: (session: AuthenticatedSession | null) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -486,6 +501,219 @@ test("blocks desktop authentication when secure OS encryption is unavailable", a
     assert.match(state.message, /secure operating-system session storage/i);
   }
   controller.dispose();
+});
+
+test("builds focused Observer requests for every manual mode", () => {
+  for (const mode of OBSERVER_MODES) {
+    const request = createObserverRequest({
+      provider: "demo",
+      mode,
+      fileName: "app.ts",
+      language: "typescript",
+      content: "export function add(a: number, b: number) { return a + b; }",
+      cursorLine: 1,
+      cursorColumn: 8,
+      selectedCode: mode === "fix_error" ? undefined : "return a + b;",
+      nearbyCode: "export function add(a: number, b: number) { return a + b; }",
+      diagnostic: mode === "fix_error"
+        ? { fileName: "app.ts", line: 1, column: 8, message: "Cannot find name 'a'." }
+        : undefined,
+      runError: mode === "fix_error" ? "ReferenceError: a is not defined" : undefined,
+    });
+    assert.ok(request, mode);
+    assert.equal(request.mode, mode);
+    assert.equal(request.fileName, "app.ts");
+    assert.equal(request.activeFile !== undefined, mode === "generate_tests");
+    assert.equal(validateObserverRequest(request)?.mode, mode);
+  }
+});
+
+test("prefers selection, falls back to cursor context, and scopes diagnostics", () => {
+  const selected = createObserverRequest({
+    provider: "gemini",
+    mode: "explain",
+    fileName: "app.ts",
+    language: "typescript",
+    content: "const answer = 42;",
+    cursorLine: 1,
+    cursorColumn: 7,
+    selectedCode: "answer",
+    nearbyCode: "const answer = 42;",
+  });
+  assert.equal(selected?.source, "selection");
+  assert.equal(observerContextSummary(selected!), "Sending selected code from app.ts");
+  assert.equal("unexpectedProjectContent" in validateObserverRequest({
+    ...selected,
+    unexpectedProjectContent: "must be stripped",
+  })!, false);
+
+  const cursor = createObserverRequest({
+    provider: "gemini",
+    mode: "continue_code",
+    fileName: "app.ts",
+    language: "typescript",
+    content: "const answer = 42;",
+    cursorLine: 1,
+    cursorColumn: 19,
+    nearbyCode: "const answer = 42;",
+  });
+  assert.equal(cursor?.source, "cursor");
+  assert.match(observerContextSummary(cursor!), /nearby code around line 1/);
+
+  const diagnostic = createObserverRequest({
+    provider: "gemini",
+    mode: "fix_error",
+    fileName: "app.ts",
+    language: "typescript",
+    content: "missing();",
+    cursorLine: 24,
+    cursorColumn: 3,
+    nearbyCode: "missing();",
+    diagnostic: { fileName: "app.ts", line: 24, column: 3, message: "missing is not defined" },
+    runError: "ReferenceError: missing is not defined",
+  });
+  assert.equal(diagnostic?.source, "diagnostic");
+  assert.equal(observerContextSummary(diagnostic!), "Sending error on line 24 from app.ts");
+  assert.equal(diagnostic?.runError, "ReferenceError: missing is not defined");
+  assert.equal(relevantObserverRunError(
+    "unrelated output\napp.ts:24\nReferenceError: missing is not defined\nafter\nmore unrelated output",
+    diagnostic!.diagnostic
+  ), "unrelated output\napp.ts:24\nReferenceError: missing is not defined\nafter");
+  assert.equal(relevantObserverRunError("unrelated terminal history", diagnostic!.diagnostic), undefined);
+});
+
+test("blocks sensitive files and limits active-file context to test generation", () => {
+  assert.equal(isSensitiveObserverFile(".env.local"), true);
+  assert.equal(isSensitiveObserverFile("private.pem"), true);
+  assert.equal(createObserverRequest({
+    provider: "demo",
+    mode: "explain",
+    fileName: ".env",
+    language: "plaintext",
+    content: "SECRET=value",
+    cursorLine: 1,
+    cursorColumn: 1,
+    nearbyCode: "SECRET=value",
+  }), null);
+  const improve = createObserverRequest({
+    provider: "demo",
+    mode: "improve_code",
+    fileName: "safe.ts",
+    language: "typescript",
+    content: "const safe = true;",
+    cursorLine: 1,
+    cursorColumn: 1,
+    nearbyCode: "const safe = true;",
+  });
+  assert.equal(improve?.activeFile, undefined);
+});
+
+test("recognizes Observer shortcuts and safe explicit snippet actions", async () => {
+  assert.equal(isObserverAskShortcut({ key: "Enter", ctrlKey: true, metaKey: false }), true);
+  assert.equal(isObserverAskShortcut({ key: "Enter", ctrlKey: false, metaKey: true }), true);
+  assert.equal(isObserverAskShortcut({ key: "Enter", ctrlKey: false, metaKey: false }), false);
+  assert.equal(isObserverDismissShortcut({ key: "Escape" }), true);
+  const suggestion = {
+    id: "11111111-1111-4111-8111-111111111111",
+    explanation: "Use a constant.",
+    snippet: "const value = 1;",
+    reason: "Manual improve code request.",
+  };
+  assert.equal(canInsertObserverSnippet(suggestion, "src/app.ts", "src/app.ts", true), true);
+  assert.equal(canInsertObserverSnippet(suggestion, "src/app.ts", "src/other.ts", true), false);
+  let copied = "";
+  assert.equal(await copyObserverSnippet(suggestion.snippet, async (value) => { copied = value; }), true);
+  assert.equal(copied, suggestion.snippet);
+  assert.equal(await copyObserverSnippet(suggestion.snippet, async () => { throw new Error("denied"); }), false);
+});
+
+test("sends every Observer mode with a bearer token and handles outcomes and API errors", async () => {
+  const sentModes: ObserverMode[] = [];
+  const sentOutcomes: string[] = [];
+  const fakeFetch: typeof fetch = async (input, init) => {
+    assert.equal(new Headers(init?.headers).get("authorization"), "Bearer desktop-access-token");
+    const url = String(input);
+    const body = JSON.parse(String(init?.body)) as { mode?: ObserverMode; outcome?: string };
+    if (url.endsWith("/outcome")) {
+      sentOutcomes.push(body.outcome ?? "");
+      return new Response(JSON.stringify({ recorded: true }), { status: 200 });
+    }
+    sentModes.push(body.mode!);
+    return new Response(JSON.stringify({
+      provider: "demo",
+      suggestion: {
+        id: "11111111-1111-4111-8111-111111111111",
+        explanation: "Focused explanation.",
+        snippet: "const tested = true;",
+        reason: "Manual request.",
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const client = new ObserverApiClient(
+    "https://api.example.com",
+    async () => "desktop-access-token",
+    fakeFetch
+  );
+  for (const mode of OBSERVER_MODES) {
+    const request = createObserverRequest({
+      provider: "demo",
+      mode,
+      fileName: "app.ts",
+      language: "typescript",
+      content: "export const ready = true;",
+      cursorLine: 1,
+      cursorColumn: 1,
+      nearbyCode: "export const ready = true;",
+      diagnostic: mode === "fix_error"
+        ? { fileName: "app.ts", line: 1, column: 1, message: "Test error" }
+        : undefined,
+    });
+    const result = await client.ask(request!);
+    assert.equal(result.ok, true, mode);
+  }
+  assert.deepEqual(sentModes, [...OBSERVER_MODES]);
+  await client.recordOutcome({ suggestionId: "11111111-1111-4111-8111-111111111111", outcome: "accepted" });
+  await client.recordOutcome({ suggestionId: "11111111-1111-4111-8111-111111111111", outcome: "dismissed" });
+  assert.deepEqual(sentOutcomes, ["accepted", "dismissed"]);
+
+  const failing = new ObserverApiClient("https://api.example.com", async () => "token", async () =>
+    new Response(JSON.stringify({ error: "Provider unavailable." }), { status: 502 })
+  );
+  const failed = await failing.ask(createObserverRequest({
+    provider: "demo",
+    mode: "explain",
+    fileName: "app.ts",
+    language: "typescript",
+    content: "const value = 1;",
+    cursorLine: 1,
+    cursorColumn: 1,
+    nearbyCode: "const value = 1;",
+  })!);
+  assert.deepEqual(failed, { ok: false, error: "Provider unavailable." });
+});
+
+test("rejects signed-out Observer calls before making a network request", async () => {
+  let requested = false;
+  const client = new ObserverApiClient(
+    "https://api.example.com",
+    async () => null,
+    async () => {
+      requested = true;
+      return new Response(null, { status: 500 });
+    }
+  );
+  const request = createObserverRequest({
+    provider: "demo",
+    mode: "explain",
+    fileName: "app.ts",
+    language: "typescript",
+    content: "const value = 1;",
+    cursorLine: 1,
+    cursorColumn: 1,
+    nearbyCode: "const value = 1;",
+  });
+  assert.deepEqual(await client.ask(request!), { ok: false, error: "Sign in before asking Observer." });
+  assert.equal(requested, false);
 });
 
 test("overwrites an existing supported file and returns its new disk version", async () => {

@@ -34,24 +34,48 @@ export class ProviderError extends Error {
   }
 }
 
+function requestReason(ctx: SuggestContext): string {
+  const mode = ctx.context.mode ?? "improve_code";
+  const source = ctx.context.source === "selection" || ctx.context.selectedText
+    ? "selected code"
+    : ctx.context.source === "diagnostic"
+      ? "a selected diagnostic"
+      : ctx.kind === "doc"
+        ? "document context"
+        : "nearby cursor context";
+  return `Manual ${mode.replace(/_/g, " ")} request using ${source}.`;
+}
+
 function buildPrompt(ctx: SuggestContext) {
   const { fileName, kind, content, context } = ctx;
+  const mode = context.mode ?? "improve_code";
+  const modeInstructions = {
+    explain: "Explain the focused code clearly, including its behavior and any important assumptions.",
+    fix_error: "Diagnose the supplied error and propose the smallest safe fix.",
+    improve_code: "Suggest one concrete improvement to correctness, clarity, maintainability, or performance.",
+    continue_code: "Continue the code naturally from the cursor while matching the existing style and intent.",
+    generate_tests: "Generate focused tests for the supplied code, covering important behavior and one useful edge case.",
+  }[mode];
   const target =
     kind === "code" ? `the code file "${fileName}"` : `the document "${fileName}"`;
   const focus = context.selectedText
     ? `The user selected this text and wants it prioritized:\n${context.selectedText}`
+    : context.diagnostic
+      ? `The user selected this diagnostic from ${context.diagnostic.fileName}:${context.diagnostic.line}:${context.diagnostic.column}:\n${context.diagnostic.message}\nNearby code:\n${context.nearbyContent ?? "(unavailable)"}${context.runError ? `\nRelevant run error:\n${context.runError}` : ""}`
     : kind === "code"
       ? `The cursor is on line ${context.cursorLine ?? "unknown"}. Nearby code:\n${context.nearbyContent ?? "(unavailable)"}`
       : "No text is selected, so review the complete document.";
-  const reason = `You asked the Observer to review this ${kind}.`;
-  return `You are the observer in Proactive AI Workspace. The user explicitly clicked Ask Observer while working on ${target}. Review the requested context and offer ONE concise, high-value suggestion — an improvement, fix, continuation, or next step. Do not imply that background monitoring or stuck detection triggered this request.
+  const reason = requestReason(ctx);
+  return `You are the Observer in Proactive AI IDE. The user explicitly clicked Ask Observer while working on ${target}. ${modeInstructions} Offer one concise, high-value response. Do not imply that background monitoring or stuck detection triggered this request.
 
 ${focus}
+
+Language: ${context.language ?? "unknown"}
 
 Respond with JSON only: {"explanation": "<1-3 sentences on what you suggest and why>", "snippet": "<the exact ${kind === "code" ? "code" : "text"} to insert, or an empty string if the suggestion is advice only>", "reason": "${reason}"}
 The snippet must preserve real line breaks (escaped as \\n in the JSON string) and indentation exactly as they should appear in the editor.
 
-Current content:
+Focused content${context.activeFileIncluded ? " (the active file was explicitly included for this mode)" : ""}:
 ${content}`;
 }
 
@@ -106,7 +130,7 @@ function providerError(status: number, provider: string, body = ""): ProviderErr
 }
 
 async function suggestWithGemini(apiKey: string, ctx: SuggestContext) {
-  const fallbackReason = `You asked the Observer to review this ${ctx.kind}.`;
+  const fallbackReason = requestReason(ctx);
   const res = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
     {
@@ -133,7 +157,7 @@ async function suggestWithOpenAICompatible(
   ctx: SuggestContext,
   { baseUrl, model, label }: { baseUrl: string; model: string; label: string }
 ) {
-  const fallbackReason = `You asked the Observer to review this ${ctx.kind}.`;
+  const fallbackReason = requestReason(ctx);
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -157,7 +181,7 @@ async function suggestWithOpenAICompatible(
 }
 
 async function suggestWithAnthropic(apiKey: string, ctx: SuggestContext) {
-  const fallbackReason = `You asked the Observer to review this ${ctx.kind}.`;
+  const fallbackReason = requestReason(ctx);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -179,13 +203,14 @@ async function suggestWithAnthropic(apiKey: string, ctx: SuggestContext) {
 }
 
 function suggestWithDemo(ctx: SuggestContext): Suggestion {
+  const reason = requestReason(ctx);
   if (ctx.kind === "code") {
     return {
       explanation:
         "Demo suggestion: your recursive function recomputes the same values many times. Memoization makes it linear time.",
       snippet:
         "from functools import lru_cache\n\n@lru_cache(maxsize=None)\ndef fibonacci_fast(n):\n    if n <= 1:\n        return n\n    return fibonacci_fast(n-1) + fibonacci_fast(n-2)",
-      reason: "You asked the Observer to review this code.",
+      reason,
     };
   }
   return {
@@ -193,7 +218,7 @@ function suggestWithDemo(ctx: SuggestContext): Suggestion {
       "Demo suggestion: consider closing this section with a sentence that tells the reader what happens next.",
     snippet:
       "In the next section, we outline the steps required to put this plan into action.",
-    reason: "You asked the Observer to review this document.",
+    reason,
   };
 }
 

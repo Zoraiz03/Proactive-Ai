@@ -4,6 +4,9 @@ import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerTerminalIpc } from "./terminal-ipc";
 import { registerRunIpc } from "./run-ipc";
 import { registerAuthIpc } from "./auth-ipc";
+import { registerObserverIpc } from "./observer-ipc";
+
+declare const __DESKTOP_API_BASE_URL__: string;
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -79,6 +82,11 @@ app.whenReady().then(() => {
     void workspaceIpc?.clearWorkspace();
   });
   const getAuthenticatedWindow = () => authIpc.controller.isAuthenticated() ? mainWindow : null;
+  const observerIpc = registerObserverIpc(
+    getAuthenticatedWindow,
+    () => authIpc.controller.getAccessToken(),
+    __DESKTOP_API_BASE_URL__.trim()
+  );
   terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
   runIpc = registerRunIpc(getAuthenticatedWindow);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
@@ -92,6 +100,7 @@ app.whenReady().then(() => {
     },
   });
   app.once("will-quit", () => {
+    observerIpc.cleanup();
     authIpc.cleanup();
     runIpc?.cleanup();
     terminalIpc?.cleanup();

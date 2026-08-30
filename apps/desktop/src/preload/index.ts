@@ -31,6 +31,12 @@ import {
   type DesktopAuthState,
   type DesktopSignInRequest,
 } from "../shared/auth";
+import {
+  OBSERVER_CHANNELS,
+  type ObserverBridge,
+  type ObserverOutcomeRequest,
+  type ObserverRequest,
+} from "../shared/observer";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -109,3 +115,12 @@ const authBridge: DesktopAuthBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("desktopAuth", authBridge);
+
+const observerBridge: ObserverBridge = Object.freeze({
+  ask: (request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.ask, request),
+  recordOutcome: (request: ObserverOutcomeRequest) =>
+    ipcRenderer.invoke(OBSERVER_CHANNELS.outcome, request),
+  copySnippet: (snippet: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.copy, snippet),
+});
+
+contextBridge.exposeInMainWorld("observer", observerBridge);

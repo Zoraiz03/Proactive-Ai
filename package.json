@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:manual-suggestion": "node --experimental-transform-types scripts/manual-suggestion.test.ts",
+    "test:manual-suggestion": "node --experimental-strip-types scripts/manual-suggestion.test.ts",
     "test": "npm run test:manual-suggestion"
   },
   "dependencies": {

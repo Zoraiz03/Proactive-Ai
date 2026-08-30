@@ -58,6 +58,16 @@ export class SupabaseDesktopAuthProvider implements DesktopAuthProvider {
     if (error) throw error;
   }
 
+  async getAccessToken(): Promise<string | null> {
+    const { data, error } = await this.client.auth.getSession();
+    if (error || !data.session) return null;
+    const expiresAtMs = (data.session.expires_at ?? 0) * 1_000;
+    if (expiresAtMs > Date.now() + 60_000) return data.session.access_token;
+    const { data: refreshed, error: refreshError } = await this.client.auth.refreshSession();
+    if (refreshError || !refreshed.session) return null;
+    return refreshed.session.access_token;
+  }
+
   onSessionChanged(listener: (session: AuthenticatedSession | null) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

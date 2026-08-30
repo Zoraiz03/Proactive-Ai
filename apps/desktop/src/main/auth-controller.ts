@@ -11,6 +11,7 @@ export interface DesktopAuthProvider {
   restore: (tokens: StoredAuthSession) => Promise<AuthenticatedSession>;
   signIn: (email: string, password: string) => Promise<AuthenticatedSession>;
   signOut: () => Promise<void>;
+  getAccessToken: () => Promise<string | null>;
   onSessionChanged: (listener: (session: AuthenticatedSession | null) => void) => () => void;
   dispose: () => void;
 }
@@ -63,6 +64,11 @@ export class DesktopAuthController {
 
   isAuthenticated(): boolean {
     return this.state.status === "signed_in";
+  }
+
+  async getAccessToken(): Promise<string | null> {
+    if (!this.provider || !this.isAuthenticated()) return null;
+    return this.provider.getAccessToken();
   }
 
   subscribe(listener: (state: DesktopAuthState) => void): () => void {

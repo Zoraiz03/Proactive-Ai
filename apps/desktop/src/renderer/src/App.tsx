@@ -1,6 +1,6 @@
 import Editor from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { monacoLanguageForFile } from "../../shared/languages";
 import {
   batchChangesFile,
@@ -19,8 +19,23 @@ import type {
 } from "../../shared/workspace";
 import type { RunDiagnostic } from "../../shared/runner";
 import type { DesktopAuthUser } from "../../shared/auth";
+import {
+  canInsertObserverSnippet,
+  copyObserverSnippet,
+  createObserverRequest,
+  isObserverAskShortcut,
+  isObserverDismissShortcut,
+  observerContextSummary,
+  OBSERVER_MODE_LABELS,
+  relevantObserverRunError,
+  type ObserverMode,
+  type ObserverProvider,
+  type ObserverRequest,
+  type ObserverSuggestion,
+} from "../../shared/observer";
 import Explorer from "./Explorer";
 import BottomPanel, { type IdeOutputMessage, type RunOutputState } from "./BottomPanel";
+import ObserverPanel, { type ObserverStatus } from "./ObserverPanel";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -62,6 +77,20 @@ interface EditorLocation {
   token: number;
 }
 
+interface EditorObserverSnapshot {
+  relativePath: string;
+  cursorLine: number;
+  cursorColumn: number;
+  selectedCode?: string;
+  nearbyCode: string;
+}
+
+interface ObserverInsertRequest {
+  id: number;
+  relativePath: string;
+  snippet: string;
+}
+
 function runSupport(fileName: string): "supported" | "typescript" | "unsupported" {
   const extension = fileName.slice(fileName.lastIndexOf(".")).toLowerCase();
   if ([".py", ".js", ".mjs"].includes(extension)) return "supported";
@@ -99,6 +128,9 @@ interface EditorWorkspaceProps {
   focusLocation: EditorLocation | null;
   onReloadExternal: (relativePath: string) => void;
   onKeepLocal: (relativePath: string) => void;
+  onObserverContextChange: (snapshot: EditorObserverSnapshot) => void;
+  insertRequest: ObserverInsertRequest | null;
+  onInsertComplete: (id: number, inserted: boolean) => void;
 }
 
 function EditorWorkspace({
@@ -115,9 +147,31 @@ function EditorWorkspace({
   focusLocation,
   onReloadExternal,
   onKeepLocal,
+  onObserverContextChange,
+  insertRequest,
+  onInsertComplete,
 }: EditorWorkspaceProps) {
   const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const activePathRef = useRef(activePath);
+  const observerContextRef = useRef(onObserverContextChange);
+  const insertCompleteRef = useRef(onInsertComplete);
+  const editorDisposablesRef = useRef<Array<{ dispose: () => void }>>([]);
+  const handledInsertRef = useRef<number | null>(null);
+  activePathRef.current = activePath;
+  observerContextRef.current = onObserverContextChange;
+  insertCompleteRef.current = onInsertComplete;
+
+  useEffect(() => {
+    activePathRef.current = activePath;
+    observerContextRef.current = onObserverContextChange;
+    insertCompleteRef.current = onInsertComplete;
+  }, [activePath, onInsertComplete, onObserverContextChange]);
+
+  useEffect(() => () => {
+    editorDisposablesRef.current.forEach((disposable) => disposable.dispose());
+    editorDisposablesRef.current = [];
+  }, []);
 
   useEffect(() => {
     if (!focusLocation || focusLocation.relativePath !== activePath || !editorRef.current) return;
@@ -125,6 +179,31 @@ function EditorWorkspace({
     editorRef.current.revealLineInCenter(focusLocation.line);
     editorRef.current.focus();
   }, [activePath, focusLocation]);
+
+  useEffect(() => {
+    if (!insertRequest || handledInsertRef.current === insertRequest.id) return;
+    handledInsertRef.current = insertRequest.id;
+    const instance = editorRef.current;
+    const position = instance?.getPosition();
+    if (!instance || !position || insertRequest.relativePath !== activePath) {
+      insertCompleteRef.current(insertRequest.id, false);
+      return;
+    }
+    instance.pushUndoStop();
+    const inserted = instance.executeEdits("observer", [{
+      range: {
+        startLineNumber: position.lineNumber,
+        startColumn: position.column,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      },
+      text: insertRequest.snippet,
+      forceMoveMarkers: true,
+    }]);
+    instance.pushUndoStop();
+    instance.focus();
+    insertCompleteRef.current(insertRequest.id, inserted);
+  }, [activePath, insertRequest]);
 
   const support = activeTab ? runSupport(activeTab.file.name) : "unsupported";
   const runDisabled = !activeTab || support !== "supported" || activeTab.availability !== "available" || Boolean(activeTab.externalConflict);
@@ -240,11 +319,42 @@ function EditorWorkspace({
               theme="vs-dark"
               onMount={(instance) => {
                 editorRef.current = instance;
+                editorDisposablesRef.current.forEach((disposable) => disposable.dispose());
+                const emitObserverContext = () => {
+                  const model = instance.getModel();
+                  const position = instance.getPosition();
+                  const relativePath = activePathRef.current;
+                  if (!model || !position || !relativePath) return;
+                  const selection = instance.getSelection();
+                  const startLine = Math.max(1, position.lineNumber - 20);
+                  const endLine = Math.min(model.getLineCount(), position.lineNumber + 20);
+                  const selectedCode = selection && !selection.isEmpty()
+                    ? model.getValueInRange(selection)
+                    : undefined;
+                  observerContextRef.current({
+                    relativePath,
+                    cursorLine: position.lineNumber,
+                    cursorColumn: position.column,
+                    selectedCode,
+                    nearbyCode: model.getValueInRange({
+                      startLineNumber: startLine,
+                      startColumn: 1,
+                      endLineNumber: endLine,
+                      endColumn: model.getLineMaxColumn(endLine),
+                    }),
+                  });
+                };
+                editorDisposablesRef.current = [
+                  instance.onDidChangeCursorSelection(emitObserverContext),
+                  instance.onDidChangeModelContent(emitObserverContext),
+                  instance.onDidChangeModel(emitObserverContext),
+                ];
                 if (focusLocation?.relativePath === activeTab.file.relativePath) {
                   instance.setPosition({ lineNumber: focusLocation.line, column: focusLocation.column });
                   instance.revealLineInCenter(focusLocation.line);
                   instance.focus();
                 }
+                emitObserverContext();
               }}
               onChange={(value) => onChange(activeTab.file.relativePath, value ?? "")}
               loading={<Placeholder icon="⋯">Starting editor…</Placeholder>}
@@ -299,8 +409,20 @@ export default function App({ user, onSignOut }: AppProps) {
   const [editorLocation, setEditorLocation] = useState<EditorLocation | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [observerMode, setObserverMode] = useState<ObserverMode>("explain");
+  const [observerProvider, setObserverProvider] = useState<ObserverProvider>("gemini");
+  const [observerStatus, setObserverStatus] = useState<ObserverStatus>("idle");
+  const [observerSnapshot, setObserverSnapshot] = useState<EditorObserverSnapshot | null>(null);
+  const [observerSuggestion, setObserverSuggestion] = useState<ObserverSuggestion | null>(null);
+  const [observerError, setObserverError] = useState<string | null>(null);
+  const [observerRequestPath, setObserverRequestPath] = useState<string | null>(null);
+  const [sentContextSummary, setSentContextSummary] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [insertRequest, setInsertRequest] = useState<ObserverInsertRequest | null>(null);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
+  const observerRequestInFlight = useRef(false);
+  const insertSequence = useRef(0);
   const requestSequence = useRef(0);
   const externalReadSequence = useRef(new Map<string, number>());
   const outputSequence = useRef(0);
@@ -325,6 +447,49 @@ export default function App({ user, onSignOut }: AppProps) {
   useEffect(() => {
     runOutputRef.current = runOutput;
   }, [runOutput]);
+
+  const activeTab = useMemo(
+    () => tabs.find((tab) => tab.file.relativePath === activePath) ?? null,
+    [activePath, tabs]
+  );
+  const observerRequest = useMemo<ObserverRequest | null>(() => {
+    if (!activeTab || activeTab.availability !== "available" || activeTab.externalConflict) return null;
+    const snapshot = observerSnapshot?.relativePath === activeTab.file.relativePath
+      ? observerSnapshot
+      : null;
+    const diagnostic = observerMode === "fix_error"
+      ? runOutput?.diagnostics.find((item) => item.relativePath === activeTab.file.relativePath)
+      : undefined;
+    const fallbackNearbyCode = activeTab.draft.split("\n").slice(0, 41).join("\n");
+    return createObserverRequest({
+      provider: observerProvider,
+      mode: observerMode,
+      fileName: activeTab.file.name,
+      language: monacoLanguageForFile(activeTab.file.name),
+      content: activeTab.draft,
+      cursorLine: snapshot?.cursorLine ?? diagnostic?.line ?? 1,
+      cursorColumn: snapshot?.cursorColumn ?? diagnostic?.column ?? 1,
+      selectedCode: snapshot?.selectedCode,
+      nearbyCode: snapshot?.nearbyCode ?? fallbackNearbyCode,
+      diagnostic: diagnostic
+        ? {
+            fileName: activeTab.file.name,
+            line: diagnostic.line,
+            column: diagnostic.column,
+            message: diagnostic.message,
+          }
+        : undefined,
+      runError: diagnostic && runOutput?.status === "failed"
+        ? relevantObserverRunError(runOutput.stderr, {
+            fileName: activeTab.file.name,
+            line: diagnostic.line,
+            column: diagnostic.column,
+            message: diagnostic.message,
+          })
+        : undefined,
+    });
+  }, [activeTab, observerMode, observerProvider, observerSnapshot, runOutput]);
+  const currentContextSummary = observerRequest ? observerContextSummary(observerRequest) : null;
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
     const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === relativePath);
@@ -507,6 +672,13 @@ export default function App({ user, onSignOut }: AppProps) {
     setWorkspaceVersion((current) => current + 1);
     setRunOutput(null);
     setEditorLocation(null);
+    setObserverSnapshot(null);
+    setObserverSuggestion(null);
+    setObserverError(null);
+    setObserverStatus("idle");
+    setObserverRequestPath(null);
+    setSentContextSummary(null);
+    setInsertRequest(null);
     appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
   }, [appendOutput]);
 
@@ -794,6 +966,115 @@ export default function App({ user, onSignOut }: AppProps) {
     setEditorLocation({ ...diagnostic, token: Date.now() });
   }, [selectFile]);
 
+  const askObserver = useCallback(async () => {
+    if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion) return;
+    observerRequestInFlight.current = true;
+    const requestedPath = activeTab.file.relativePath;
+    const summary = observerContextSummary(observerRequest);
+    setObserverStatus("thinking");
+    setObserverError(null);
+    setCopyStatus("idle");
+    setObserverRequestPath(requestedPath);
+    setSentContextSummary(summary);
+    const result = await window.observer.ask(observerRequest);
+    observerRequestInFlight.current = false;
+    if (!result.ok) {
+      setObserverError(result.error);
+      setObserverStatus("error");
+      appendOutput(`Observer: ${result.error}`, "error");
+      return;
+    }
+    setObserverSuggestion(result.value.suggestion);
+    setObserverStatus("ready");
+    appendOutput(`Observer returned a ${OBSERVER_MODE_LABELS[observerRequest.mode].toLowerCase()} suggestion.`, "success");
+  }, [activeTab, appendOutput, observerRequest, observerSuggestion]);
+
+  const dismissObserver = useCallback(() => {
+    const suggestionId = observerSuggestion?.id;
+    setObserverSuggestion(null);
+    setObserverError(null);
+    setObserverStatus("idle");
+    setObserverRequestPath(null);
+    setSentContextSummary(null);
+    setCopyStatus("idle");
+    setInsertRequest(null);
+    if (suggestionId) {
+      void window.observer.recordOutcome({ suggestionId, outcome: "dismissed" });
+    }
+  }, [observerSuggestion]);
+
+  const copySnippet = useCallback(async () => {
+    const snippet = observerSuggestion?.snippet;
+    if (!snippet) {
+      setCopyStatus("error");
+      return;
+    }
+    const copied = await copyObserverSnippet(snippet, async (value) => {
+      const result = await window.observer.copySnippet(value);
+      if (!result.ok) throw new Error(result.error);
+    });
+    setCopyStatus(copied ? "copied" : "error");
+  }, [observerSuggestion]);
+
+  const observerCanInsert = canInsertObserverSnippet(
+    observerSuggestion,
+    observerRequestPath,
+    activePath,
+    Boolean(activeTab && activeTab.availability === "available" && !activeTab.externalConflict)
+  );
+
+  const insertObserverSnippet = useCallback(() => {
+    if (!observerCanInsert || !observerSuggestion?.snippet || !observerRequestPath) return;
+    setInsertRequest({
+      id: ++insertSequence.current,
+      relativePath: observerRequestPath,
+      snippet: observerSuggestion.snippet,
+    });
+  }, [observerCanInsert, observerRequestPath, observerSuggestion]);
+
+  const finishObserverInsert = useCallback((id: number, inserted: boolean) => {
+    setInsertRequest((current) => current?.id === id ? null : current);
+    if (!inserted) {
+      setObserverError("The snippet could not be inserted safely. Return to the requested file and try again.");
+      setObserverStatus("error");
+      return;
+    }
+    const suggestionId = observerSuggestion?.id;
+    setObserverSuggestion(null);
+    setObserverError(null);
+    setObserverStatus("idle");
+    setObserverRequestPath(null);
+    setSentContextSummary(null);
+    setCopyStatus("idle");
+    appendOutput("Inserted Observer snippet at the cursor. Use Undo to revert it.", "success");
+    if (suggestionId) {
+      void window.observer.recordOutcome({ suggestionId, outcome: "accepted" });
+    }
+  }, [appendOutput, observerSuggestion]);
+
+  useEffect(() => {
+    const handleObserverShortcut = (event: KeyboardEvent) => {
+      if (!isObserverAskShortcut(event)) return;
+      event.preventDefault();
+      if (observerRequest && observerStatus !== "thinking" && !observerSuggestion) {
+        void askObserver();
+      }
+    };
+    window.addEventListener("keydown", handleObserverShortcut, { capture: true });
+    return () => window.removeEventListener("keydown", handleObserverShortcut, { capture: true });
+  }, [askObserver, observerRequest, observerStatus, observerSuggestion]);
+
+  useEffect(() => {
+    if (observerStatus !== "ready" || !observerSuggestion) return;
+    const handleObserverDismiss = (event: KeyboardEvent) => {
+      if (!isObserverDismissShortcut(event)) return;
+      event.preventDefault();
+      dismissObserver();
+    };
+    window.addEventListener("keydown", handleObserverDismiss, { capture: true });
+    return () => window.removeEventListener("keydown", handleObserverDismiss, { capture: true });
+  }, [dismissObserver, observerStatus, observerSuggestion]);
+
   const signOut = useCallback(async () => {
     if (!(await canOpenWorkspace())) return;
     setSigningOut(true);
@@ -889,16 +1170,37 @@ export default function App({ user, onSignOut }: AppProps) {
             focusLocation={editorLocation}
             onReloadExternal={reloadExternalVersion}
             onKeepLocal={keepLocalChanges}
+            onObserverContextChange={setObserverSnapshot}
+            insertRequest={insertRequest}
+            onInsertComplete={finishObserverInsert}
           />
         </main>
 
         <aside className="panel observer-panel">
           <PanelTitle>Observer</PanelTitle>
-          <div className="observer-content">
-            <div className="observer-orb" aria-hidden="true" />
-            <p>AI assistance will be added in a later phase.</p>
-            <button type="button" disabled>Ask Observer</button>
-          </div>
+          <ObserverPanel
+            mode={observerMode}
+            provider={observerProvider}
+            status={observerStatus}
+            contextSummary={observerStatus === "idle" ? currentContextSummary : sentContextSummary}
+            suggestion={observerSuggestion}
+            error={observerError}
+            copyStatus={copyStatus}
+            canAsk={Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion}
+            canInsert={observerCanInsert}
+            onModeChange={(mode) => {
+              setObserverMode(mode);
+              if (observerStatus === "error") dismissObserver();
+            }}
+            onProviderChange={(provider) => {
+              setObserverProvider(provider);
+              if (observerStatus === "error") dismissObserver();
+            }}
+            onAsk={() => void askObserver()}
+            onCopy={() => void copySnippet()}
+            onInsert={insertObserverSnippet}
+            onDismiss={dismissObserver}
+          />
         </aside>
 
         <section className="panel output-panel">
@@ -915,7 +1217,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 4B</span>
+        <span>Phase 5B</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 

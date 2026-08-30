@@ -2,6 +2,18 @@ export interface EditorRequestContext {
   selectedText?: string;
   cursorLine?: number;
   nearbyContent?: string;
+  mode?: "explain" | "fix_error" | "improve_code" | "continue_code" | "generate_tests";
+  language?: string;
+  source?: "selection" | "cursor" | "diagnostic";
+  client?: "web" | "desktop";
+  diagnostic?: {
+    fileName: string;
+    line: number;
+    column: number;
+    message: string;
+  };
+  runError?: string;
+  activeFileIncluded?: boolean;
 }
 
 export interface ManualSuggestionRequest {

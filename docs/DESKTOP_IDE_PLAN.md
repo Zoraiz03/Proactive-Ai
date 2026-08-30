@@ -28,7 +28,7 @@ implementation and its verification evidence in the changelog.
 | Phase 2 | Complete | Local projects, file explorer, Monaco editing, and saving |
 | Phase 3 | In Progress | Complete file explorer and editor workflow |
 | Phase 4 | In Progress | Terminal, task output, and diagnostics |
-| Phase 5 | Not Started | Authenticated Observer AI integration |
+| Phase 5 | Complete | Authenticated manual Observer AI integration |
 | Phase 6 | Not Started | Documentation editing and preview |
 | Phase 7 | Not Started | Packaging, signing, updates, and release checks |
 
@@ -377,32 +377,43 @@ Phase 5A required verification:
 - [x] **Complete** — Existing web lint, tests, authentication behavior, and
   production build pass unchanged.
 
-- [x] **Complete** — Choose and document the desktop authentication/session flow.
-- [x] **Complete** — Add desktop sign-in, sign-out, and secure session persistence.
-- [ ] **Not Started** — Adapt the existing API authentication boundary for desktop
+### Phase 5B — Manual Ask Observer integration
+
+- [x] **Complete** — Adapt the existing API authentication boundary for desktop
   clients without weakening web authentication.
-- [ ] **Not Started** — Keep the Supabase service-role key and provider-key decryption
+- [x] **Complete** — Keep the Supabase service-role key and provider-key decryption
   exclusively on the server.
-- [ ] **Not Started** — Collect selected text or cursor/nearby context from Monaco.
-- [ ] **Not Started** — Add the active file content to explicit Observer requests.
-- [ ] **Not Started** — Implement the Observer loading, suggestion, error, Accept, and
-  Dismiss states.
-- [ ] **Not Started** — Preserve suggestion and outcome persistence under Supabase RLS.
-- [ ] **Not Started** — Apply accepted snippets through editor operations with undo
+- [x] **Complete** — Add Explain, Fix Error, Improve Code, Continue Code, and
+  Generate Tests request modes to explicit manual requests.
+- [x] **Complete** — Collect bounded selected text or cursor/nearby context from Monaco.
+- [x] **Complete** — Include the active file only for Generate Tests and only within
+  the documented safe size limit.
+- [x] **Complete** — Include a matching structured diagnostic and bounded current run
+  error only for an explicit Fix Error request.
+- [x] **Complete** — Implement context summary, loading, suggestion, error, Copy,
+  Insert, and instant Dismiss states, plus Ctrl/Cmd+Enter and Escape shortcuts.
+- [x] **Complete** — Preserve suggestion and outcome persistence under Supabase RLS.
+- [x] **Complete** — Apply accepted snippets at the current cursor through Monaco
+  editor operations with undo
   support.
-- [ ] **Not Started** — Add explicit options for including terminal diagnostics or
-  selected project files.
-- [ ] **Not Started** — Keep AI requests user-triggered unless a later, separately
+- [x] **Complete** — Keep filenames basename-only and exclude `.env`, credential,
+  key/certificate, workspace-wide, terminal-history, and unrelated file context.
+- [x] **Complete** — Keep AI requests user-triggered unless a later, separately
   approved proactive design is implemented.
 
-Required verification:
+Phase 5B required verification:
 
-- [ ] **Not Started** — Unauthenticated requests are rejected.
-- [ ] **Not Started** — Users can access only their own suggestions and outcomes.
-- [ ] **Not Started** — No service-role or provider secret appears in renderer bundles,
+- [x] **Complete** — Every request mode and selected/cursor/diagnostic context path is
+  covered by focused tests.
+- [x] **Complete** — Unauthenticated requests are rejected before a network call.
+- [x] **Complete** — Bearer tokens are server-validated and user-scoped suggestion and
+  outcome operations retain existing ownership RLS.
+- [x] **Complete** — No service-role or provider secret appears in renderer bundles,
   logs, IPC messages, or packaged resources.
-- [ ] **Not Started** — Ask, Accept, Dismiss, Escape, and shortcut behavior works.
-- [ ] **Not Started** — API, RLS, desktop, and web tests pass.
+- [x] **Complete** — Ask, Copy, cursor Insert, Dismiss, Escape, and shortcut behavior
+  passes focused verification.
+- [x] **Complete** — API authentication, RLS policy regression, desktop, and web tests
+  and production builds pass.
 
 ## Phase 6 — Documentation support
 
@@ -523,17 +534,34 @@ Required verification:
     email, and public auth state. Access/refresh tokens are encrypted asynchronously
     with Electron `safeStorage` and stored with owner-only permissions. Linux's
     insecure `basic_text` fallback is rejected.
+23. **Use a dual request-scoped API authentication boundary.** Phase 5B preserves
+    cookie-backed web requests and accepts one strictly parsed desktop bearer token.
+    The Next.js server validates the token with Supabase Auth `getUser(token)` and
+    creates a new public-key client carrying that token for RLS-scoped database work.
+24. **Send only explicit, bounded Observer context.** The renderer constructs one
+    selected-code, cursor-neighborhood, or diagnostic request; Electron main validates
+    and strips it to the allowlisted contract. The request contains a basename and
+    detected language, never an absolute path, workspace snapshot, terminal history,
+    `.env`/credential file, or unrelated project file. Active-file content is allowed
+    only for Generate Tests and is capped at 50,000 characters.
+25. **Keep Observer transport and tokens in Electron main.** A purpose-specific IPC
+    method obtains the current refreshed access token internally and sends the HTTPS
+    request. The renderer receives only the suggestion or a safe error. Provider-key
+    lookup, decryption, provider calls, and service-role access remain in Next.js.
+26. **Make every AI and edit action explicit.** Ask Observer is triggered only by the
+    button or Ctrl/Cmd+Enter. A result may be copied, dismissed, or inserted at the
+    current cursor only while its original file is still active and available. Insert
+    uses Monaco editor operations with undo support and records an accepted outcome;
+    dismiss clears immediately and records a dismissed outcome.
 
-### Future desktop-to-backend authentication boundary
+### Desktop-to-backend authentication boundary
 
-Phase 5B should keep the HTTP request in Electron main behind a purpose-specific
-Ask Observer IPC method. Main should obtain the current refreshed access token and
-send it as `Authorization: Bearer <token>` to the deployed Next.js API. The token
+Phase 5B keeps the HTTP request in Electron main behind a purpose-specific Ask
+Observer IPC method. Main obtains the current refreshed access token and
+sends it as `Authorization: Bearer <token>` to the deployed Next.js API. The token
 must never be returned to renderer JavaScript, stored in localStorage, or logged.
 
-The existing Next.js routes currently create a cookie-bound Supabase SSR client and
-therefore cannot authenticate a desktop bearer request. Phase 5B should add a small
-server-only request-auth helper that:
+The server-only request-auth helper now:
 
 1. preserves the current cookie path unchanged for web requests;
 2. accepts exactly one bearer token for desktop requests;
@@ -544,8 +572,8 @@ server-only request-auth helper that:
 5. uses the service-role client only after identity validation for the existing
    server-only encrypted provider-key lookup.
 
-Do not cache a user-scoped Supabase client across requests. Mixed/invalid auth
-headers should return 401, and future request logs must redact authorization data.
+No user-scoped Supabase client is cached across requests. Mixed or invalid auth
+headers return 401, and authorization data is not logged.
 
 ## Security rules
 
@@ -585,6 +613,15 @@ headers should return 401, and future request logs must redact authorization dat
   unrelated API keys and service credentials do not leak into child processes.
 - Do not read or transmit files until the user explicitly selects a project and,
   for AI context, explicitly asks for help.
+- Validate and strip every Observer request in Electron main. Permit selected code
+  or a bounded cursor neighborhood; permit a matching diagnostic and bounded current
+  run error only for Fix Error; permit bounded active-file content only for Generate
+  Tests. Reject sensitive basenames and never send absolute paths.
+- Never start an Observer network request from file changes, cursor movement,
+  diagnostics, terminal output, timers, or application startup. A visible Ask action
+  is required for every request.
+- Accept desktop bearer authentication only after strict header parsing and Supabase
+  Auth validation. Keep the cookie path unchanged when no Authorization header exists.
 - Do not place Supabase service-role credentials, server encryption secrets, or AI
   provider keys in renderer/preload environment variables or bundles.
 - Preserve Supabase Auth and RLS for all user-owned cloud records.
@@ -596,6 +633,74 @@ headers should return 401, and future request logs must redact authorization dat
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-30 — Phase 5B complete
+
+Changed files:
+
+- `apps/desktop/src/shared/observer.ts` — added the five manual request modes,
+  bounded context/result contracts, sensitive-file denial, summary/shortcut helpers,
+  safe insertion rules, and runtime request stripping.
+- Desktop main/preload/auth — added a purpose-specific Observer bridge, current-token
+  access confined to Electron main, HTTPS/localhost backend configuration, strict IPC
+  validation, bearer request forwarding, safe errors, and outcome recording.
+- Desktop renderer — replaced the placeholder with mode/provider controls, pre-send
+  context summary, loading/error/suggestion states, Copy, cursor Insert with Monaco
+  undo support, instant Dismiss, Ctrl/Cmd+Enter, and Escape.
+- Next.js API authentication — added a request-scoped cookie-or-bearer helper. Bearer
+  tokens are strictly parsed, validated with Supabase Auth `getUser(token)`, and passed
+  to a public-key Supabase client so existing suggestion/outcome ownership RLS applies.
+- Existing suggestion/provider routes — added mode-aware prompting, desktop-focused
+  context validation, basename-only metadata, and manual request metadata while
+  preserving existing web request defaults and server-only provider-key handling.
+- Desktop and web harnesses — added coverage for all modes, selection/cursor/diagnostic
+  context, signed-out behavior, errors, outcomes, copy/insert/dismiss shortcuts,
+  bearer configuration, and existing RLS policy ownership guards.
+- Desktop README/environment example and this roadmap — documented the two-process
+  local workflow, backend URL, privacy boundary, architecture, results, and limits.
+
+Security and privacy decisions:
+
+- The renderer never receives a token. Electron main obtains the refreshed access
+  token only when the user presses Ask or records an explicit outcome.
+- Selected and nearby code are capped at 20,000 characters, relevant run errors at
+  8,000, diagnostic messages at 2,000, and optional Generate Tests active-file content
+  at 50,000. Unknown IPC fields are stripped before transport.
+- The desktop sends only a file basename and language. `.env`, credential/config,
+  private-key/certificate, unrelated file, workspace-wide, terminal-history, and
+  absolute-path content is rejected or never collected.
+- The service-role key, encryption secret, decrypted provider keys, provider lookup,
+  and provider HTTP calls remain inside the existing Next.js server.
+- Existing cookie-authenticated web requests follow the unchanged SSR client path.
+  Malformed or mixed Authorization values fail with 401 rather than falling back.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 40/40 tests passed, including all five modes,
+  focused context paths, signed-out rejection, API errors, outcomes, privacy limits,
+  Copy, insertion safety, Ctrl/Cmd+Enter, and Escape.
+- `npm test` — the web manual-suggestion, bearer configuration, and RLS ownership
+  regression harness passed.
+- `npm --prefix apps/desktop run build` — strict main/preload/renderer TypeScript and
+  Electron production builds passed.
+- `npm run build` — the existing Next.js application and cookie-authenticated routes
+  compiled and rendered successfully with the additive bearer path.
+- Renderer/preload bundle secret scan — no configured service-role, provider, or
+  encryption secret, raw desktop auth token, or Supabase client configuration appeared.
+
+Known requirements and limits:
+
+- Local Observer use requires the Next.js development server at
+  `http://127.0.0.1:3000`; packaged builds require an explicit HTTPS
+  `DESKTOP_API_BASE_URL`.
+- Live requests require an active Supabase project, a valid desktop account, and a
+  configured server/user provider key. Provider-key management remains in the web app.
+- Insert adds the returned snippet at the current cursor only; it does not replace a
+  selection, edit multiple files, run commands, or act autonomously.
+- Generate Tests is the only mode that may include the active file, and oversized
+  files fall back to bounded cursor context.
+- No proactive trigger, document editor, Git workflow, agent editing, or AI terminal
+  execution was added.
 
 ### 2026-08-20 — Phase 5A complete
 
@@ -1167,14 +1272,15 @@ Verification:
 | 2026-08-20 | Phase 5A Supabase connectivity | Complete | Existing project rejected a deliberate invalid email/password request as expected. |
 | 2026-08-20 | Phase 5A desktop checks | Complete | Strict TypeScript/build, renderer secret scan, signed-out auth gate, and secure Electron launch passed. |
 | 2026-08-20 | Phase 5A web regression | Complete | Existing lint, focused tests, and Next.js build passed without web auth source changes. |
+| 2026-08-30 | Phase 5B focused Observer tests | Complete | 40/40 desktop tests passed across five modes, context selection, actions, signed-out behavior, outcomes, privacy, and API errors. |
+| 2026-08-30 | Phase 5B API/RLS regression | Complete | Strict bearer parsing/configuration and existing ownership RLS policy guards passed; cookie fallback remains intact. |
+| 2026-08-30 | Phase 5B desktop checks | Complete | Strict TypeScript, production build, and renderer/preload secret-value scan passed. |
+| 2026-08-30 | Phase 5B web regression | Complete | Existing manual harness and Next.js production build passed with additive bearer support. |
 
 ## Recommended next task
 
-The desktop pivot's next recommended implementation phase is **desktop
-authentication and secure session handling**. This corresponds to Phase 5A and
-has now been completed and verified in the current implementation. With that
-foundation complete, the active next step is Phase 5B: connect the manual **Ask
-Observer** panel to the existing AI backend with user-approved code and diagnostic
-context. Implement the documented request-scoped bearer validation, keep tokens
-and requests in Electron main, preserve web cookie authentication and RLS, and do
-not introduce proactive or automatic AI requests.
+Build the **Markdown documentation workspace**: Markdown source editing in Monaco,
+sanitized preview, side-by-side mode, and heading navigation. Preserve Markdown as
+the source of truth, keep document context explicit and bounded, and do not add
+rich-text conversion, proactive Observer requests, Git integration, or autonomous
+editing.
