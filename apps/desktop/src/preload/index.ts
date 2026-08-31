@@ -43,6 +43,13 @@ import {
   type WorkspaceSearchBridge,
   type WorkspaceSearchRequest,
 } from "../shared/search";
+import {
+  SETTINGS_CHANNELS,
+  type LocalSettings,
+  type SaveApiKeyRequest,
+  type SettingsBridge,
+  type SyncedSettings,
+} from "../shared/settings";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -50,6 +57,7 @@ const workspaceBridge: WorkspaceBridge = Object.freeze({
   listRecent: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.recentList),
   reopenRecent: (id: string) => ipcRenderer.invoke(WORKSPACE_CHANNELS.reopenRecent, id),
   removeRecent: (id: string) => ipcRenderer.invoke(WORKSPACE_CHANNELS.removeRecent, id),
+  clearRecent: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.clearRecent),
   readDirectory: (relativePath: string) =>
     ipcRenderer.invoke(WORKSPACE_CHANNELS.readDirectory, relativePath),
   readFile: (relativePath: string) =>
@@ -146,3 +154,19 @@ const observerBridge: ObserverBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("observer", observerBridge);
+
+const settingsBridge: SettingsBridge = Object.freeze({
+  getLocal: () => ipcRenderer.invoke(SETTINGS_CHANNELS.getLocal),
+  updateLocal: (settings: LocalSettings) => ipcRenderer.invoke(SETTINGS_CHANNELS.updateLocal, settings),
+  resetLocal: () => ipcRenderer.invoke(SETTINGS_CHANNELS.resetLocal),
+  getSynced: () => ipcRenderer.invoke(SETTINGS_CHANNELS.getSynced),
+  updateSynced: (settings: SyncedSettings) => ipcRenderer.invoke(SETTINGS_CHANNELS.updateSynced, settings),
+  providerStatus: () => ipcRenderer.invoke(SETTINGS_CHANNELS.providerStatus),
+  saveApiKey: (request: SaveApiKeyRequest) => ipcRenderer.invoke(SETTINGS_CHANNELS.saveKey, request),
+  deleteApiKey: (provider: "gemini" | "openai" | "deepseek" | "anthropic") => ipcRenderer.invoke(SETTINGS_CHANNELS.deleteKey, provider),
+  clearObserverHistory: () => ipcRenderer.invoke(SETTINGS_CHANNELS.clearObserverHistory),
+  getWorkspaceTabs: (workspaceId: string) => ipcRenderer.invoke(SETTINGS_CHANNELS.getWorkspaceTabs, workspaceId),
+  saveWorkspaceTabs: (workspaceId: string, paths: string[]) => ipcRenderer.invoke(SETTINGS_CHANNELS.saveWorkspaceTabs, workspaceId, paths),
+});
+
+contextBridge.exposeInMainWorld("settings", settingsBridge);

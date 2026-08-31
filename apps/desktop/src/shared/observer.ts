@@ -74,6 +74,8 @@ export interface ObserverDiagnosticContext {
 
 export interface ObserverRequest {
   provider: ObserverProvider;
+  model?: string;
+  storeHistory?: boolean;
   mode: ObserverMode;
   kind: ObserverKind;
   fileName: string;
@@ -89,7 +91,7 @@ export interface ObserverRequest {
 }
 
 export interface ObserverSuggestion {
-  id: string;
+  id?: string;
   explanation: string;
   snippet: string;
   reason: string;
@@ -124,6 +126,9 @@ export interface CreateObserverRequestInput {
   nearbyCode?: string;
   diagnostic?: ObserverDiagnosticContext;
   runError?: string;
+  maximumContextChars?: number;
+  model?: string;
+  storeHistory?: boolean;
 }
 
 function bounded(value: string | undefined, limit: number): string | undefined {
@@ -138,18 +143,26 @@ export function isSensitiveObserverFile(fileName: string): boolean {
     /\.(?:pem|key|p12|pfx)$/.test(normalized);
 }
 
+export function containsLikelySecret(value: string | undefined): boolean {
+  if (!value) return false;
+  return /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(value) ||
+    /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)\b\s*[:=]\s*["']?[A-Za-z0-9_./+\-=]{12,}/i.test(value);
+}
+
 export function createObserverRequest(input: CreateObserverRequestInput): ObserverRequest | null {
   const fileName = input.fileName.trim();
   if (!fileName || /[\\/]/.test(fileName) || fileName.length > 255 || isSensitiveObserverFile(fileName)) {
     return null;
   }
   if (!OBSERVER_MODES.includes(input.mode) || !OBSERVER_PROVIDERS.includes(input.provider)) return null;
+  if (containsLikelySecret(input.selectedCode) || containsLikelySecret(input.nearbyCode) || containsLikelySecret(input.content) || containsLikelySecret(input.runError)) return null;
   if (!isObserverModeForKind(input.mode, input.kind)) return null;
   if (input.mode === "fix_error" && !input.diagnostic) return null;
   const cursorLine = Math.max(1, Math.trunc(input.cursorLine));
   const cursorColumn = Math.max(1, Math.trunc(input.cursorColumn));
-  const selectedCode = bounded(input.selectedCode, OBSERVER_LIMITS.selectedCode);
-  const nearbyCode = bounded(input.nearbyCode, OBSERVER_LIMITS.nearbyCode);
+  const requestedLimit = Math.max(1_000, Math.min(OBSERVER_LIMITS.activeFile, Math.trunc(input.maximumContextChars ?? OBSERVER_LIMITS.selectedCode)));
+  const selectedCode = bounded(input.selectedCode, Math.min(OBSERVER_LIMITS.selectedCode, requestedLimit));
+  const nearbyCode = bounded(input.nearbyCode, Math.min(OBSERVER_LIMITS.nearbyCode, requestedLimit));
   const diagnostic = input.mode === "fix_error" && input.diagnostic
     ? {
         fileName,
@@ -167,8 +180,8 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
     input.mode === "explain_document" ||
     input.mode === "summarize" ||
     input.mode === "generate_readme_section";
-  const activeFile = fullContextMode && !selectedCode && input.content.length <= OBSERVER_LIMITS.activeFile
-    ? bounded(input.content, OBSERVER_LIMITS.activeFile)
+  const activeFile = fullContextMode && !selectedCode && input.content.length <= requestedLimit
+    ? bounded(input.content, requestedLimit)
     : undefined;
   const runError = diagnostic
     ? bounded(input.runError, OBSERVER_LIMITS.runError)
@@ -177,6 +190,8 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
 
   return {
     provider: input.provider,
+    ...(input.model ? { model: input.model.slice(0, 100) } : {}),
+    ...(input.storeHistory === false ? { storeHistory: false } : {}),
     mode: input.mode,
     kind: input.kind,
     fileName,
@@ -288,6 +303,8 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
     !optionalBoundedString(request.activeFile, OBSERVER_LIMITS.activeFile) ||
     !optionalBoundedString(request.runError, OBSERVER_LIMITS.runError)
   ) return null;
+  if (request.model !== undefined && (typeof request.model !== "string" || request.model.length < 1 || request.model.length > 100)) return null;
+  if (request.storeHistory !== undefined && typeof request.storeHistory !== "boolean") return null;
   if (!isObserverModeForKind(request.mode as ObserverMode, request.kind as ObserverKind)) return null;
   if (!request.selectedCode && !request.nearbyCode && !request.activeFile && !request.diagnostic) return null;
   if (request.activeFile && !["generate_tests", "explain_document", "summarize", "generate_readme_section"].includes(request.mode as string)) return null;
@@ -308,6 +325,8 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
   }
   return {
     provider: request.provider as ObserverProvider,
+    ...(request.model ? { model: request.model } : {}),
+    ...(request.storeHistory === false ? { storeHistory: false } : {}),
     mode: request.mode as ObserverMode,
     kind: request.kind as ObserverKind,
     fileName: request.fileName,

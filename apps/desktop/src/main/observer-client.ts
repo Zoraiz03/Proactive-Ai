@@ -39,7 +39,7 @@ function validSuggestion(value: unknown): ObserverSuggestion | null {
   if (typeof value !== "object" || value === null) return null;
   const suggestion = value as Partial<ObserverSuggestion>;
   if (
-    typeof suggestion.id !== "string" || suggestion.id.length < 1 || suggestion.id.length > 128 ||
+    (suggestion.id !== undefined && (typeof suggestion.id !== "string" || suggestion.id.length < 1 || suggestion.id.length > 128)) ||
     typeof suggestion.explanation !== "string" || suggestion.explanation.length < 1 || suggestion.explanation.length > 10_000 ||
     typeof suggestion.snippet !== "string" || suggestion.snippet.length > 50_000 ||
     typeof suggestion.reason !== "string" || suggestion.reason.length > 2_000

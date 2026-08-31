@@ -30,6 +30,7 @@ import {
 import { WorkspaceSearchService } from "./workspace-search";
 import {
   prepareRecentWorkspace,
+  recentProjectId,
   RecentProjectsStore,
   validateRecentId,
 } from "./recent-projects";
@@ -172,7 +173,7 @@ export function registerWorkspaceIpc(
         error instanceof Error ? error.message : "Unknown storage error"
       );
     });
-    return { name, entries };
+    return { workspaceId: recentProjectId(rootPath), name, entries };
   };
 
   ipcMain.handle(
@@ -277,6 +278,11 @@ export function registerWorkspaceIpc(
       }
     }
   );
+  ipcMain.handle(WORKSPACE_CHANNELS.clearRecent, async (event): Promise<IpcResult<void>> => {
+    if (!isTrustedSender(event, getMainWindow)) return { ok: false, error: "Recent-project request denied." };
+    try { await recentProjects.clear(); return { ok: true, value: undefined }; }
+    catch { return { ok: false, error: "Could not clear recent projects." }; }
+  });
 
   ipcMain.handle(
     WORKSPACE_CHANNELS.readDirectory,
@@ -506,6 +512,7 @@ export function registerWorkspaceIpc(
       ipcMain.removeHandler(WORKSPACE_CHANNELS.recentList);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.reopenRecent);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.removeRecent);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.clearRecent);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.readDirectory);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.readFile);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.writeFile);

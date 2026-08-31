@@ -5,6 +5,7 @@ import { registerTerminalIpc } from "./terminal-ipc";
 import { registerRunIpc } from "./run-ipc";
 import { registerAuthIpc } from "./auth-ipc";
 import { registerObserverIpc } from "./observer-ipc";
+import { registerSettingsIpc } from "./settings-ipc";
 
 declare const __DESKTOP_API_BASE_URL__: string;
 
@@ -87,6 +88,12 @@ app.whenReady().then(() => {
     () => authIpc.controller.getAccessToken(),
     __DESKTOP_API_BASE_URL__.trim()
   );
+  const settingsIpc = registerSettingsIpc(
+    getAuthenticatedWindow,
+    app.getPath("userData"),
+    () => authIpc.controller.getAccessToken(),
+    __DESKTOP_API_BASE_URL__.trim()
+  );
   terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
   runIpc = registerRunIpc(getAuthenticatedWindow);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
@@ -101,6 +108,7 @@ app.whenReady().then(() => {
   }, app.getPath("userData"));
   app.once("will-quit", () => {
     observerIpc.cleanup();
+    settingsIpc.cleanup();
     authIpc.cleanup();
     runIpc?.cleanup();
     terminalIpc?.cleanup();

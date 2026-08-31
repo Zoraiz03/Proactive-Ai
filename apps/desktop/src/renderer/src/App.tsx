@@ -49,9 +49,20 @@ import MarkdownPreview from "./MarkdownPreview";
 import SearchPanel from "./SearchPanel";
 import WelcomeScreen from "./WelcomeScreen";
 import CommandPalette from "./CommandPalette";
+import SettingsPanel from "./SettingsPanel";
+import {
+  DEFAULT_LOCAL_SETTINGS,
+  DEFAULT_SYNCED_SETTINGS,
+  isExcludedFromAiContext,
+  monacoOptionsFromSettings,
+  type LocalSettings,
+  type ProviderStatus,
+  type SyncedSettings,
+} from "../../shared/settings";
 import {
   resolveCommands,
   shouldOpenCommandPalette,
+  shouldOpenSettings,
   shouldPreserveTerminalShortcut,
   type CommandHandlers,
   type CommandState,
@@ -154,6 +165,8 @@ interface EditorWorkspaceProps {
   onInsertComplete: (id: number, inserted: boolean) => void;
   markdownViewMode: MarkdownViewMode;
   onMarkdownViewModeChange: (mode: MarkdownViewMode) => void;
+  editorSettings: LocalSettings["editor"];
+  editorTheme: "vs" | "vs-dark";
 }
 
 function EditorWorkspace({
@@ -175,6 +188,8 @@ function EditorWorkspace({
   onInsertComplete,
   markdownViewMode,
   onMarkdownViewModeChange,
+  editorSettings,
+  editorTheme,
 }: EditorWorkspaceProps) {
   const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
@@ -405,7 +420,7 @@ function EditorWorkspace({
               path={activeTab.file.relativePath}
               value={activeTab.draft}
               language={monacoLanguageForFile(activeTab.file.name)}
-              theme="vs-dark"
+              theme={editorTheme}
               onMount={(instance) => {
                 editorRef.current = instance;
                 editorDisposablesRef.current.forEach((disposable) => disposable.dispose());
@@ -454,14 +469,11 @@ function EditorWorkspace({
               loading={<Placeholder icon="⋯">Starting editor…</Placeholder>}
               saveViewState
               options={{
+                ...monacoOptionsFromSettings(editorSettings),
                 automaticLayout: true,
-                fontSize: 13,
                 lineNumbers: "on",
-                minimap: { enabled: false },
                 padding: { top: 14 },
                 scrollBeyondLastLine: false,
-                tabSize: 2,
-                wordWrap: "on",
               }}
             />
               </div>
@@ -534,6 +546,12 @@ export default function App({ user, onSignOut }: AppProps) {
   } | null>(null);
   const [terminalState, setTerminalState] = useState({ active: false, creating: false });
   const [observerFocusToken, setObserverFocusToken] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [localSettings, setLocalSettings] = useState<LocalSettings>({ ...DEFAULT_LOCAL_SETTINGS, editor: { ...DEFAULT_LOCAL_SETTINGS.editor }, aiContextExclusions: [] });
+  const [syncedSettings, setSyncedSettings] = useState<SyncedSettings>({ ...DEFAULT_SYNCED_SETTINGS });
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [recentRefreshToken, setRecentRefreshToken] = useState(0);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -541,6 +559,30 @@ export default function App({ user, onSignOut }: AppProps) {
   const requestSequence = useRef(0);
   const externalReadSequence = useRef(new Map<string, number>());
   const outputSequence = useRef(0);
+
+  useEffect(() => {
+    void Promise.all([window.settings.getLocal(), window.settings.getSynced(), window.settings.providerStatus()]).then(([local, synced, providers]) => {
+      if (local.ok) setLocalSettings(local.value);
+      if (synced.ok) {
+        setSyncedSettings(synced.value);
+        setObserverMode(synced.value.defaultObserverAction);
+        setObserverProvider(synced.value.preferredProvider);
+      }
+      if (providers.ok) setProviderStatuses(providers.value);
+      setSettingsLoaded(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const resolved = localSettings.theme === "system" ? (media.matches ? "dark" : "light") : localSettings.theme;
+      document.documentElement.dataset.theme = resolved;
+    };
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [localSettings.theme]);
 
   const appendOutput = useCallback(
     (message: string, kind: IdeOutputMessage["kind"] = "info") => {
@@ -575,16 +617,19 @@ export default function App({ user, onSignOut }: AppProps) {
     : activeIsMarkdown ? "explain_document" : "explain";
 
   const observerRequest = useMemo<ObserverRequest | null>(() => {
-    if (!activeTab || activeTab.availability !== "available" || activeTab.externalConflict) return null;
+    if (!syncedSettings.observerEnabled || !activeTab || activeTab.availability !== "available" || activeTab.externalConflict || isExcludedFromAiContext(activeTab.file.relativePath, localSettings.aiContextExclusions)) return null;
     const snapshot = observerSnapshot?.relativePath === activeTab.file.relativePath
       ? observerSnapshot
       : null;
-    const diagnostic = activeObserverMode === "fix_error"
+    const diagnostic = activeObserverMode === "fix_error" && syncedSettings.includeDiagnostics
       ? runOutput?.diagnostics.find((item) => item.relativePath === activeTab.file.relativePath)
       : undefined;
     const fallbackNearbyCode = activeTab.draft.split("\n").slice(0, 41).join("\n");
     return createObserverRequest({
       provider: observerProvider,
+      model: observerProvider === syncedSettings.preferredProvider ? syncedSettings.preferredModel : undefined,
+      storeHistory: syncedSettings.storeSuggestionHistory,
+      maximumContextChars: syncedSettings.maximumContextChars,
       mode: activeObserverMode,
       kind: activeIsMarkdown ? "doc" : "code",
       fileName: activeTab.file.name,
@@ -602,7 +647,7 @@ export default function App({ user, onSignOut }: AppProps) {
             message: diagnostic.message,
           }
         : undefined,
-      runError: diagnostic && runOutput?.status === "failed"
+      runError: syncedSettings.includeTerminalError && diagnostic && runOutput?.status === "failed"
         ? relevantObserverRunError(runOutput.stderr, {
             fileName: activeTab.file.name,
             line: diagnostic.line,
@@ -611,7 +656,7 @@ export default function App({ user, onSignOut }: AppProps) {
           })
         : undefined,
     });
-  }, [activeIsMarkdown, activeObserverMode, activeTab, observerProvider, observerSnapshot, runOutput]);
+  }, [activeIsMarkdown, activeObserverMode, activeTab, localSettings.aiContextExclusions, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.observerEnabled]);
   const currentContextSummary = observerRequest ? observerContextSummary(observerRequest) : null;
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
@@ -805,7 +850,37 @@ export default function App({ user, onSignOut }: AppProps) {
     setInsertRequest(null);
     setMarkdownViewModes({});
     appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
-  }, [appendOutput]);
+    if (localSettings.restoreOpenTabs) {
+      void window.settings.getWorkspaceTabs(workspace.workspaceId).then(async (result) => {
+        if (!result.ok) return;
+        for (const relativePath of result.value) {
+          const name = relativePath.split("/").at(-1) ?? relativePath;
+          await selectFile({ name, relativePath, kind: "file", isSymbolicLink: false });
+        }
+      });
+    }
+  }, [appendOutput, localSettings.restoreOpenTabs, selectFile]);
+
+  const startupAttempted = useRef(false);
+  useEffect(() => {
+    if (!settingsLoaded || startupAttempted.current || localSettings.startupBehavior !== "reopen_last" || workspaceOpen) return;
+    startupAttempted.current = true;
+    void window.workspace.listRecent().then(async (recent) => {
+      const first = recent.ok ? recent.value[0] : null;
+      if (!first) return;
+      const reopened = await window.workspace.reopenRecent(first.id);
+      if (reopened.ok) clearWorkspaceTabs(reopened.value);
+      else appendOutput(reopened.error, "error");
+    });
+  }, [appendOutput, clearWorkspaceTabs, localSettings.startupBehavior, settingsLoaded, workspaceOpen]);
+
+  useEffect(() => {
+    if (!openedWorkspace || !localSettings.restoreOpenTabs) return;
+    const timeout = window.setTimeout(() => {
+      void window.settings.saveWorkspaceTabs(openedWorkspace.workspaceId, tabs.map((tab) => tab.file.relativePath));
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [localSettings.restoreOpenTabs, openedWorkspace, tabs]);
 
   const renameOpenEntries = useCallback((oldRelativePath: string, entry: WorkspaceEntry) => {
     setTabs((current) =>
@@ -981,6 +1056,14 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [activePath, saveTab]);
 
   useEffect(() => {
+    if (localSettings.editor.autoSave !== "after_delay") return;
+    const pending = tabs.filter((tab) => isDirty(tab) && !tab.saving && tab.availability === "available" && !tab.externalConflict);
+    if (!pending.length) return;
+    const timeout = window.setTimeout(() => pending.forEach((tab) => void saveTab(tab.file.relativePath)), localSettings.editor.autoSaveDelayMs);
+    return () => window.clearTimeout(timeout);
+  }, [localSettings.editor.autoSave, localSettings.editor.autoSaveDelayMs, saveTab, tabs]);
+
+  useEffect(() => {
     const unsubscribeOutput = window.runner.onOutput((event) => {
       setRunOutput((current) => {
         if (!current || current.runId !== event.runId) return current;
@@ -1129,6 +1212,8 @@ export default function App({ user, onSignOut }: AppProps) {
 
   const askObserver = useCallback(async () => {
     if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion) return;
+    if (observerRequest.activeFile && syncedSettings.confirmCompleteFile &&
+      !window.confirm(`Attach the complete file ${observerRequest.fileName} to this manual Observer request?`)) return;
     observerRequestInFlight.current = true;
     const requestedPath = activeTab.file.relativePath;
     const summary = observerContextSummary(observerRequest);
@@ -1148,7 +1233,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverSuggestion(result.value.suggestion);
     setObserverStatus("ready");
     appendOutput(`Observer returned a ${OBSERVER_MODE_LABELS[observerRequest.mode].toLowerCase()} suggestion.`, "success");
-  }, [activeTab, appendOutput, observerRequest, observerSuggestion]);
+  }, [activeTab, appendOutput, observerRequest, observerSuggestion, syncedSettings.confirmCompleteFile]);
 
   const dismissObserver = useCallback(() => {
     const suggestionId = observerSuggestion?.id;
@@ -1288,6 +1373,52 @@ export default function App({ user, onSignOut }: AppProps) {
     appendOutput("Workspace closed. Welcome screen opened.");
   }, [appendOutput, canOpenWorkspace, workspaceOpen]);
 
+  const saveLocalSettings = useCallback(async (settings: LocalSettings) => {
+    const result = await window.settings.updateLocal(settings);
+    if (!result.ok) return result.error;
+    setLocalSettings(result.value);
+    return null;
+  }, []);
+  const saveSyncedSettings = useCallback(async (settings: SyncedSettings) => {
+    const result = await window.settings.updateSynced(settings);
+    if (!result.ok) return result.error;
+    setSyncedSettings(result.value);
+    setObserverMode(result.value.defaultObserverAction);
+    setObserverProvider(result.value.preferredProvider);
+    return null;
+  }, []);
+  const refreshProviders = useCallback(async () => {
+    const result = await window.settings.providerStatus();
+    if (result.ok) setProviderStatuses(result.value);
+  }, []);
+  const saveApiKey = useCallback(async (provider: Exclude<ObserverProvider, "demo">, apiKey: string, verify: boolean) => {
+    const result = await window.settings.saveApiKey({ provider, apiKey, verify });
+    if (!result.ok) return result.error;
+    await refreshProviders();
+    return null;
+  }, [refreshProviders]);
+  const deleteApiKey = useCallback(async (provider: Exclude<ObserverProvider, "demo">) => {
+    const result = await window.settings.deleteApiKey(provider);
+    if (!result.ok) return result.error;
+    await refreshProviders();
+    return null;
+  }, [refreshProviders]);
+  const resetLocalSettings = useCallback(async () => {
+    const result = await window.settings.resetLocal();
+    if (!result.ok) return result.error;
+    setLocalSettings(result.value);
+    return null;
+  }, []);
+  const clearRecentProjects = useCallback(async () => {
+    const result = await window.workspace.clearRecent();
+    if (result.ok) setRecentRefreshToken((value) => value + 1);
+    return result.ok ? null : result.error;
+  }, []);
+  const clearObserverHistory = useCallback(async () => {
+    const result = await window.settings.clearObserverHistory();
+    return result.ok ? null : result.error;
+  }, []);
+
   const issueExplorerCommand = useCallback((action: "open-folder" | "new-file" | "new-folder") => {
     if (action !== "open-folder") setSidebarView("explorer");
     setExplorerCommandRequest({ token: Date.now() + Math.random(), action });
@@ -1355,6 +1486,7 @@ export default function App({ user, onSignOut }: AppProps) {
     "markdown.split": () => {
       if (activePath) setMarkdownViewModes((current) => ({ ...current, [activePath]: "split" }));
     },
+    "preferences.openSettings": () => setSettingsOpen(true),
     "window.openWelcome": () => void closeCurrentWorkspace(),
   }), [
     activePath,
@@ -1384,6 +1516,17 @@ export default function App({ user, onSignOut }: AppProps) {
     window.addEventListener("keydown", handleCommandPaletteShortcut, { capture: true });
     return () => window.removeEventListener("keydown", handleCommandPaletteShortcut, { capture: true });
   }, [unsavedPrompt]);
+
+  useEffect(() => {
+    const openSettings = (event: KeyboardEvent) => {
+      if (!shouldOpenSettings(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSettingsOpen(true);
+    };
+    window.addEventListener("keydown", openSettings, { capture: true });
+    return () => window.removeEventListener("keydown", openSettings, { capture: true });
+  }, []);
 
   const hasDirtyTabs = tabs.some(isDirty);
   useEffect(() => {
@@ -1418,6 +1561,7 @@ export default function App({ user, onSignOut }: AppProps) {
         <div className="brand-mark" aria-hidden="true">P</div>
         <h1>Proactive AI IDE</h1>
         <span className="phase-label">Secure workspace</span>
+        <button type="button" className="settings-button" onClick={() => setSettingsOpen(true)} title="Settings (Ctrl+, / Cmd+,)">⚙ Settings</button>
         <details className="user-menu">
           <summary title={user.email}>
             <span className="user-avatar" aria-hidden="true">{(user.name || user.email).slice(0, 1).toUpperCase()}</span>
@@ -1426,6 +1570,7 @@ export default function App({ user, onSignOut }: AppProps) {
           <div className="user-menu-popover">
             <strong>{user.name || "Proactive AI user"}</strong>
             <span>{user.email}</span>
+            <button type="button" onClick={() => setSettingsOpen(true)}>Settings</button>
             {accountError && <p role="alert">{accountError}</p>}
             <button type="button" onClick={() => void signOut()} disabled={signingOut}>
               {signingOut ? "Signing out…" : "Sign Out"}
@@ -1454,6 +1599,7 @@ export default function App({ user, onSignOut }: AppProps) {
               externalChanges={externalChanges}
               onStatus={appendOutput}
               commandRequest={explorerCommandRequest}
+              confirmBeforeDelete={localSettings.confirmBeforeDelete}
             />
           </div>
           <div className={`sidebar-view ${sidebarView === "search" ? "active" : ""}`}>
@@ -1473,6 +1619,7 @@ export default function App({ user, onSignOut }: AppProps) {
             <WelcomeScreen
               onBeforeOpen={canOpenWorkspace}
               onWorkspaceOpened={clearWorkspaceTabs}
+              refreshToken={recentRefreshToken}
             />
           ) : (
           <EditorWorkspace
@@ -1500,6 +1647,8 @@ export default function App({ user, onSignOut }: AppProps) {
               if (!activePath) return;
               setMarkdownViewModes((current) => ({ ...current, [activePath]: mode }));
             }}
+            editorSettings={localSettings.editor}
+            editorTheme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
           />
           )}
         </main>
@@ -1511,11 +1660,11 @@ export default function App({ user, onSignOut }: AppProps) {
             modes={observerModes}
             provider={observerProvider}
             status={observerStatus}
-            contextSummary={observerStatus === "idle" ? currentContextSummary : sentContextSummary}
+            contextSummary={syncedSettings.showContextPreview ? (observerStatus === "idle" ? currentContextSummary : sentContextSummary) : "Context preview is disabled in Settings."}
             suggestion={observerSuggestion}
             error={observerError}
             copyStatus={copyStatus}
-            canAsk={Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion}
+            canAsk={syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion}
             canInsert={observerCanInsert}
             onModeChange={(mode) => {
               setObserverMode(mode);
@@ -1549,7 +1698,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 7C</span>
+        <span>Phase 7D</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
@@ -1574,6 +1723,21 @@ export default function App({ user, onSignOut }: AppProps) {
         commands={resolvedCommands}
         openToken={commandPaletteToken}
         onClosed={() => undefined}
+      />
+      <SettingsPanel
+        open={settingsOpen}
+        local={localSettings}
+        synced={syncedSettings}
+        providers={providerStatuses}
+        onClose={() => setSettingsOpen(false)}
+        onSaveLocal={saveLocalSettings}
+        onSaveSynced={saveSyncedSettings}
+        onSaveKey={saveApiKey}
+        onDeleteKey={deleteApiKey}
+        onResetLocal={resetLocalSettings}
+        onClearRecents={clearRecentProjects}
+        onClearHistory={clearObserverHistory}
+        onSignOut={() => void signOut()}
       />
     </div>
   );

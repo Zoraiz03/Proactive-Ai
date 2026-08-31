@@ -114,6 +114,10 @@ export class RecentProjectsStore {
     return this.listPublic();
   }
 
+  async clear(): Promise<void> {
+    await this.write([]);
+  }
+
   async find(id: string): Promise<StoredRecentWorkspace | null> {
     return (await this.list()).find((item) => recentProjectId(item.path) === id) ?? null;
   }

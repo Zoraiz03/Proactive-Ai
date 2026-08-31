@@ -33,6 +33,7 @@ implementation and its verification evidence in the changelog.
 | Phase 7A | Complete | Secure global project search |
 | Phase 7B | Complete | Recent projects and secure workspace reopening |
 | Phase 7C | Complete | Typed command palette and keyboard-first navigation |
+| Phase 7D | Complete | Settings and Privacy Center |
 | Phase 8 | Not Started | Packaging, signing, updates, and release checks |
 
 ## Recommended folder structure
@@ -267,7 +268,7 @@ Phase 3B required verification:
 - [x] **Complete** — Detect external file changes and offer reload/keep choices.
 - [x] **Complete** — Add automatic workspace refresh and filesystem watching.
 - [x] **Complete** — Add secure global project search; single-file Find remains future work.
-- [ ] **Not Started** — Persist non-sensitive window and recent-project preferences.
+- [x] **Complete** — Persist non-sensitive settings, recent projects, and bounded open-tab metadata in Electron application data.
 
 Required verification:
 
@@ -538,6 +539,45 @@ Required verification:
 - [x] **Complete** — All 20 required command IDs are present exactly once.
 - [x] **Complete** — Desktop tests/type/build and existing web tests/lint/build pass.
 
+## Phase 7D — Settings and Privacy Center
+
+**Goal:** Centralize safe device preferences, per-account AI choices, server-side
+provider-key management, privacy rules, and data controls.
+
+- [x] **Complete** — Add a searchable, sectioned Settings dialog reachable from a
+  visible header action, account menu, Ctrl/Cmd+Comma, and the typed command registry.
+- [x] **Complete** — Add System/Light/Dark theme, Welcome/reopen-last startup behavior,
+  delete confirmation, and project-tab restoration controls.
+- [x] **Complete** — Apply font size, tab size, word wrap, minimap, and delayed auto-save
+  to the active Monaco workflow without an application restart; provide editor reset.
+- [x] **Complete** — Show server-reported system/user/unavailable provider status,
+  fixed supported models, and a per-user preferred provider/model.
+- [x] **Complete** — Add authenticated bearer-token Add/Replace, optional Verify, and
+  Delete API-key operations. Inputs are masked and cleared after successful writes;
+  stored values are never returned.
+- [x] **Complete** — Add manual Observer defaults, focused-context controls, optional
+  history, restrictive context sizing, full-file confirmation, and disabled future
+  Assist Mode without proactive monitoring.
+- [x] **Complete** — Keep permanent `.env`, credential, token, and private-key exclusions
+  non-removable; add device-local user exclusions and clear privacy explanations.
+- [x] **Complete** — Store typed/versioned local settings, bounded tab metadata, and
+  recent metadata under Electron `userData`; store only user-owned synced preferences
+  in Supabase behind RLS. Tokens remain in the existing encrypted session store.
+- [x] **Complete** — Add confirmed local reset, recent-history clearing, local
+  Observer/context-history clearing, and sign-out controls. Account deletion remains out of scope.
+
+Required verification:
+
+- [x] **Complete** — Focused tests cover defaults, corruption recovery, local/synced
+  separation, Monaco option updates, signed-out rejection, response secret rejection,
+  permanent exclusions, tab metadata, recents clearing, and command access.
+- [x] **Complete** — The CLI-created migration enables RLS, includes owner-only SELECT,
+  INSERT, UPDATE (`USING` and `WITH CHECK`), and DELETE policies, and handles grants
+  separately. The static policy harness and linked-project SQL verification pass; local
+  Docker remains unavailable, but the migration is applied to the linked project.
+- [x] **Complete** — Desktop tests/type/build and web tests/lint/build pass; desktop
+  output contains no server credential identifiers or raw provider-key patterns.
+
 ## Phase 8 — Packaging and release readiness
 
 **Goal:** Produce secure, installable, supportable desktop releases.
@@ -702,6 +742,22 @@ Required verification:
     Close Workspace is the only added preload method and calls the existing authenticated
     main-process clear lifecycle. Ctrl/Cmd+Shift+P is intentionally global, while
     save/run shortcuts yield to xterm so terminal control input remains intact.
+35. **Separate device settings from user-owned cloud preferences.** Phase 7D writes a
+    versioned, allowlisted device schema and bounded open-tab relative paths to owner-only
+    files under Electron `userData`; neither uses browser localStorage. Theme, Monaco,
+    startup, deletion, tab restoration, and custom context exclusions remain local.
+    Provider/model, manual Observer behavior, and history/privacy choices live in
+    `desktop_user_settings`, keyed by the authenticated Supabase user.
+36. **Treat provider keys as write-only secrets.** The desktop renderer submits a masked
+    input through a narrow main-process bearer client. Next.js validates the session,
+    optionally verifies the key directly with the selected provider, encrypts it, and
+    returns only success/status metadata. Provider key lookup/decryption, service-role
+    access, server environment availability, and all model calls remain server-only.
+37. **Enforce privacy twice.** The desktop typed schema permanently blocks `.env`,
+    credential, token, and private-key formats before building Observer context and
+    applies user-defined relative exclusions plus a 1,000–50,000 character bound.
+    The existing Next.js `/api/suggest` sensitive-basename validation remains a second
+    server-side boundary. Complete-file context can require an explicit confirmation.
 
 ### Desktop-to-backend authentication boundary
 
@@ -795,6 +851,46 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-31 — Phase 7D complete
+
+Changed files and architecture:
+
+- Desktop shared/main/preload settings modules — added a typed versioned device schema,
+  owner-only atomic storage, bounded open-tab metadata, authenticated settings/key HTTP
+  client, and narrow trusted-window IPC methods. Recent-project storage gained confirmed
+  Clear History support; workspace responses include only an opaque ID for tab metadata.
+- Desktop Settings renderer/styles and App/Explorer integration — added seven settings
+  sections, filtering, all required entry points, runtime theme/Monaco/auto-save behavior,
+  startup reopening, tab restoration, deletion preference, Observer privacy controls,
+  masked write-only keys, confirmed data actions, and local-versus-Supabase explanations.
+- Next.js settings/key/Observer server modules and routes — added dual cookie/bearer
+  desktop settings APIs, safe provider availability, optional key verification, user-key
+  status only, preferred models, bounded Observer context, and optional suggestion history.
+  Existing cookie-based web authentication and UI behavior remain supported.
+- `20260831061842_add_desktop_user_settings.sql` — created with Supabase CLI 2.116.0;
+  adds the owner-keyed synced table, checks, explicit grants, enabled RLS, and separate
+  SELECT/INSERT/UPDATE/DELETE ownership policies (UPDATE has `USING` and `WITH CHECK`).
+- Focused desktop/root tests and this plan — added settings recovery/separation/runtime,
+  tab/history clearing, signed-out/key-response safety, secret exclusions, command access,
+  API-key verification transport, and migration policy/grant assertions.
+
+Verification and limitations:
+
+- Desktop tests passed 79/79; strict desktop TypeScript and the Electron production build
+  passed. Root tests, lint, and the Next.js production build passed.
+- Desktop output secret scan found no server credential identifiers; broad `sk-` scanning
+  produced only Monaco CSS `mask-border-*` vocabulary, not keys.
+- Supabase CLI migration creation/help and policy/grant harness checks passed. The linked
+  migration was applied and read-only SQL verification confirmed RLS enabled, four
+  authenticated owner policies, UPDATE `USING` plus `WITH CHECK`, and explicit
+  authenticated/service-role grants. Local stack execution remains unavailable because
+  Docker is not running.
+- Provider/model catalogs contain the currently supported single model per provider.
+  Key verification is optional and depends on provider availability. Account deletion,
+  proactive Assist Mode, project-wide indexing, telemetry, Git, and packaging remain out
+  of scope. Clearing local Observer/context history does not delete earlier suggestion
+  rows already stored in Supabase. Signed-in visual interaction remains a manual step.
 
 ### 2026-08-31 — Phase 7C complete
 
@@ -1576,9 +1672,12 @@ Verification:
 | 2026-08-31 | Phase 7C command tests | Complete | 67/67 desktop tests passed, including palette state, fuzzy filtering, navigation, execution, disabled reasons, registry collisions, focus restoration, and terminal/Monaco shortcut protection. |
 | 2026-08-31 | Phase 7C desktop checks | Complete | Strict main/preload/renderer TypeScript and the Electron production build passed. |
 | 2026-08-31 | Phase 7C web regression | Complete | Existing root tests, lint, and Next.js production build passed with no web application source changes. |
+| 2026-08-31 | Phase 7D focused settings/privacy tests | Complete | 79/79 desktop tests passed, including typed defaults/recovery, local/cloud separation, runtime Monaco mapping, signed-out restrictions, API-key lifecycle/secret-response rejection, permanent exclusions, data clearing, tab metadata, and settings command access. |
+| 2026-08-31 | Phase 7D Supabase security verification | Complete | Migration applied to the linked project; SQL verification confirmed RLS enabled, owner-only SELECT/INSERT/UPDATE/DELETE policies, UPDATE `USING` and `WITH CHECK`, explicit grants, and matching local/remote migration history. Local Docker remained unavailable. |
+| 2026-08-31 | Phase 7D desktop checks | Complete | Strict TypeScript, Electron production build, and desktop output secret scan passed. |
+| 2026-08-31 | Phase 7D web regression | Complete | Root tests, lint, and Next.js production build passed with cookie behavior preserved and additive bearer APIs. |
 
 ## Recommended next task
 
-Implement **Settings and Privacy Center**. Centralize user-visible desktop preferences,
-privacy explanations, stored-data controls, and safe defaults without exposing secrets,
-adding arbitrary configuration execution, or changing existing web behavior.
+Implement **Basic Git status and diff viewer**. Keep Git operations read-only, bounded to
+the authorized workspace, outside the renderer process, and free of arbitrary shell input.

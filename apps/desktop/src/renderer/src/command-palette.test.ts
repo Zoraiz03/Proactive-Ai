@@ -6,6 +6,7 @@ import {
   filterCommands,
   resolveCommands,
   shouldOpenCommandPalette,
+  shouldOpenSettings,
   shouldPreserveTerminalShortcut,
   type CommandDefinition,
   type CommandHandlers,
@@ -39,8 +40,9 @@ function handlers(onExecute: (id: string) => void = () => undefined): CommandHan
 }
 
 test("opens and closes the command palette with reset search state", () => {
-  assert.equal(IDE_COMMANDS.length, 20);
-  assert.equal(new Set(IDE_COMMANDS.map((command) => command.id)).size, 20);
+  assert.equal(IDE_COMMANDS.length, 21);
+  assert.equal(new Set(IDE_COMMANDS.map((command) => command.id)).size, 21);
+  assert.equal(IDE_COMMANDS.find((command) => command.id === "preferences.openSettings")?.shortcut, "Mod+,");
   const opened = commandPaletteReducer(CLOSED_COMMAND_PALETTE, { type: "open" });
   assert.deepEqual(opened, { open: true, query: "", selectedIndex: 0 });
   const queried = commandPaletteReducer(opened, { type: "query", query: "save" });
@@ -123,4 +125,12 @@ test("palette is intentionally global while save and run preserve terminal input
   assert.equal(shouldPreserveTerminalShortcut(terminalTarget, "save"), true);
   assert.equal(shouldPreserveTerminalShortcut(terminalTarget, "run"), true);
   assert.equal(shouldPreserveTerminalShortcut(monacoTarget, "save"), false);
+});
+
+test("settings opens only from the intentional global Ctrl/Cmd+Comma shortcut", () => {
+  const event = { ctrlKey: true, metaKey: false, shiftKey: false, altKey: false, key: "," };
+  assert.equal(shouldOpenSettings(event), true);
+  assert.equal(shouldOpenSettings({ ...event, ctrlKey: false, metaKey: true }), true);
+  assert.equal(shouldOpenSettings({ ...event, shiftKey: true }), false);
+  assert.equal(shouldOpenSettings({ ...event, key: "." }), false);
 });

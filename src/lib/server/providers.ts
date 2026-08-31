@@ -135,10 +135,10 @@ function providerError(status: number, provider: string, body = ""): ProviderErr
   );
 }
 
-async function suggestWithGemini(apiKey: string, ctx: SuggestContext) {
+async function suggestWithGemini(apiKey: string, ctx: SuggestContext, model = "gemini-2.5-flash") {
   const fallbackReason = requestReason(ctx);
   const res = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
@@ -186,7 +186,7 @@ async function suggestWithOpenAICompatible(
   );
 }
 
-async function suggestWithAnthropic(apiKey: string, ctx: SuggestContext) {
+async function suggestWithAnthropic(apiKey: string, ctx: SuggestContext, model = "claude-haiku-4-5-20251001") {
   const fallbackReason = requestReason(ctx);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -196,7 +196,7 @@ async function suggestWithAnthropic(apiKey: string, ctx: SuggestContext) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
+      model,
       max_tokens: 1024,
       messages: [
         { role: "user", content: buildPrompt(ctx) },
@@ -231,25 +231,31 @@ function suggestWithDemo(ctx: SuggestContext): Suggestion {
 export async function getSuggestion(
   provider: Provider,
   apiKey: string | null,
-  ctx: SuggestContext
+  ctx: SuggestContext,
+  requestedModel?: string
 ): Promise<Suggestion> {
+  const allowedModel: Record<Provider, string> = {
+    gemini: "gemini-2.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat",
+    anthropic: "claude-haiku-4-5-20251001", demo: "demo-local",
+  };
+  const model = requestedModel === allowedModel[provider] ? requestedModel : allowedModel[provider];
   switch (provider) {
     case "gemini":
-      return suggestWithGemini(apiKey!, ctx);
+      return suggestWithGemini(apiKey!, ctx, model);
     case "deepseek":
       return suggestWithOpenAICompatible(apiKey!, ctx, {
         baseUrl: "https://api.deepseek.com",
-        model: "deepseek-chat",
+        model,
         label: "DeepSeek",
       });
     case "openai":
       return suggestWithOpenAICompatible(apiKey!, ctx, {
         baseUrl: "https://api.openai.com/v1",
-        model: "gpt-4o-mini",
+        model,
         label: "ChatGPT",
       });
     case "anthropic":
-      return suggestWithAnthropic(apiKey!, ctx);
+      return suggestWithAnthropic(apiKey!, ctx, model);
     case "demo":
       return suggestWithDemo(ctx);
     default:

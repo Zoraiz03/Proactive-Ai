@@ -4,6 +4,7 @@ import type { OpenWorkspace, RecentWorkspace } from "../../shared/workspace";
 interface WelcomeScreenProps {
   onBeforeOpen: () => Promise<boolean>;
   onWorkspaceOpened: (workspace: OpenWorkspace) => void;
+  refreshToken?: number;
 }
 
 function openedLabel(timestamp: number): string {
@@ -13,7 +14,7 @@ function openedLabel(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
-export default function WelcomeScreen({ onBeforeOpen, onWorkspaceOpened }: WelcomeScreenProps) {
+export default function WelcomeScreen({ onBeforeOpen, onWorkspaceOpened, refreshToken = 0 }: WelcomeScreenProps) {
   const [recents, setRecents] = useState<RecentWorkspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
@@ -33,7 +34,7 @@ export default function WelcomeScreen({ onBeforeOpen, onWorkspaceOpened }: Welco
 
   useEffect(() => {
     void loadRecents();
-  }, [loadRecents]);
+  }, [loadRecents, refreshToken]);
 
   const openFolder = async () => {
     if (openingPath || !(await onBeforeOpen())) return;

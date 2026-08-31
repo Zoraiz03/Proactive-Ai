@@ -18,6 +18,7 @@ export type CommandId =
   | "markdown.edit"
   | "markdown.preview"
   | "markdown.split"
+  | "preferences.openSettings"
   | "window.openWelcome";
 
 export interface CommandState {
@@ -115,6 +116,7 @@ export const IDE_COMMANDS: readonly CommandDefinition[] = defineCommandRegistry(
   { id: "markdown.edit", name: "Markdown: Edit Mode", disabledReason: requiresMarkdown },
   { id: "markdown.preview", name: "Markdown: Preview Mode", disabledReason: requiresMarkdown },
   { id: "markdown.split", name: "Markdown: Split Mode", disabledReason: requiresMarkdown },
+  { id: "preferences.openSettings", name: "Preferences: Open Settings", shortcut: "Mod+,", disabledReason: available },
   {
     id: "window.openWelcome",
     name: "Window: Open Welcome Screen",
@@ -184,6 +186,10 @@ export interface PaletteShortcutEvent {
 
 export function shouldOpenCommandPalette(event: PaletteShortcutEvent): boolean {
   return (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "p";
+}
+
+export function shouldOpenSettings(event: PaletteShortcutEvent): boolean {
+  return (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key === ",";
 }
 
 export function isTerminalKeyboardTarget(target: unknown): boolean {

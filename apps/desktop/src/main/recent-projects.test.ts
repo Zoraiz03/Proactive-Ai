@@ -69,6 +69,12 @@ test("removes a recent workspace without affecting other entries", async () => {
   assert.deepEqual(projects.map((project) => project.displayName), ["alpha"]);
 });
 
+test("clears recent-project history without retaining paths", async () => {
+  await store.add(join(temporaryDirectory, "alpha"), "alpha", 100);
+  await store.clear();
+  assert.deepEqual(await store.list(), []);
+});
+
 test("rejects missing, non-directory, and unlisted workspaces on reopen", async () => {
   const missing = join(temporaryDirectory, "missing");
   await store.add(missing, "missing", 100);

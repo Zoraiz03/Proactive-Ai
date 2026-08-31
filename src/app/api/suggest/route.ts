@@ -9,6 +9,7 @@ const ProviderSchema = z.enum(["gemini", "deepseek", "openai", "anthropic", "dem
 const CodeModeSchema = z.enum(["explain", "fix_error", "improve_code", "continue_code", "generate_tests"]);
 const DocumentModeSchema = z.enum(["explain_document", "improve_writing", "summarize", "generate_readme_section"]);
 const ModeSchema = z.union([CodeModeSchema, DocumentModeSchema]);
+const ModelForProvider = { gemini: "gemini-2.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat", anthropic: "claude-haiku-4-5-20251001", demo: "demo-local" } as const;
 
 const WebBody = z.object({
   client: z.literal("web").optional(),
@@ -28,6 +29,8 @@ const WebBody = z.object({
 const DesktopBody = z.object({
   client: z.literal("desktop"),
   provider: ProviderSchema,
+  model: z.string().min(1).max(100).optional(),
+  storeHistory: z.boolean().default(true),
   mode: ModeSchema,
   kind: z.enum(["code", "doc"]),
   fileName: z.string().min(1).max(255).regex(/^[^\\/]+$/),
@@ -46,11 +49,18 @@ const DesktopBody = z.object({
   runError: z.string().min(1).max(8_000).optional(),
   activeFile: z.string().min(1).max(50_000).optional(),
 }).superRefine((body, context) => {
+  if (body.model && body.model !== ModelForProvider[body.provider]) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "The requested model is not supported for this provider." });
+  }
   const normalizedFileName = body.fileName.toLowerCase();
   const sensitive = /^\.env(?:\.|$)/.test(normalizedFileName) ||
     [".npmrc", ".pypirc", ".netrc", "credentials", "id_rsa", "id_ed25519"].includes(normalizedFileName) ||
     /\.(?:pem|key|p12|pfx)$/.test(normalizedFileName);
   if (sensitive) context.addIssue({ code: z.ZodIssueCode.custom, message: "Sensitive files cannot be sent." });
+  const containsSecret = (value?: string) => Boolean(value && (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(value) || /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)\b\s*[:=]\s*["']?[A-Za-z0-9_./+\-=]{12,}/i.test(value)));
+  if ([body.selectedCode, body.nearbyCode, body.activeFile, body.runError].some(containsSecret)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Potential secret material cannot be sent." });
+  }
   const codeModes = CodeModeSchema.options as readonly string[];
   const documentModes = DocumentModeSchema.options as readonly string[];
   if ((body.kind === "code" && !codeModes.includes(body.mode)) ||
@@ -160,12 +170,15 @@ export async function POST(req: Request) {
       kind,
       content,
       context,
-    });
+    }, desktop?.model);
     if (!suggestion.explanation) {
       return NextResponse.json(
         { error: "The model returned an empty suggestion. Try again." },
         { status: 502 }
       );
+    }
+    if (desktop && !desktop.storeHistory) {
+      return NextResponse.json({ suggestion, provider });
     }
     const { data: saved, error: saveError } = await supabase
       .from("suggestions")

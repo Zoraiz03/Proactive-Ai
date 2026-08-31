@@ -167,6 +167,7 @@ interface ExplorerProps {
   externalChanges: WorkspaceChangeBatch | null;
   onStatus: (message: string, kind?: "info" | "success" | "error") => void;
   commandRequest: { token: number; action: "open-folder" | "new-file" | "new-folder" } | null;
+  confirmBeforeDelete: boolean;
 }
 
 function parentPath(relativePath: string): string {
@@ -186,6 +187,7 @@ export default function Explorer({
   externalChanges,
   onStatus,
   commandRequest,
+  confirmBeforeDelete,
 }: ExplorerProps) {
   const [workspace, setWorkspace] = useState<OpenWorkspace | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -320,8 +322,20 @@ export default function Explorer({
     setDialogError(null);
   };
 
+  const deleteEntry = async (entry: WorkspaceEntry) => {
+    const result = await window.workspace.deleteEntry(entry.relativePath);
+    if (!result.ok) { setError(result.error); return; }
+    onEntryDeleted(entry.relativePath, entry.kind);
+    if (!(await refreshWorkspace(null))) return;
+    onStatus(`Deleted ${entry.relativePath}.`, "success");
+  };
+
   const startDelete = () => {
     if (!selectedEntry) return;
+    if (!confirmBeforeDelete && getDeleteImpact(selectedEntry).dirtyCount === 0) {
+      void deleteEntry(selectedEntry);
+      return;
+    }
     setDialog({ kind: "delete", entry: selectedEntry, impact: getDeleteImpact(selectedEntry) });
     setDialogError(null);
   };
@@ -368,16 +382,17 @@ export default function Explorer({
     }
 
     if (dialog.kind !== "delete") return;
-    const result = await window.workspace.deleteEntry(dialog.entry.relativePath);
+    const entry = dialog.entry;
+    const result = await window.workspace.deleteEntry(entry.relativePath);
     setDialogBusy(false);
     if (!result.ok) {
       setDialogError(result.error);
       return;
     }
-    onEntryDeleted(dialog.entry.relativePath, dialog.entry.kind);
+    onEntryDeleted(entry.relativePath, entry.kind);
     if (!(await refreshWorkspace(null))) return;
     setDialog(null);
-    onStatus(`Deleted ${dialog.entry.relativePath}.`, "success");
+    onStatus(`Deleted ${entry.relativePath}.`, "success");
   };
 
   const closeDialog = () => {

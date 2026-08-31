@@ -4,6 +4,7 @@ import type { RunnerBridge } from "../../shared/runner";
 import type { DesktopAuthBridge } from "../../shared/auth";
 import type { ObserverBridge } from "../../shared/observer";
 import type { WorkspaceSearchBridge } from "../../shared/search";
+import type { SettingsBridge } from "../../shared/settings";
 
 declare global {
   interface Window {
@@ -12,6 +13,7 @@ declare global {
     runner: RunnerBridge;
     desktopAuth: DesktopAuthBridge;
     observer: ObserverBridge;
+    settings: SettingsBridge;
     workspaceSearch: WorkspaceSearchBridge;
   }
 }

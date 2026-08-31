@@ -4,6 +4,7 @@ export const WORKSPACE_CHANNELS = {
   recentList: "workspace:recent-list",
   reopenRecent: "workspace:reopen-recent",
   removeRecent: "workspace:remove-recent",
+  clearRecent: "workspace:clear-recent",
   readDirectory: "workspace:read-directory",
   readFile: "workspace:read-file",
   writeFile: "workspace:write-file",
@@ -21,6 +22,7 @@ export interface WorkspaceEntry {
 }
 
 export interface OpenWorkspace {
+  workspaceId: string;
   name: string;
   entries: WorkspaceEntry[];
 }
@@ -114,6 +116,7 @@ export interface WorkspaceBridge {
   listRecent: () => Promise<IpcResult<RecentWorkspace[]>>;
   reopenRecent: (id: string) => Promise<IpcResult<OpenWorkspace>>;
   removeRecent: (id: string) => Promise<IpcResult<RecentWorkspace[]>>;
+  clearRecent: () => Promise<IpcResult<void>>;
   readDirectory: (
     relativePath: string
   ) => Promise<IpcResult<WorkspaceEntry[]>>;

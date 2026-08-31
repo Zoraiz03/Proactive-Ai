@@ -2024,3 +2024,42 @@ button.tree-row {
     margin: 0;
   }
 }
+
+.settings-button { margin-left: auto; background: transparent; border: 1px solid var(--border, #303845); color: inherit; border-radius: 6px; padding: 6px 10px; }
+.settings-backdrop { position: fixed; inset: 0; z-index: 1200; background: rgba(3, 7, 12, .72); display: grid; place-items: center; padding: 24px; }
+.settings-center { width: min(1060px, 96vw); height: min(760px, 92vh); background: #11171f; color: #e8edf4; border: 1px solid #354151; border-radius: 12px; box-shadow: 0 24px 80px #000a; display: flex; flex-direction: column; overflow: hidden; }
+.settings-center > header { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 1px solid #2b3441; }
+.settings-center h2, .settings-center h3 { margin: 0 0 6px; }
+.settings-center header p, .settings-center main > p { margin: 0; color: #9daabd; }
+.settings-center header > button { font-size: 28px; background: transparent; border: 0; color: inherit; }
+.settings-body { display: grid; grid-template-columns: 230px 1fr; min-height: 0; flex: 1; }
+.settings-body nav { padding: 16px; border-right: 1px solid #2b3441; display: flex; flex-direction: column; gap: 5px; }
+.settings-body nav input { margin-bottom: 10px; }
+.settings-body nav button { text-align: left; border: 0; background: transparent; color: #aeb9c9; padding: 9px 10px; border-radius: 6px; }
+.settings-body nav button.active { background: #203b59; color: #fff; }
+.settings-body main { overflow: auto; padding: 22px 28px 40px; }
+.storage-badge { display: inline-block; font-size: 12px; color: #9fc8ef; background: #162b40; border-radius: 999px; padding: 4px 9px; margin-bottom: 18px; }
+.setting-row { min-height: 44px; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 1px solid #252e3a; }
+.setting-row input[type="number"], .setting-row select { width: min(260px, 45%); }
+.toggle-row input { width: 18px; height: 18px; }
+.setting-column { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+.setting-column textarea { min-height: 90px; resize: vertical; }
+.settings-center input, .settings-center select, .settings-center textarea { background: #0d1219; color: inherit; border: 1px solid #394556; border-radius: 6px; padding: 8px; }
+.settings-center button { cursor: pointer; }
+.settings-center button.primary { background: #2776c5; color: white; border: 0; border-radius: 6px; padding: 8px 12px; }
+.settings-actions, .danger-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
+.danger-actions button { border: 1px solid #81434b; background: #2a171b; color: #ffd4d8; border-radius: 6px; padding: 9px 12px; }
+.provider-card, .api-key-row { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; padding: 11px; margin: 8px 0; border: 1px solid #2c3745; border-radius: 7px; }
+.provider-card span, .api-key-row small { color: #9daabd; }
+.api-key-row { grid-template-columns: minmax(120px, 1fr) minmax(180px, 2fr) auto auto; align-items: center; }
+.api-key-row > div { display: flex; flex-direction: column; }
+.mandatory-exclusions { display: flex; flex-direction: column; gap: 7px; padding: 12px; background: #191f28; border-radius: 7px; margin-top: 12px; }
+.mandatory-exclusions code { white-space: normal; color: #c3d0df; }
+.settings-message { margin-top: 20px !important; padding: 10px; border: 1px solid #2c6b4b; background: #12291d; border-radius: 6px; color: #b7eccd !important; }
+
+:root[data-theme="light"] body, :root[data-theme="light"] .app-shell { background: #f3f5f8; color: #1d2733; }
+:root[data-theme="light"] .top-bar, :root[data-theme="light"] .panel, :root[data-theme="light"] .status-bar { background: #fff; color: #1d2733; border-color: #cdd5df; }
+:root[data-theme="light"] .settings-center { background: #fff; color: #1d2733; }
+:root[data-theme="light"] .settings-center input, :root[data-theme="light"] .settings-center select, :root[data-theme="light"] .settings-center textarea { background: #fff; color: #1d2733; border-color: #aeb9c7; }
+:root[data-theme="light"] .setting-row, :root[data-theme="light"] .settings-center > header, :root[data-theme="light"] .settings-body nav { border-color: #dce2e9; }
+@media (max-width: 760px) { .settings-body { grid-template-columns: 170px 1fr; } .api-key-row { grid-template-columns: 1fr; } }
