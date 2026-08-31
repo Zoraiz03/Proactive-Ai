@@ -35,7 +35,9 @@ implementation and its verification evidence in the changelog.
 | Phase 7C | Complete | Typed command palette and keyboard-first navigation |
 | Phase 7D | Complete | Settings and Privacy Center |
 | Phase 7E | Complete | Read-only Git status and diff viewer |
-| Phase 8 | Not Started | Packaging, signing, updates, and release checks |
+| Phase 8 | Complete | Deterministic, explainable, privacy-safe project context engine |
+| Phase 9 | Not Started | Safe AI Change Engine with diff review and rollback |
+| Phase 10 | Not Started | Packaging, signing, updates, and release checks |
 
 ## Recommended folder structure
 
@@ -613,7 +615,61 @@ Required verification:
 - [x] **Complete** — Production code contains no shell mode, write/remote Git command,
   credential operation, or renderer filesystem/process access.
 
-## Phase 8 — Packaging and release readiness
+## Phase 8 — Deterministic Project Context Engine
+
+**Goal:** Improve explicit Ask Observer requests with a focused, explainable,
+workspace-scoped context package without indexing or uploading the project.
+
+- [x] **Complete** — Define a reusable typed context package with intent, active
+  file/language, cursor, explicit item types, provenance, selection reason, priority,
+  line ranges, relevance, cost, truncation/redaction state, omissions, and limits.
+- [x] **Complete** — Apply the fixed priority order: explicit action, selection,
+  diagnostic, current symbol, nearby code, related files, rules/docs, terminal error.
+- [x] **Complete** — Build action-specific packages for all five code actions and
+  four documentation actions; documentation does not collect code automatically.
+- [x] **Complete** — Discover only deterministic local relationships: relative
+  imports/requires, nearby test naming patterns, test/framework configuration, and
+  workspace instruction files (`AGENTS.md`, `.proactive/rules.md`, relevant README).
+- [x] **Complete** — Keep bounded candidate metadata in Electron main and invalidate
+  it for changed editor content, workspace watcher batches, saves, creates, renames,
+  deletes, workspace replacement, and close.
+- [x] **Complete** — Add Settings limits for total characters (1,000–50,000), related
+  files (1–10), and content per related file (500–20,000), with restrictive defaults
+  of 20,000, 4, and 8,000 respectively.
+- [x] **Complete** — Preserve higher-priority context deterministically, record every
+  omitted/truncated lower-priority item, and never exceed the final total budget.
+- [x] **Complete** — Block permanent secret formats, generated folders, `.gitignore`,
+  user exclusions, binary/oversized content, traversal, and escaping symlinks; redact
+  common token, credential, cloud-key, and private-key content before preview/send.
+- [x] **Complete** — Show a detailed Context Preview before sending, including source,
+  line range, provenance, reason, cost, omissions, and redaction/truncation indicators;
+  allow optional-item removal and require confirmation for complete-file context.
+- [x] **Complete** — Send the structured package through authenticated Observer IPC;
+  main authorizes only an unchanged subset of the package it prepared.
+- [x] **Complete** — Validate schema, relationships, item costs, total size, secrets,
+  and complete-file metadata again in Next.js. Prompt boundaries label project content
+  as untrusted data, and suggestion history stores safe metadata rather than raw context.
+- [x] **Complete** — Keep all requests manual. No embeddings, vector database,
+  workspace upload/index, proactive monitoring, multi-file edits, commands, Git writes,
+  extension communication, or release work were added.
+
+Required verification:
+
+- [x] **Complete** — Focused tests cover every Observer action, priority order, direct
+  imports, test discovery/config, budgets, file/count limits, `.gitignore`, generated/
+  secret/user-excluded files, redaction, symlink containment, cache invalidation,
+  preview removal, and complete-file confirmation.
+- [x] **Complete** — Backend tests cover valid/oversized/malformed packages, duplicate
+  items, secret rejection, untrusted prompt-injection text, and metadata-only logging.
+- [x] **Complete** — Desktop tests/type/build and web tests/lint/build pass.
+- [x] **Complete** — Desktop output and context fixtures pass credential/token scans.
+
+## Phase 9 — Safe AI Change Engine with diff review and rollback
+
+**Goal:** Let users review and explicitly apply bounded AI changes with a recoverable
+diff workflow. This phase is not started; no AI file changes exist yet.
+
+## Phase 10 — Packaging and release readiness
 
 **Goal:** Produce secure, installable, supportable desktop releases.
 
@@ -808,6 +864,22 @@ Required verification:
     command output and stderr are bounded, operations time out and can be cancelled,
     and the UI remains independent of normal editor tabs. This phase provides no Git
     mutation, remote, credential, terminal-command, or AI-review capability.
+41. **Build context locally from deterministic evidence.** Phase 8 performs no cloud
+    indexing and keeps no content index. Electron main evaluates the active draft,
+    relative imports/requires, nearby test filenames, known project configuration,
+    and optional workspace rules. Candidate metadata is bounded and invalidated on
+    editor-content or workspace changes; files are read only when selected for the
+    current manual request.
+42. **Make context selection explainable and budget-first.** Every item carries a
+    fixed priority, provenance, relative source and line range, human reason, optional
+    relevance score, approximate character/token cost, and truncation/redaction state.
+    Higher priorities consume the configured total first; lower priorities are
+    deterministically truncated or recorded as omitted rather than silently exceeding it.
+43. **Authorize the reviewed package at both trust boundaries.** Main prepares and
+    retains one workspace-scoped package, accepts only unchanged prepared items with
+    optional removals, and rejects forged, stale, or newly secret-bearing content.
+    Next.js repeats schema/cost/size/secret validation, separates user intent from
+    delimited untrusted project data, and persists only package metadata—not raw input.
 
 ### Desktop-to-backend authentication boundary
 
@@ -893,6 +965,13 @@ headers return 401, and authorization data is not logged.
 - Never start an Observer network request from file changes, cursor movement,
   diagnostics, terminal output, timers, or application startup. A visible Ask action
   is required for every request.
+- Treat project context as untrusted data even when it comes from `AGENTS.md`, README,
+  source comments, configuration, terminal output, or another local file. Project rules
+  never override application privacy/security policy or the explicit user action.
+- Context retrieval must remain workspace-scoped, root-validated, symlink-safe,
+  `.gitignore`/generated/secret/user-exclusion aware, content-redacting, item/count/size
+  bounded, explainable in preview, and explicitly user-triggered. Do not solve retrieval
+  with complete-project uploads, embeddings, or a cloud/vector index.
 - Accept desktop bearer authentication only after strict header parsing and Supabase
   Auth validation. Keep the cookie path unchanged when no Authorization header exists.
 - Do not place Supabase service-role credentials, server encryption secrets, or AI
@@ -906,6 +985,43 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-31 — Phase 8 deterministic context engine complete
+
+Changed files and architecture:
+
+- Desktop shared context/Observer/settings contracts — added the versioned context
+  package, explicit item/provenance types, validation, cost/removal/confirmation helpers,
+  prepare IPC, and versioned local related-file/per-file limits.
+- Desktop main context engine and Observer/workspace lifecycle — added symbol detection,
+  relative-import and nearby-test/config/rule discovery, fixed priorities, deterministic
+  budgeting, `.gitignore` and privacy exclusions, root/symlink-safe reads, content secret
+  redaction, cache invalidation, and prepared-package subset authorization.
+- Desktop Context Preview, Observer/App/Settings integration, and styles — added the
+  review dialog, item source/reason/cost/flags/content, optional removal, omission list,
+  final totals, complete-file confirmation, and the two-step prepare/send flow.
+- Next.js structured context schema, suggest route, and provider prompt — added a second
+  validation boundary, untrusted-content delimiters/instructions, package-to-provider
+  context mapping, and metadata-only request logging while preserving cookie and bearer
+  authentication plus server-only provider keys.
+- Focused desktop/backend harnesses and package scripts — added deterministic retrieval,
+  privacy, budget, preview, injection-boundary, and no-raw-context-persistence coverage.
+  No Supabase schema change was required.
+
+Verification and limitations:
+
+- Desktop tests passed 96/96; strict TypeScript and the Electron production build passed.
+  Both root test harnesses, lint, and the Next.js production build passed.
+- Desktop build output and context fixtures contain no server credential identifiers or
+  token/key-shaped values under the Phase 8 scans.
+- Retrieval follows direct syntactic/file relationships and known conventions; it is not
+  a semantic whole-codebase search. Symbol detection is intentionally lightweight and can
+  miss unusual language syntax. Simple `.gitignore` inclusion patterns are respected;
+  negated rules are not used to re-include privacy-sensitive candidates.
+- Related content is capped at 10 files/20,000 characters per file and 50,000 total,
+  with defaults of 4/8,000/20,000. No embeddings, proactive requests, multi-file edits,
+  terminal execution, Git writes, Chrome communication, or packaging work was added.
+- Signed-in visual Context Preview/provider interaction remains a manual verification step.
 
 ### 2026-08-31 — Phase 7E complete
 
@@ -1766,8 +1882,11 @@ Verification:
 | 2026-08-31 | Phase 7E focused Git tests | Complete | 88/88 desktop tests passed, including temporary-repository status/diff, branches, staged/unstaged/untracked/deleted/renamed/binary/space paths, limits, timeout/cancellation, and arbitrary-command rejection. |
 | 2026-08-31 | Phase 7E desktop checks | Complete | Strict main/preload/renderer TypeScript and the Electron production build passed. |
 | 2026-08-31 | Phase 7E web regression | Complete | Root tests, lint, and Next.js production build passed with no web application source changes. |
+| 2026-08-31 | Phase 8 context-engine tests | Complete | 96/96 desktop tests passed, including all actions, priorities, imports/tests/config/rules, budgets, exclusions, redaction, symlink safety, cache invalidation, preview removal, and complete-file confirmation. |
+| 2026-08-31 | Phase 8 backend safety | Complete | Structured schema/size/secret tests, untrusted prompt-injection delimiters, metadata-only logging, root harnesses, lint, and Next.js production build passed. |
+| 2026-08-31 | Phase 8 desktop/security checks | Complete | Strict desktop TypeScript, Electron production build, and build/fixture credential scans passed. |
 
 ## Recommended next task
 
-Implement the **Project Context Engine**. Keep context local and explicitly scoped,
-exclude secrets and generated content by default, and do not add proactive AI requests.
+Implement the **Safe AI Change Engine with diff review and rollback**. Keep all proposed
+changes reviewable, bounded, explicit, and recoverable; do not add autonomous multi-file edits.

@@ -4,7 +4,7 @@ import type { ObserverMode, ObserverProvider } from "./observer";
 const CODE_SETTING_MODES = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const;
 const SETTING_PROVIDERS = ["gemini", "openai", "deepseek", "anthropic", "demo"] as const;
 
-export const SETTINGS_VERSION = 1;
+export const SETTINGS_VERSION = 2;
 
 export const SETTINGS_CHANNELS = {
   getLocal: "settings:get-local",
@@ -39,6 +39,8 @@ export interface LocalSettings {
     autoSaveDelayMs: number;
   };
   aiContextExclusions: string[];
+  contextMaximumRelatedFiles: number;
+  contextMaximumFileCharacters: number;
 }
 
 export interface SyncedSettings {
@@ -84,6 +86,8 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
     autoSaveDelayMs: 1_000,
   }),
   aiContextExclusions: Object.freeze([]) as unknown as string[],
+  contextMaximumRelatedFiles: 4,
+  contextMaximumFileCharacters: 8_000,
 });
 
 export const DEFAULT_SYNCED_SETTINGS: SyncedSettings = Object.freeze({
@@ -146,6 +150,8 @@ export function normalizeLocalSettings(value: unknown): LocalSettings {
       autoSaveDelayMs: boundedInt(editor.autoSaveDelayMs, DEFAULT_LOCAL_SETTINGS.editor.autoSaveDelayMs, 250, 30_000),
     },
     aiContextExclusions: cleanExclusions(source.aiContextExclusions),
+    contextMaximumRelatedFiles: boundedInt(source.contextMaximumRelatedFiles, DEFAULT_LOCAL_SETTINGS.contextMaximumRelatedFiles, 1, 10),
+    contextMaximumFileCharacters: boundedInt(source.contextMaximumFileCharacters, DEFAULT_LOCAL_SETTINGS.contextMaximumFileCharacters, 500, 20_000),
   };
 }
 
@@ -162,7 +168,7 @@ export function normalizeSyncedSettings(value: unknown): SyncedSettings {
     defaultObserverAction: CODE_SETTING_MODES.includes(source.defaultObserverAction as typeof CODE_SETTING_MODES[number])
       ? source.defaultObserverAction as SyncedSettings["defaultObserverAction"]
       : DEFAULT_SYNCED_SETTINGS.defaultObserverAction,
-    showContextPreview: bool(source.showContextPreview, DEFAULT_SYNCED_SETTINGS.showContextPreview),
+    showContextPreview: true,
     includeDiagnostics: bool(source.includeDiagnostics, DEFAULT_SYNCED_SETTINGS.includeDiagnostics),
     includeTerminalError: bool(source.includeTerminalError, DEFAULT_SYNCED_SETTINGS.includeTerminalError),
     maximumContextChars: boundedInt(source.maximumContextChars, DEFAULT_SYNCED_SETTINGS.maximumContextChars, 1_000, 50_000),

@@ -106,7 +106,7 @@ export default function SettingsPanel(props: Props) {
             <h3>Observer</h3>
             <Toggle label="Observer enabled" checked={synced.observerEnabled} onChange={(value) => setSynced({ ...synced, observerEnabled: value })} />
             <label className="setting-row"><span>Preferred manual action</span><select value={synced.defaultObserverAction} onChange={(e) => setSynced({ ...synced, defaultObserverAction: e.target.value as SyncedSettings["defaultObserverAction"] })}>{(["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const).map((mode) => <option key={mode} value={mode}>{OBSERVER_MODE_LABELS[mode]}</option>)}</select></label>
-            <Toggle label="Show context preview before sending" checked={synced.showContextPreview} onChange={(value) => setSynced({ ...synced, showContextPreview: value })} />
+            <Toggle label="Context Preview required before sending" checked onChange={() => undefined} disabled />
             <Toggle label="Include diagnostics when relevant" checked={synced.includeDiagnostics} onChange={(value) => setSynced({ ...synced, includeDiagnostics: value })} />
             <Toggle label="Include terminal error output when relevant" checked={synced.includeTerminalError} onChange={(value) => setSynced({ ...synced, includeTerminalError: value })} />
             <Toggle label="Assist Mode — Coming in a later phase" checked={false} onChange={() => undefined} disabled />
@@ -119,9 +119,11 @@ export default function SettingsPanel(props: Props) {
             <div className="mandatory-exclusions"><strong>Permanent secret exclusions</strong><code>{MANDATORY_SECRET_EXCLUSIONS.join(", ")}</code></div>
             <label className="setting-column"><span>Additional files/folders excluded from AI context (one per line)</span><textarea value={local.aiContextExclusions.join("\n")} onChange={(e) => setLocal({ ...local, aiContextExclusions: e.target.value.split(/\r?\n/).filter(Boolean) })} /></label>
             <label className="setting-row"><span>Maximum context size (characters)</span><input type="number" min="1000" max="50000" value={synced.maximumContextChars} onChange={(e) => setSynced({ ...synced, maximumContextChars: Number(e.target.value) })} /></label>
+            <label className="setting-row"><span>Maximum related files</span><input type="number" min="1" max="10" value={local.contextMaximumRelatedFiles} onChange={(e) => setLocal({ ...local, contextMaximumRelatedFiles: Number(e.target.value) })} /></label>
+            <label className="setting-row"><span>Maximum content per related file</span><input type="number" min="500" max="20000" value={local.contextMaximumFileCharacters} onChange={(e) => setLocal({ ...local, contextMaximumFileCharacters: Number(e.target.value) })} /></label>
             <Toggle label="Require confirmation before attaching a complete file" checked={synced.confirmCompleteFile} onChange={(value) => setSynced({ ...synced, confirmCompleteFile: value })} />
             <Toggle label="Store suggestion history" checked={synced.storeSuggestionHistory} onChange={(value) => setSynced({ ...synced, storeSuggestionHistory: value })} />
-            <div className="settings-actions"><button className="primary" onClick={() => void saveSynced()}>Save privacy settings</button><button onClick={() => void saveLocal()}>Save local exclusions</button></div>
+            <div className="settings-actions"><button className="primary" onClick={() => void saveSynced()}>Save privacy settings</button><button onClick={() => void saveLocal()}>Save local context settings</button></div>
           </>}
           {active === "Data and History" && <>
             <h3>Data and History</h3><p>Theme, editor choices, exclusions, and recent project paths are local. Provider preferences and Observer history choices are stored in Supabase. Account deletion is not available yet.</p>

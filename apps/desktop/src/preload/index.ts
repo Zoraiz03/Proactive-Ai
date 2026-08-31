@@ -36,6 +36,7 @@ import {
   type ObserverBridge,
   type ObserverOutcomeRequest,
   type ObserverRequest,
+  type ObserverPrepareRequest,
 } from "../shared/observer";
 import {
   SEARCH_CHANNELS,
@@ -148,6 +149,7 @@ const authBridge: DesktopAuthBridge = Object.freeze({
 contextBridge.exposeInMainWorld("desktopAuth", authBridge);
 
 const observerBridge: ObserverBridge = Object.freeze({
+  prepare: (request: ObserverPrepareRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.prepare, request),
   ask: (request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.ask, request),
   recordOutcome: (request: ObserverOutcomeRequest) =>
     ipcRenderer.invoke(OBSERVER_CHANNELS.outcome, request),

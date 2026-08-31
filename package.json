@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test:manual-suggestion": "node --experimental-strip-types scripts/manual-suggestion.test.ts",
-    "test": "npm run test:manual-suggestion"
+    "test:project-context": "node --experimental-strip-types scripts/project-context.test.ts",
+    "test": "npm run test:manual-suggestion && npm run test:project-context"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

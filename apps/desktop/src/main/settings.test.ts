@@ -28,7 +28,12 @@ test("uses restrictive defaults and recovers corrupted or old local settings", a
   const recovered = await store.get();
   assert.equal(recovered.theme, "light");
   assert.equal(recovered.editor.fontSize, 14);
+  assert.equal(recovered.contextMaximumRelatedFiles, 4);
+  assert.equal(recovered.contextMaximumFileCharacters, 8_000);
   assert.equal("unexpected" in recovered, false);
+  const bounded = normalizeLocalSettings({ contextMaximumRelatedFiles: 99, contextMaximumFileCharacters: 100 });
+  assert.equal(bounded.contextMaximumRelatedFiles, 4);
+  assert.equal(bounded.contextMaximumFileCharacters, 8_000);
 });
 
 test("stores only typed local preferences in owner-only app data", async () => {
@@ -62,6 +67,7 @@ test("keeps local and synced schemas separate", () => {
   assert.equal(local.theme, "light");
   assert.equal("preferredProvider" in local, false);
   assert.equal(synced.preferredProvider, "openai");
+  assert.equal(normalizeSyncedSettings({ showContextPreview: false }).showContextPreview, true);
   assert.equal("theme" in synced, false);
 });
 

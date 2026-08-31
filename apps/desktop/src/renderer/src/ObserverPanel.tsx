@@ -158,7 +158,7 @@ export default function ObserverPanel({
       </div>
 
       <div className="observer-privacy-note">
-        Only the summary above is sent. No project-wide files, terminal history, or automatic requests.
+        Context is built locally and shown before sending. No project-wide upload, indexing, or automatic request occurs.
       </div>
     </div>
   );

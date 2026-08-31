@@ -1,4 +1,5 @@
 import type { IpcResult } from "./workspace";
+import { validateProjectContextPackage, type ProjectContextPackage, type ProjectContextSeed } from "./project-context.ts";
 
 export const CODE_OBSERVER_MODES = [
   "explain",
@@ -26,6 +27,7 @@ export const OBSERVER_PROVIDERS = [
 ] as const;
 
 export const OBSERVER_CHANNELS = {
+  prepare: "observer:prepare",
   ask: "observer:ask",
   outcome: "observer:outcome",
   copy: "observer:copy",
@@ -88,6 +90,14 @@ export interface ObserverRequest {
   diagnostic?: ObserverDiagnosticContext;
   runError?: string;
   activeFile?: string;
+  contextPackage?: ProjectContextPackage;
+}
+
+export interface ObserverPrepareRequest {
+  provider: ObserverProvider;
+  model?: string;
+  storeHistory?: boolean;
+  seed: ProjectContextSeed;
 }
 
 export interface ObserverSuggestion {
@@ -108,6 +118,7 @@ export interface ObserverOutcomeRequest {
 }
 
 export interface ObserverBridge {
+  prepare: (request: ObserverPrepareRequest) => Promise<IpcResult<ObserverRequest>>;
   ask: (request: ObserverRequest) => Promise<IpcResult<ObserverAskResult>>;
   recordOutcome: (request: ObserverOutcomeRequest) => Promise<IpcResult<void>>;
   copySnippet: (snippet: string) => Promise<IpcResult<void>>;
@@ -208,6 +219,9 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
 }
 
 export function observerContextSummary(request: ObserverRequest): string {
+  if (request.contextPackage) {
+    return `${request.contextPackage.items.length} focused context item${request.contextPackage.items.length === 1 ? "" : "s"} · ~${request.contextPackage.estimatedTokens} tokens`;
+  }
   if (request.source === "selection") {
     return `Sending selected ${request.kind === "doc" ? "text" : "code"} from ${request.fileName}`;
   }
@@ -286,9 +300,23 @@ function optionalBoundedString(value: unknown, maximum: number): value is string
   return value === undefined || (typeof value === "string" && value.length > 0 && value.length <= maximum);
 }
 
+export function validateObserverPrepareRequest(value: unknown): ObserverPrepareRequest | null {
+  if (!value || typeof value !== "object") return null;
+  const request = value as Partial<ObserverPrepareRequest>;
+  if (!OBSERVER_PROVIDERS.includes(request.provider as ObserverProvider) || !request.seed || typeof request.seed !== "object") return null;
+  const seed = request.seed as Partial<ProjectContextSeed>;
+  if (!OBSERVER_MODES.includes(seed.mode as ObserverMode) || !["code", "doc"].includes(seed.kind ?? "") || typeof seed.activeRelativePath !== "string" || !seed.activeRelativePath || seed.activeRelativePath.length > 4096 || typeof seed.fileName !== "string" || typeof seed.language !== "string" || typeof seed.content !== "string" || seed.content.length > OBSERVER_LIMITS.activeFile) return null;
+  if (!isPositiveInteger(seed.cursorLine) || !isPositiveInteger(seed.cursorColumn) || !Array.isArray(seed.exclusions) || seed.exclusions.some((item) => typeof item !== "string")) return null;
+  if (!isPositiveInteger(seed.maximumTotalCharacters) || !isPositiveInteger(seed.maximumRelatedFiles) || !isPositiveInteger(seed.maximumCharactersPerFile)) return null;
+  if (request.model !== undefined && (typeof request.model !== "string" || !request.model || request.model.length > 100)) return null;
+  if (request.storeHistory !== undefined && typeof request.storeHistory !== "boolean") return null;
+  return request as ObserverPrepareRequest;
+}
+
 export function validateObserverRequest(value: unknown): ObserverRequest | null {
   if (typeof value !== "object" || value === null) return null;
   const request = value as Partial<ObserverRequest>;
+  const contextPackage = request.contextPackage === undefined ? undefined : validateProjectContextPackage(request.contextPackage);
   if (
     !OBSERVER_PROVIDERS.includes(request.provider as ObserverProvider) ||
     !OBSERVER_MODES.includes(request.mode as ObserverMode) ||
@@ -306,12 +334,14 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
   if (request.model !== undefined && (typeof request.model !== "string" || request.model.length < 1 || request.model.length > 100)) return null;
   if (request.storeHistory !== undefined && typeof request.storeHistory !== "boolean") return null;
   if (!isObserverModeForKind(request.mode as ObserverMode, request.kind as ObserverKind)) return null;
-  if (!request.selectedCode && !request.nearbyCode && !request.activeFile && !request.diagnostic) return null;
+  if (request.contextPackage !== undefined && !contextPackage) return null;
+  if (!contextPackage && !request.selectedCode && !request.nearbyCode && !request.activeFile && !request.diagnostic) return null;
+  if (contextPackage && (contextPackage.intent.mode !== request.mode || contextPackage.activeFile.fileName !== request.fileName || contextPackage.activeFile.language !== request.language || contextPackage.activeFile.kind !== request.kind || contextPackage.cursor.line !== request.cursorLine || contextPackage.cursor.column !== request.cursorColumn)) return null;
   if (request.activeFile && !["generate_tests", "explain_document", "summarize", "generate_readme_section"].includes(request.mode as string)) return null;
-  if (request.mode === "fix_error" && !request.diagnostic) return null;
-  if (request.runError && !request.diagnostic) return null;
-  if (request.source === "selection" && !request.selectedCode) return null;
-  if (request.source === "diagnostic" && (!request.diagnostic || request.mode !== "fix_error")) return null;
+  if (!contextPackage && request.mode === "fix_error" && !request.diagnostic) return null;
+  if (!contextPackage && request.runError && !request.diagnostic) return null;
+  if (!contextPackage && request.source === "selection" && !request.selectedCode) return null;
+  if (!contextPackage && request.source === "diagnostic" && (!request.diagnostic || request.mode !== "fix_error")) return null;
   if (request.diagnostic) {
     if (
       request.mode !== "fix_error" ||
@@ -337,6 +367,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
     ...(request.selectedCode ? { selectedCode: request.selectedCode } : {}),
     ...(request.nearbyCode ? { nearbyCode: request.nearbyCode } : {}),
     ...(request.activeFile ? { activeFile: request.activeFile } : {}),
+    ...(contextPackage ? { contextPackage } : {}),
     ...(request.runError ? { runError: request.runError } : {}),
     ...(request.diagnostic ? { diagnostic: {
       fileName: request.diagnostic.fileName,

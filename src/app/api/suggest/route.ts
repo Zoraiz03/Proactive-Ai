@@ -4,6 +4,7 @@ import { authenticateApiRequest } from "@/lib/supabase/request-auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { decrypt } from "@/lib/server/crypto";
 import { getSuggestion, ProviderError, Provider } from "@/lib/server/providers";
+import { ProjectContextSchema, formatUntrustedProjectContext, safeProjectContextMetadata } from "@/lib/server/project-context";
 
 const ProviderSchema = z.enum(["gemini", "deepseek", "openai", "anthropic", "demo"]);
 const CodeModeSchema = z.enum(["explain", "fix_error", "improve_code", "continue_code", "generate_tests"]);
@@ -48,6 +49,7 @@ const DesktopBody = z.object({
   }).optional(),
   runError: z.string().min(1).max(8_000).optional(),
   activeFile: z.string().min(1).max(50_000).optional(),
+  contextPackage: ProjectContextSchema,
 }).superRefine((body, context) => {
   if (body.model && body.model !== ModelForProvider[body.provider]) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "The requested model is not supported for this provider." });
@@ -67,16 +69,10 @@ const DesktopBody = z.object({
       (body.kind === "doc" && !documentModes.includes(body.mode))) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Request mode does not match the active file type." });
   }
-  if (!body.selectedCode && !body.nearbyCode && !body.diagnostic && !body.activeFile) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: "No focused context was provided." });
+  if (body.contextPackage.intent.mode !== body.mode || body.contextPackage.activeFile.fileName !== body.fileName || body.contextPackage.activeFile.language !== body.language || body.contextPackage.activeFile.kind !== body.kind || body.contextPackage.cursor.line !== body.cursorLine || body.contextPackage.cursor.column !== body.cursorColumn) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Structured context does not match the Observer request." });
   }
-  if (body.source === "selection" && !body.selectedCode) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: "Selected-code context is missing." });
-  }
-  if (body.source === "diagnostic" && (!body.diagnostic || body.mode !== "fix_error")) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: "Diagnostic context requires Fix Error mode." });
-  }
-  if (body.mode === "fix_error" && !body.diagnostic) {
+  if (body.mode === "fix_error" && !body.contextPackage.items.some((item) => item.type === "diagnostic")) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Fix Error requires a diagnostic." });
   }
   if (body.diagnostic && (body.mode !== "fix_error" || body.diagnostic.fileName !== body.fileName)) {
@@ -118,25 +114,27 @@ export async function POST(req: Request) {
   }
   const desktop = "mode" in parsed.data ? parsed.data : null;
   const web = "context" in parsed.data ? parsed.data : null;
+  const desktopItem = (type: string) => desktop?.contextPackage.items.find((item) => item.type === type);
+  const diagnosticItem = desktopItem("diagnostic");
   const provider = parsed.data.provider;
   const fileName = parsed.data.fileName.split(/[\\/]/).at(-1) ?? "untitled";
   const kind = desktop?.kind ?? web?.kind ?? "code";
   const context = desktop
     ? {
-        selectedText: desktop.selectedCode,
+        selectedText: desktopItem("selected_code")?.content,
         cursorLine: desktop.cursorLine,
-        nearbyContent: desktop.nearbyCode,
+        nearbyContent: desktopItem("current_symbol")?.content ?? desktopItem("nearby_code")?.content,
         mode: desktop.mode,
         language: desktop.language,
         source: desktop.source,
         client: "desktop" as const,
-        diagnostic: desktop.diagnostic,
-        runError: desktop.runError,
-        activeFileIncluded: Boolean(desktop.activeFile),
+        diagnostic: diagnosticItem ? { fileName: desktop.fileName, line: diagnosticItem.source.lineStart ?? desktop.cursorLine, column: desktop.cursorColumn, message: diagnosticItem.content } : undefined,
+        runError: desktopItem("terminal_error")?.content,
+        activeFileIncluded: desktop.contextPackage.containsCompleteFile,
       }
     : { ...web!.context, mode: "improve_code" as const, client: "web" as const };
   const content = desktop
-    ? desktop.activeFile ?? desktop.selectedCode ?? desktop.nearbyCode ?? desktop.diagnostic?.message ?? ""
+    ? formatUntrustedProjectContext(desktop.contextPackage)
     : web!.content;
 
   // Resolve the key: the user's own stored key wins; the server-wide env key
@@ -170,6 +168,7 @@ export async function POST(req: Request) {
       kind,
       content,
       context,
+      ...(desktop ? { projectContext: desktop.contextPackage } : {}),
     }, desktop?.model);
     if (!suggestion.explanation) {
       return NextResponse.json(
@@ -198,6 +197,7 @@ export async function POST(req: Request) {
           cursorLine: context.cursorLine ?? null,
           diagnosticLine: context.diagnostic?.line ?? null,
           activeFileIncluded: Boolean(context.activeFileIncluded),
+          ...(desktop ? { projectContext: safeProjectContextMetadata(desktop.contextPackage) } : {}),
         },
         score: 0,
         explanation: suggestion.explanation,

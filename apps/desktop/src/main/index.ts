@@ -103,12 +103,15 @@ app.whenReady().then(() => {
       terminalIpc?.controller.setWorkspace(rootPath, webContentsId);
       runIpc?.controller.setWorkspace(rootPath, webContentsId);
       gitIpc.controller.setWorkspace(rootPath, webContentsId);
+      observerIpc.controller.setWorkspace(rootPath, webContentsId);
     },
     onWorkspaceClosed: (webContentsId) => {
       terminalIpc?.controller.clearWorkspace(webContentsId);
       runIpc?.controller.clearWorkspace(webContentsId);
       gitIpc.controller.clearWorkspace(webContentsId);
+      observerIpc.controller.clearWorkspace(webContentsId);
     },
+    onWorkspaceChanged: () => observerIpc.controller.invalidate(),
   }, app.getPath("userData"));
   app.once("will-quit", () => {
     observerIpc.cleanup();

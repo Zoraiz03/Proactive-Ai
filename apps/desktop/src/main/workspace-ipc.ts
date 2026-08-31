@@ -123,11 +123,13 @@ export function registerWorkspaceIpc(
   lifecycle: {
     onWorkspaceOpened: (rootPath: string, webContentsId: number) => void;
     onWorkspaceClosed: (webContentsId?: number) => void;
+    onWorkspaceChanged?: () => void;
   },
   userDataPath: string
 ): { clearWorkspace: () => Promise<void>; cleanup: () => Promise<void> } {
   let cleanupBoundWebContentsId: number | null = null;
   const watcher = new WorkspaceWatcher((batch) => {
+    lifecycle.onWorkspaceChanged?.();
     const mainWindow = getMainWindow();
     if (
       mainWindow &&
@@ -369,6 +371,7 @@ export function registerWorkspaceIpc(
           typeof request.relativePath === "string"
         ) {
           watcher.suppress([request.relativePath]);
+          lifecycle.onWorkspaceChanged?.();
         }
         return {
           ok: true,
@@ -393,6 +396,7 @@ export function registerWorkspaceIpc(
       try {
         const value = await createWorkspaceEntry(rootPath, request);
         watcher.suppress([value.relativePath]);
+        lifecycle.onWorkspaceChanged?.();
         return { ok: true, value };
       } catch (error) {
         return publicMutationError(error);
@@ -420,6 +424,7 @@ export function registerWorkspaceIpc(
             ? request.relativePath
             : "";
         watcher.suppress([oldRelativePath, value.relativePath]);
+        lifecycle.onWorkspaceChanged?.();
         return { ok: true, value };
       } catch (error) {
         return publicMutationError(error);
@@ -443,6 +448,7 @@ export function registerWorkspaceIpc(
       try {
         const value = await deleteWorkspaceEntry(rootPath, relativePath);
         watcher.suppress([value.relativePath]);
+        lifecycle.onWorkspaceChanged?.();
         return { ok: true, value };
       } catch (error) {
         return publicMutationError(error);

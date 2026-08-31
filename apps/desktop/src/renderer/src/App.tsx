@@ -29,10 +29,8 @@ import { searchMatchSelection, type WorkspaceSearchMatch } from "../../shared/se
 import {
   canInsertObserverSnippet,
   copyObserverSnippet,
-  createObserverRequest,
   isObserverAskShortcut,
   isObserverDismissShortcut,
-  observerContextSummary,
   CODE_OBSERVER_MODES,
   DOCUMENT_OBSERVER_MODES,
   OBSERVER_MODE_LABELS,
@@ -40,6 +38,7 @@ import {
   type ObserverMode,
   type ObserverProvider,
   type ObserverRequest,
+  type ObserverPrepareRequest,
   type ObserverSuggestion,
 } from "../../shared/observer";
 import Explorer from "./Explorer";
@@ -52,6 +51,8 @@ import CommandPalette from "./CommandPalette";
 import SettingsPanel from "./SettingsPanel";
 import SourceControlPanel from "./SourceControlPanel";
 import GitDiffViewer from "./GitDiffViewer";
+import ContextPreview from "./ContextPreview";
+import { requiresCompleteFileConfirmation } from "../../shared/project-context";
 import type { GitChangedFile, GitDiffSnapshot } from "../../shared/git";
 import {
   DEFAULT_LOCAL_SETTINGS,
@@ -118,6 +119,8 @@ interface EditorObserverSnapshot {
   cursorLine: number;
   cursorColumn: number;
   selectedCode?: string;
+  selectedLineStart?: number;
+  selectedLineEnd?: number;
   nearbyCode: string;
 }
 
@@ -444,6 +447,7 @@ function EditorWorkspace({
                     cursorLine: position.lineNumber,
                     cursorColumn: position.column,
                     selectedCode,
+                    ...(selectedCode && selection ? { selectedLineStart: selection.startLineNumber, selectedLineEnd: selection.endLineNumber } : {}),
                     nearbyCode: model.getValueInRange({
                       startLineNumber: startLine,
                       startColumn: 1,
@@ -559,6 +563,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [gitRefreshToken, setGitRefreshToken] = useState(0);
   const [gitDiff, setGitDiff] = useState<{ status: "loading"; file: GitChangedFile } | { status: "error"; file: GitChangedFile; message: string } | { status: "ready"; value: GitDiffSnapshot } | null>(null);
   const [explorerRevealRequest, setExplorerRevealRequest] = useState<{ relativePath: string; token: number } | null>(null);
+  const [contextPreviewRequest, setContextPreviewRequest] = useState<ObserverRequest | null>(null);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -623,7 +628,7 @@ export default function App({ user, onSignOut }: AppProps) {
     ? observerMode
     : activeIsMarkdown ? "explain_document" : "explain";
 
-  const observerRequest = useMemo<ObserverRequest | null>(() => {
+  const observerRequest = useMemo<ObserverPrepareRequest | null>(() => {
     if (!syncedSettings.observerEnabled || !activeTab || activeTab.availability !== "available" || activeTab.externalConflict || isExcludedFromAiContext(activeTab.file.relativePath, localSettings.aiContextExclusions)) return null;
     const snapshot = observerSnapshot?.relativePath === activeTab.file.relativePath
       ? observerSnapshot
@@ -632,39 +637,32 @@ export default function App({ user, onSignOut }: AppProps) {
       ? runOutput?.diagnostics.find((item) => item.relativePath === activeTab.file.relativePath)
       : undefined;
     const fallbackNearbyCode = activeTab.draft.split("\n").slice(0, 41).join("\n");
-    return createObserverRequest({
+    return {
       provider: observerProvider,
-      model: observerProvider === syncedSettings.preferredProvider ? syncedSettings.preferredModel : undefined,
+      ...(observerProvider === syncedSettings.preferredProvider ? { model: syncedSettings.preferredModel } : {}),
       storeHistory: syncedSettings.storeSuggestionHistory,
-      maximumContextChars: syncedSettings.maximumContextChars,
-      mode: activeObserverMode,
-      kind: activeIsMarkdown ? "doc" : "code",
-      fileName: activeTab.file.name,
-      language: monacoLanguageForFile(activeTab.file.name),
-      content: activeTab.draft,
-      cursorLine: snapshot?.cursorLine ?? diagnostic?.line ?? 1,
-      cursorColumn: snapshot?.cursorColumn ?? diagnostic?.column ?? 1,
-      selectedCode: snapshot?.selectedCode,
-      nearbyCode: snapshot?.nearbyCode ?? fallbackNearbyCode,
-      diagnostic: diagnostic
-        ? {
-            fileName: activeTab.file.name,
-            line: diagnostic.line,
-            column: diagnostic.column,
-            message: diagnostic.message,
-          }
-        : undefined,
-      runError: syncedSettings.includeTerminalError && diagnostic && runOutput?.status === "failed"
-        ? relevantObserverRunError(runOutput.stderr, {
-            fileName: activeTab.file.name,
-            line: diagnostic.line,
-            column: diagnostic.column,
-            message: diagnostic.message,
-          })
-        : undefined,
-    });
-  }, [activeIsMarkdown, activeObserverMode, activeTab, localSettings.aiContextExclusions, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.observerEnabled]);
-  const currentContextSummary = observerRequest ? observerContextSummary(observerRequest) : null;
+      seed: {
+        mode: activeObserverMode,
+        kind: activeIsMarkdown ? "doc" : "code",
+        activeRelativePath: activeTab.file.relativePath,
+        fileName: activeTab.file.name,
+        language: monacoLanguageForFile(activeTab.file.name),
+        content: activeTab.draft,
+        cursorLine: snapshot?.cursorLine ?? diagnostic?.line ?? 1,
+        cursorColumn: snapshot?.cursorColumn ?? diagnostic?.column ?? 1,
+        ...(snapshot?.selectedCode ? { selectedCode: snapshot.selectedCode } : {}),
+        ...(snapshot?.selectedCode && snapshot.selectedLineStart && snapshot.selectedLineEnd ? { selectedLineStart: snapshot.selectedLineStart, selectedLineEnd: snapshot.selectedLineEnd } : {}),
+        nearbyCode: snapshot?.nearbyCode ?? fallbackNearbyCode,
+        ...(diagnostic ? { diagnostic: { fileName: activeTab.file.name, line: diagnostic.line, column: diagnostic.column, message: diagnostic.message } } : {}),
+        ...(syncedSettings.includeTerminalError && diagnostic && runOutput?.status === "failed" ? { runError: relevantObserverRunError(runOutput.stderr, { fileName: activeTab.file.name, line: diagnostic.line, column: diagnostic.column, message: diagnostic.message }) } : {}),
+        exclusions: localSettings.aiContextExclusions,
+        maximumTotalCharacters: syncedSettings.maximumContextChars,
+        maximumRelatedFiles: localSettings.contextMaximumRelatedFiles,
+        maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
+      },
+    };
+  }, [activeIsMarkdown, activeObserverMode, activeTab, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+  const currentContextSummary = observerRequest ? "A focused project context package will be previewed before sending." : null;
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
     const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === relativePath);
@@ -856,6 +854,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverRequestPath(null);
     setSentContextSummary(null);
     setInsertRequest(null);
+    setContextPreviewRequest(null);
     setGitDiff(null);
     setMarkdownViewModes({});
     appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
@@ -1220,19 +1219,22 @@ export default function App({ user, onSignOut }: AppProps) {
     return () => window.removeEventListener("keydown", handleGlobalSearchShortcut, { capture: true });
   }, []);
 
-  const askObserver = useCallback(async () => {
-    if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion) return;
-    if (observerRequest.activeFile && syncedSettings.confirmCompleteFile &&
-      !window.confirm(`Attach the complete file ${observerRequest.fileName} to this manual Observer request?`)) return;
+  const sendObserverRequest = useCallback(async (request: ObserverRequest) => {
+    if (!activeTab || observerRequestInFlight.current || observerSuggestion) return;
+    if (request.contextPackage && requiresCompleteFileConfirmation(request.contextPackage, syncedSettings.confirmCompleteFile) &&
+      !window.confirm("This package includes at least one complete local file. Send the reviewed package to Observer?")) { setObserverStatus("idle"); return; }
     observerRequestInFlight.current = true;
     const requestedPath = activeTab.file.relativePath;
-    const summary = observerContextSummary(observerRequest);
+    const summary = request.contextPackage
+      ? `${request.contextPackage.items.length} focused items · ~${request.contextPackage.estimatedTokens} tokens`
+      : "Focused editor context";
+    setContextPreviewRequest(null);
     setObserverStatus("thinking");
     setObserverError(null);
     setCopyStatus("idle");
     setObserverRequestPath(requestedPath);
     setSentContextSummary(summary);
-    const result = await window.observer.ask(observerRequest);
+    const result = await window.observer.ask(request);
     observerRequestInFlight.current = false;
     if (!result.ok) {
       setObserverError(result.error);
@@ -1242,8 +1244,16 @@ export default function App({ user, onSignOut }: AppProps) {
     }
     setObserverSuggestion(result.value.suggestion);
     setObserverStatus("ready");
-    appendOutput(`Observer returned a ${OBSERVER_MODE_LABELS[observerRequest.mode].toLowerCase()} suggestion.`, "success");
-  }, [activeTab, appendOutput, observerRequest, observerSuggestion, syncedSettings.confirmCompleteFile]);
+    appendOutput(`Observer returned a ${OBSERVER_MODE_LABELS[request.mode].toLowerCase()} suggestion.`, "success");
+  }, [activeTab, appendOutput, observerSuggestion, syncedSettings.confirmCompleteFile]);
+
+  const askObserver = useCallback(async () => {
+    if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion) return;
+    setObserverStatus("thinking"); setObserverError(null);
+    const prepared = await window.observer.prepare(observerRequest);
+    if (!prepared.ok) { setObserverStatus("error"); setObserverError(prepared.error); appendOutput(`Observer: ${prepared.error}`, "error"); return; }
+    setObserverStatus("idle"); setContextPreviewRequest(prepared.value);
+  }, [activeTab, appendOutput, observerRequest, observerSuggestion]);
 
   const dismissObserver = useCallback(() => {
     const suggestionId = observerSuggestion?.id;
@@ -1317,13 +1327,20 @@ export default function App({ user, onSignOut }: AppProps) {
     const handleObserverShortcut = (event: KeyboardEvent) => {
       if (!isObserverAskShortcut(event)) return;
       event.preventDefault();
-      if (observerRequest && observerStatus !== "thinking" && !observerSuggestion) {
+      if (observerRequest && observerStatus !== "thinking" && !observerSuggestion && !contextPreviewRequest) {
         void askObserver();
       }
     };
     window.addEventListener("keydown", handleObserverShortcut, { capture: true });
     return () => window.removeEventListener("keydown", handleObserverShortcut, { capture: true });
-  }, [askObserver, observerRequest, observerStatus, observerSuggestion]);
+  }, [askObserver, contextPreviewRequest, observerRequest, observerStatus, observerSuggestion]);
+
+  useEffect(() => {
+    if (!contextPreviewRequest) return;
+    const closePreview = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); setContextPreviewRequest(null); } };
+    window.addEventListener("keydown", closePreview, { capture: true });
+    return () => window.removeEventListener("keydown", closePreview, { capture: true });
+  }, [contextPreviewRequest]);
 
   useEffect(() => {
     if (observerStatus !== "ready" || !observerSuggestion) return;
@@ -1449,13 +1466,14 @@ export default function App({ user, onSignOut }: AppProps) {
     runActive: runOutput?.status === "running",
     terminalActive: terminalState.active,
     terminalCreating: terminalState.creating,
-    observerCanAsk: Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion,
+    observerCanAsk: Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !contextPreviewRequest,
     markdownActive: activeIsMarkdown,
     welcomeOpen: !workspaceOpen,
   }), [
     activeIsMarkdown,
     activeTab,
     observerRequest,
+    contextPreviewRequest,
     observerStatus,
     observerSuggestion,
     runOutput?.status,
@@ -1719,11 +1737,11 @@ export default function App({ user, onSignOut }: AppProps) {
             modes={observerModes}
             provider={observerProvider}
             status={observerStatus}
-            contextSummary={syncedSettings.showContextPreview ? (observerStatus === "idle" ? currentContextSummary : sentContextSummary) : "Context preview is disabled in Settings."}
+            contextSummary={observerStatus === "idle" ? currentContextSummary : sentContextSummary}
             suggestion={observerSuggestion}
             error={observerError}
             copyStatus={copyStatus}
-            canAsk={syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion}
+            canAsk={syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !contextPreviewRequest}
             canInsert={observerCanInsert}
             onModeChange={(mode) => {
               setObserverMode(mode);
@@ -1757,7 +1775,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 7E</span>
+        <span>Phase 8 Context Engine</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
@@ -1798,6 +1816,12 @@ export default function App({ user, onSignOut }: AppProps) {
         onClearHistory={clearObserverHistory}
         onSignOut={() => void signOut()}
       />
+      {contextPreviewRequest && <ContextPreview
+        request={contextPreviewRequest}
+        onChange={setContextPreviewRequest}
+        onCancel={() => setContextPreviewRequest(null)}
+        onSend={() => void sendObserverRequest(contextPreviewRequest)}
+      />}
     </div>
   );
 }
