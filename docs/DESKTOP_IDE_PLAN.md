@@ -36,7 +36,8 @@ implementation and its verification evidence in the changelog.
 | Phase 7D | Complete | Settings and Privacy Center |
 | Phase 7E | Complete | Read-only Git status and diff viewer |
 | Phase 8 | Complete | Deterministic, explainable, privacy-safe project context engine |
-| Phase 9 | Not Started | Safe AI Change Engine with diff review and rollback |
+| Phase 9A | Complete | Safe single-file AI changes with diff review and local rollback |
+| Phase 9B | Not Started | Multi-file AI Change Sets |
 | Phase 10 | Not Started | Packaging, signing, updates, and release checks |
 
 ## Recommended folder structure
@@ -667,7 +668,54 @@ Required verification:
 ## Phase 9 — Safe AI Change Engine with diff review and rollback
 
 **Goal:** Let users review and explicitly apply bounded AI changes with a recoverable
-diff workflow. This phase is not started; no AI file changes exist yet.
+diff workflow.
+
+### Phase 9A — Safe single-file AI changes
+
+- [x] **Complete** — Fix Error, Improve Code, Continue Code, and selected-code
+  Add Comments/Documentation may return one structured edit for the already-open
+  active file. Explain/document modes and Generate Tests remain suggestion-only.
+- [x] **Complete** — The strict response contains explanation, reason, trusted target
+  relative path, original SHA-256, replace/insert/delete type, one 1-based range,
+  exact expected original text, bounded replacement text, and optional warnings.
+- [x] **Complete** — Server and desktop reject unknown fields/types, traversal,
+  target/hash mismatches, invalid/reversed ranges, wrong expected text, and oversized
+  edits. The permitted target and base hash are calculated locally, never trusted
+  from model output.
+- [x] **Complete** — A read-only Monaco Diff Editor shows original/proposed content,
+  explanation, reason, target, context summary, warnings, and unsaved-base status,
+  with Accept, Reject, Regenerate, Copy, and Escape actions.
+- [x] **Complete** — Acceptance revalidates the live in-memory SHA-256 and exact range
+  text, then creates an owner-only local checkpoint before updating the Monaco draft.
+  It never saves, runs, tests, opens a terminal, or performs Git operations.
+- [x] **Complete** — Accepted changes and checkpoint restores remain dirty and are
+  excluded from auto-save until an explicit manual save.
+- [x] **Complete** — Checkpoints live under Electron application data, never the
+  repository or Supabase. They bind workspace ID, relative path, timestamp, previous
+  and applied hashes, optional suggestion ID, and bounded previous content.
+- [x] **Complete** — Undo Observer Change is available in Observer and the Command
+  Palette. Hash checks block unsafe restoration; Settings controls 1–100 checkpoint
+  retention (default 20) and can clear all local checkpoints.
+- [x] **Complete** — Supabase suggestion history stores edit metadata and outcomes,
+  not replacement text or complete checkpoint code. Existing bearer and cookie auth
+  paths, server-only provider keys, and untrusted-context boundaries remain intact.
+
+Required verification:
+
+- [x] **Complete** — Focused tests cover replacement/insertion/deletion, malformed and
+  overlapping/batched edits, paths/ranges/size, target/hash/stale/expected-text checks,
+  dirty buffers, diff generation, accept/reject/regenerate safety, checkpoints,
+  restoration, cleanup/retention, and no automatic save/command execution.
+- [x] **Complete** — Desktop tests (105/105), strict TypeScript, and Electron production
+  build pass.
+- [x] **Complete** — Root backend tests, lint, and Next.js production build pass.
+- [x] **Complete** — Desktop production output passes the credential/secret scan.
+
+### Phase 9B — Multi-file AI Change Sets
+
+- [ ] **Not Started** — Define an explicitly bounded multi-file proposal/review model.
+- [ ] **Not Started** — Do not begin until Phase 9A has been manually exercised with a
+  configured non-demo provider and supervisor/product approval confirms the scope.
 
 ## Phase 10 — Packaging and release readiness
 
@@ -880,6 +928,20 @@ Required verification:
     optional removals, and rejects forged, stale, or newly secret-bearing content.
     Next.js repeats schema/cost/size/secret validation, separates user intent from
     delimited untrusted project data, and persists only package metadata—not raw input.
+44. **Bind every AI edit to one trusted in-memory base.** Phase 9A hashes the active
+    Monaco draft before sending. The model may echo only that main-process-selected
+    relative path and SHA-256. Server and desktop validate the same strict single-edit
+    shape; application code rechecks the live hash and exact expected range text before
+    applying, with no silent rebase.
+45. **Review first and mutate only the editor draft.** A read-only Monaco diff is the
+    only path from editable Observer output to acceptance. Reject, Regenerate, and
+    Escape leave the tab unchanged. Accept updates one existing draft only after a
+    checkpoint succeeds, blocks auto-save for that draft, and starts no process, test,
+    terminal, Git, file creation, or disk write.
+46. **Keep rollback code local and hash-gated.** Owner-only checkpoints live beneath
+    Electron `userData`, outside the workspace and Supabase. Main binds requests to the
+    authenticated renderer and current workspace ID, enforces path/content/retention
+    limits, and restores only when the current in-memory hash matches the applied hash.
 
 ### Desktop-to-backend authentication boundary
 
@@ -985,6 +1047,43 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-31 — Phase 9A safe single-file AI changes complete
+
+Changed files and architecture:
+
+- Desktop structured-edit contracts, Observer main/client validation, and the
+  Next.js provider/route schema now bind one replace/insert/delete edit to a locally
+  selected active relative path and SHA-256. Add Comments/Documentation requires an
+  explicit selection; Generate Tests and all read-only modes cannot return an edit.
+- The desktop App and new Observer edit-review surface replaced free-form cursor
+  insertion with a read-only Monaco diff, stale/exact-text checks, Accept/Reject/
+  Regenerate/Copy/Escape controls, unsaved-base labeling, and in-memory-only apply.
+- A typed main/preload checkpoint service stores owner-only rollback data beneath
+  Electron application data, validates the current workspace and applied-content hash,
+  applies bounded retention cleanup, and exposes create/restore/clear only.
+- Settings schema version 3 adds local 1–100 checkpoint retention (default 20), Data
+  and History adds Clear Local Checkpoints, and the command registry/Observer panel add
+  Undo Observer Change.
+- The server persists edit/action/provider/file-type/timing metadata and outcome only;
+  replacement text and raw checkpoint content are not written to Supabase. No migration
+  was required, and existing cookie and bearer authentication remain unchanged.
+- Focused desktop/backend tests cover valid and invalid edits, hash/range/target/path/
+  size checks, dirty diff behavior, checkpoint restoration and retention, command
+  registration, and the no-save/no-execution boundary.
+
+Verification and limitations:
+
+- Desktop tests passed 105/105; strict TypeScript and the Electron production build
+  passed. Root backend harnesses and lint passed, and the Next.js production build
+  compiled all existing web routes successfully.
+- Desktop build output passed scans for private-key blocks, service-role tokens, and
+  common provider-key shapes. No service secret, provider key, or Supabase migration
+  was added.
+- Phase 9A changes only one already-open file per request. It does not create test
+  files, change multiple files, save automatically, execute commands/tests, perform Git
+  writes, or rebase stale suggestions. A configured provider remains necessary for a
+  full manual model-response smoke test; Demo may return explanation-only results.
 
 ### 2026-08-31 — Phase 8 deterministic context engine complete
 
@@ -1885,8 +1984,12 @@ Verification:
 | 2026-08-31 | Phase 8 context-engine tests | Complete | 96/96 desktop tests passed, including all actions, priorities, imports/tests/config/rules, budgets, exclusions, redaction, symlink safety, cache invalidation, preview removal, and complete-file confirmation. |
 | 2026-08-31 | Phase 8 backend safety | Complete | Structured schema/size/secret tests, untrusted prompt-injection delimiters, metadata-only logging, root harnesses, lint, and Next.js production build passed. |
 | 2026-08-31 | Phase 8 desktop/security checks | Complete | Strict desktop TypeScript, Electron production build, and build/fixture credential scans passed. |
+| 2026-08-31 | Phase 9A structured-edit/checkpoint tests | Complete | 105/105 desktop tests passed across schema/range/path/hash/stale/dirty/diff/action/checkpoint/retention and no-auto-execution boundaries. |
+| 2026-08-31 | Phase 9A desktop/security checks | Complete | Strict TypeScript, Electron production build, and desktop output credential scans passed. |
+| 2026-08-31 | Phase 9A web regression | Complete | Backend harnesses, lint, and Next.js production build passed; cookie/bearer auth remained compatible and no migration was needed. |
 
 ## Recommended next task
 
-Implement the **Safe AI Change Engine with diff review and rollback**. Keep all proposed
-changes reviewable, bounded, explicit, and recoverable; do not add autonomous multi-file edits.
+Implement **Phase 9B Multi-file AI Change Sets** only after product/supervisor approval.
+Keep every file explicit, bounded, independently reviewable, and recoverable; do not add
+autonomous agent loops, file creation, automatic saving, or command execution.

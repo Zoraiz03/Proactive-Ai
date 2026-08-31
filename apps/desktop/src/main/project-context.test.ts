@@ -54,6 +54,9 @@ test("selects action-specific Explain, Fix Error, Improve, Continue, and Generat
   const tests = await service.build(seed("generate_tests"));
   assert.ok(tests.items.some((item) => item.source.provenance === "nearby_test"));
   assert.ok(tests.items.some((item) => item.source.provenance === "project_configuration"), JSON.stringify(tests.items.map((item) => [item.type, item.source.provenance, item.source.relativePath])));
+  const comments = await service.build(seed("add_comments", { selectedCode: "const doubled = helper(value);", selectedLineStart: 4, selectedLineEnd: 4 }));
+  assert.ok(types(comments).includes("selected_code"));
+  await assert.rejects(() => service.build(seed("add_comments")), /Select code/);
 });
 
 test("documentation actions attach only the active Markdown document and no code files", async () => {

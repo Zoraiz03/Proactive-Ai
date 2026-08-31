@@ -6,6 +6,7 @@ import {
   type ObserverRequest,
   type ObserverSuggestion,
 } from "../shared/observer.ts";
+import { parseStructuredObserverEdit } from "../shared/ai-edit.ts";
 
 type FetchImplementation = typeof fetch;
 
@@ -44,7 +45,9 @@ function validSuggestion(value: unknown): ObserverSuggestion | null {
     typeof suggestion.snippet !== "string" || suggestion.snippet.length > 50_000 ||
     typeof suggestion.reason !== "string" || suggestion.reason.length > 2_000
   ) return null;
-  return suggestion as ObserverSuggestion;
+  const edit = suggestion.edit === undefined ? undefined : parseStructuredObserverEdit(suggestion.edit);
+  if (suggestion.edit !== undefined && !edit) return null;
+  return { ...suggestion, ...(edit ? { edit } : {}) } as ObserverSuggestion;
 }
 
 export class ObserverApiClient {

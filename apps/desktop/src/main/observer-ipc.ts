@@ -9,6 +9,8 @@ import { ObserverApiClient } from "./observer-client";
 import { ProjectContextEngine, redactProjectSecrets } from "./project-context";
 import type { ObserverRequest } from "../shared/observer";
 import type { ProjectContextPackage } from "../shared/project-context";
+import { createHash } from "node:crypto";
+import { isEditableObserverMode } from "../shared/ai-edit";
 
 function isTrustedSender(event: IpcMainInvokeEvent, getMainWindow: () => BrowserWindow | null): boolean {
   const window = getMainWindow();
@@ -99,6 +101,12 @@ export class ObserverContextController {
       cursorLine: request.seed.cursorLine,
       cursorColumn: request.seed.cursorColumn,
       contextPackage,
+      ...(isEditableObserverMode(request.seed.mode) ? { editBase: {
+        targetRelativePath: request.seed.activeRelativePath,
+        originalContentHash: createHash("sha256").update(request.seed.content).digest("hex"),
+        contentLength: request.seed.content.length,
+        basedOnUnsavedContent: Boolean(request.seed.activeContentDirty),
+      } } : {}),
     };
   }
   authorize(webContentsId: number, candidate: ProjectContextPackage): boolean {

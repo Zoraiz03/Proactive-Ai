@@ -52,6 +52,7 @@ import {
   type SyncedSettings,
 } from "../shared/settings";
 import { GIT_CHANNELS, type GitBridge, type GitDiffRequest } from "../shared/git";
+import { CHECKPOINT_CHANNELS, type CheckpointBridge, type CreateCheckpointRequest, type RestoreCheckpointRequest } from "../shared/checkpoints";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -180,3 +181,10 @@ const gitBridge: GitBridge = Object.freeze({
   cancel: () => ipcRenderer.invoke(GIT_CHANNELS.cancel),
 });
 contextBridge.exposeInMainWorld("git", gitBridge);
+
+const checkpointBridge: CheckpointBridge = Object.freeze({
+  create: (request: CreateCheckpointRequest) => ipcRenderer.invoke(CHECKPOINT_CHANNELS.create, request),
+  restore: (request: RestoreCheckpointRequest) => ipcRenderer.invoke(CHECKPOINT_CHANNELS.restore, request),
+  clear: () => ipcRenderer.invoke(CHECKPOINT_CHANNELS.clear),
+});
+contextBridge.exposeInMainWorld("checkpoints", checkpointBridge);

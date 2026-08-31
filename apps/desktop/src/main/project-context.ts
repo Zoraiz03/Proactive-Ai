@@ -150,7 +150,8 @@ export class ProjectContextEngine {
     if (seed.selectedCode) add("selected_code", 2, seed.selectedCode, "editor_selection", "The user explicitly selected this content.", { relativePath: seed.activeRelativePath, ...(seed.selectedLineStart ? { lineStart: seed.selectedLineStart } : {}), ...(seed.selectedLineEnd ? { lineEnd: seed.selectedLineEnd } : {}) });
     if (seed.mode === "fix_error" && seed.diagnostic) add("diagnostic", 3, `${seed.diagnostic.fileName}:${seed.diagnostic.line}:${seed.diagnostic.column}\n${seed.diagnostic.message}`, "diagnostics", "The selected error is required to diagnose Fix Error.", { relativePath: seed.activeRelativePath, lineStart: seed.diagnostic.line, lineEnd: seed.diagnostic.line });
     const symbol = detectCurrentSymbol(seed.content, seed.cursorLine);
-    const wantsSymbol = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests"].includes(seed.mode);
+    const wantsSymbol = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments"].includes(seed.mode);
+    if (seed.mode === "add_comments" && !seed.selectedCode) throw new Error("Select code before asking Observer to add comments or documentation.");
     if (wantsSymbol && symbol) add("current_symbol", 4, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
     if (!seed.selectedCode || seed.mode === "fix_error" || seed.mode === "continue_code") add("nearby_code", 5, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
 

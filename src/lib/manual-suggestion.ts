@@ -8,6 +8,7 @@ export interface EditorRequestContext {
     | "improve_code"
     | "continue_code"
     | "generate_tests"
+    | "add_comments"
     | "explain_document"
     | "improve_writing"
     | "summarize"

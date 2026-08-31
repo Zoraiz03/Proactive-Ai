@@ -6,6 +6,7 @@ import type { ObserverBridge } from "../../shared/observer";
 import type { WorkspaceSearchBridge } from "../../shared/search";
 import type { SettingsBridge } from "../../shared/settings";
 import type { GitBridge } from "../../shared/git";
+import type { CheckpointBridge } from "../../shared/checkpoints";
 
 declare global {
   interface Window {
@@ -16,6 +17,7 @@ declare global {
     observer: ObserverBridge;
     settings: SettingsBridge;
     git: GitBridge;
+    checkpoints: CheckpointBridge;
     workspaceSearch: WorkspaceSearchBridge;
   }
 }

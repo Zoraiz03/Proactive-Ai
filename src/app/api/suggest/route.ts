@@ -5,9 +5,10 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { decrypt } from "@/lib/server/crypto";
 import { getSuggestion, ProviderError, Provider } from "@/lib/server/providers";
 import { ProjectContextSchema, formatUntrustedProjectContext, safeProjectContextMetadata } from "@/lib/server/project-context";
+import { EditBaseSchema } from "@/lib/server/ai-edit";
 
 const ProviderSchema = z.enum(["gemini", "deepseek", "openai", "anthropic", "demo"]);
-const CodeModeSchema = z.enum(["explain", "fix_error", "improve_code", "continue_code", "generate_tests"]);
+const CodeModeSchema = z.enum(["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments"]);
 const DocumentModeSchema = z.enum(["explain_document", "improve_writing", "summarize", "generate_readme_section"]);
 const ModeSchema = z.union([CodeModeSchema, DocumentModeSchema]);
 const ModelForProvider = { gemini: "gemini-2.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat", anthropic: "claude-haiku-4-5-20251001", demo: "demo-local" } as const;
@@ -50,6 +51,7 @@ const DesktopBody = z.object({
   runError: z.string().min(1).max(8_000).optional(),
   activeFile: z.string().min(1).max(50_000).optional(),
   contextPackage: ProjectContextSchema,
+  editBase: EditBaseSchema.optional(),
 }).superRefine((body, context) => {
   if (body.model && body.model !== ModelForProvider[body.provider]) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "The requested model is not supported for this provider." });
@@ -75,6 +77,9 @@ const DesktopBody = z.object({
   if (body.mode === "fix_error" && !body.contextPackage.items.some((item) => item.type === "diagnostic")) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Fix Error requires a diagnostic." });
   }
+  const editable = ["fix_error", "improve_code", "continue_code", "add_comments"].includes(body.mode);
+  if (editable && (!body.editBase || body.editBase.targetRelativePath !== body.contextPackage.activeFile.relativePath)) context.addIssue({ code: z.ZodIssueCode.custom, message: "Editable Observer actions require the active-file edit base." });
+  if (!editable && body.editBase) context.addIssue({ code: z.ZodIssueCode.custom, message: "This Observer action is suggestion-only." });
   if (body.diagnostic && (body.mode !== "fix_error" || body.diagnostic.fileName !== body.fileName)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Diagnostic context does not match the active file." });
   }
@@ -96,6 +101,7 @@ const ENV_KEY: Record<Exclude<Provider, "demo">, string | undefined> = {
 };
 
 export async function POST(req: Request) {
+  const requestStartedAt = Date.now();
   const authenticated = await authenticateApiRequest(req);
   if (!authenticated) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
@@ -169,6 +175,7 @@ export async function POST(req: Request) {
       content,
       context,
       ...(desktop ? { projectContext: desktop.contextPackage } : {}),
+      ...(desktop?.editBase ? { editBase: desktop.editBase } : {}),
     }, desktop?.model);
     if (!suggestion.explanation) {
       return NextResponse.json(
@@ -198,10 +205,15 @@ export async function POST(req: Request) {
           diagnosticLine: context.diagnostic?.line ?? null,
           activeFileIncluded: Boolean(context.activeFileIncluded),
           ...(desktop ? { projectContext: safeProjectContextMetadata(desktop.contextPackage) } : {}),
+          editProposed: Boolean(desktop?.editBase && suggestion.edit),
+          targetFileType: desktop?.language ?? kind,
+          responseLatencyMs: Math.max(0, Date.now() - requestStartedAt),
         },
         score: 0,
         explanation: suggestion.explanation,
-        snippet: suggestion.snippet,
+        // Editable code stays only in the authenticated response and local checkpoint.
+        // Supabase receives metadata, not replacement code.
+        snippet: suggestion.edit ? "" : suggestion.snippet,
         reason: suggestion.reason,
       })
       .select("id")

@@ -1,5 +1,6 @@
 import type { IpcResult } from "./workspace";
 import { validateProjectContextPackage, type ProjectContextPackage, type ProjectContextSeed } from "./project-context.ts";
+import type { ObserverEditBase, StructuredObserverEdit } from "./ai-edit.ts";
 
 export const CODE_OBSERVER_MODES = [
   "explain",
@@ -7,6 +8,7 @@ export const CODE_OBSERVER_MODES = [
   "improve_code",
   "continue_code",
   "generate_tests",
+  "add_comments",
 ] as const;
 
 export const DOCUMENT_OBSERVER_MODES = [
@@ -44,6 +46,7 @@ export const OBSERVER_MODE_LABELS: Readonly<Record<ObserverMode, string>> = {
   improve_code: "Improve Code",
   continue_code: "Continue Code",
   generate_tests: "Generate Tests",
+  add_comments: "Add Comments/Documentation",
   explain_document: "Explain this document",
   improve_writing: "Improve writing",
   summarize: "Summarize",
@@ -91,6 +94,7 @@ export interface ObserverRequest {
   runError?: string;
   activeFile?: string;
   contextPackage?: ProjectContextPackage;
+  editBase?: ObserverEditBase;
 }
 
 export interface ObserverPrepareRequest {
@@ -105,6 +109,7 @@ export interface ObserverSuggestion {
   explanation: string;
   snippet: string;
   reason: string;
+  edit?: StructuredObserverEdit;
 }
 
 export interface ObserverAskResult {
@@ -264,21 +269,6 @@ export function isObserverDismissShortcut(event: { key: string }): boolean {
   return event.key === "Escape";
 }
 
-export function canInsertObserverSnippet(
-  suggestion: ObserverSuggestion | null,
-  requestedRelativePath: string | null,
-  activeRelativePath: string | null,
-  fileAvailable: boolean
-): boolean {
-  return Boolean(
-    suggestion?.snippet &&
-    suggestion.snippet.length <= OBSERVER_LIMITS.snippet &&
-    requestedRelativePath &&
-    requestedRelativePath === activeRelativePath &&
-    fileAvailable
-  );
-}
-
 export async function copyObserverSnippet(
   snippet: string,
   writeText: (value: string) => Promise<void>
@@ -335,6 +325,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
   if (request.storeHistory !== undefined && typeof request.storeHistory !== "boolean") return null;
   if (!isObserverModeForKind(request.mode as ObserverMode, request.kind as ObserverKind)) return null;
   if (request.contextPackage !== undefined && !contextPackage) return null;
+  if (request.editBase !== undefined && (!request.contextPackage || typeof request.editBase !== "object" || request.editBase.targetRelativePath !== contextPackage?.activeFile.relativePath || !/^[a-f0-9]{64}$/.test(request.editBase.originalContentHash) || !Number.isInteger(request.editBase.contentLength) || request.editBase.contentLength < 0 || typeof request.editBase.basedOnUnsavedContent !== "boolean")) return null;
   if (!contextPackage && !request.selectedCode && !request.nearbyCode && !request.activeFile && !request.diagnostic) return null;
   if (contextPackage && (contextPackage.intent.mode !== request.mode || contextPackage.activeFile.fileName !== request.fileName || contextPackage.activeFile.language !== request.language || contextPackage.activeFile.kind !== request.kind || contextPackage.cursor.line !== request.cursorLine || contextPackage.cursor.column !== request.cursorColumn)) return null;
   if (request.activeFile && !["generate_tests", "explain_document", "summarize", "generate_readme_section"].includes(request.mode as string)) return null;
@@ -368,6 +359,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
     ...(request.nearbyCode ? { nearbyCode: request.nearbyCode } : {}),
     ...(request.activeFile ? { activeFile: request.activeFile } : {}),
     ...(contextPackage ? { contextPackage } : {}),
+    ...(request.editBase ? { editBase: request.editBase } : {}),
     ...(request.runError ? { runError: request.runError } : {}),
     ...(request.diagnostic ? { diagnostic: {
       fileName: request.diagnostic.fileName,

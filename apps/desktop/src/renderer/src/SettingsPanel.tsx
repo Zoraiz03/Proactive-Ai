@@ -25,6 +25,7 @@ interface Props {
   onResetLocal: () => Promise<string | null>;
   onClearRecents: () => Promise<string | null>;
   onClearHistory: () => Promise<string | null>;
+  onClearCheckpoints: () => Promise<string | null>;
   onSignOut: () => void;
 }
 
@@ -127,7 +128,9 @@ export default function SettingsPanel(props: Props) {
           </>}
           {active === "Data and History" && <>
             <h3>Data and History</h3><p>Theme, editor choices, exclusions, and recent project paths are local. Provider preferences and Observer history choices are stored in Supabase. Account deletion is not available yet.</p>
-            <div className="danger-actions"><button onClick={() => void destructive("Reset all local settings to defaults?", props.onResetLocal, "Local settings reset.")}>Reset local settings</button><button onClick={() => void destructive("Clear recent-project history from this device?", props.onClearRecents, "Recent projects cleared.")}>Clear recent-project history</button><button onClick={() => void destructive("Clear local Observer/context history from this device? This does not delete existing Supabase suggestion records.", props.onClearHistory, "Local Observer/context history cleared.")}>Clear local Observer/context history</button><button onClick={() => { if (window.confirm("Sign out of Proactive AI IDE?")) props.onSignOut(); }}>Sign out</button></div>
+            <label className="setting-row"><span>Observer checkpoint retention</span><input type="number" min="1" max="100" value={local.checkpointRetentionLimit} onChange={(e) => setLocal({ ...local, checkpointRetentionLimit: Number(e.target.value) })} /></label>
+            <button className="primary" onClick={() => void saveLocal()}>Save retention setting</button>
+            <div className="danger-actions"><button onClick={() => void destructive("Reset all local settings to defaults?", props.onResetLocal, "Local settings reset.")}>Reset local settings</button><button onClick={() => void destructive("Clear recent-project history from this device?", props.onClearRecents, "Recent projects cleared.")}>Clear recent-project history</button><button onClick={() => void destructive("Clear local Observer/context history from this device? This does not delete existing Supabase suggestion records.", props.onClearHistory, "Local Observer/context history cleared.")}>Clear local Observer/context history</button><button onClick={() => void destructive("Clear all local Observer rollback checkpoints?", props.onClearCheckpoints, "Local checkpoints cleared.")}>Clear Local Checkpoints</button><button onClick={() => { if (window.confirm("Sign out of Proactive AI IDE?")) props.onSignOut(); }}>Sign out</button></div>
           </>}
           {message && <p className="settings-message" role="status">{message}</p>}
         </main>

@@ -16,6 +16,7 @@ export type CommandId =
   | "run.currentFile"
   | "run.stop"
   | "observer.ask"
+  | "observer.undoChange"
   | "markdown.edit"
   | "markdown.preview"
   | "markdown.split"
@@ -115,6 +116,7 @@ export const IDE_COMMANDS: readonly CommandDefinition[] = defineCommandRegistry(
       ? "No active file"
       : state.observerCanAsk ? null : "Observer is unavailable for the current context",
   },
+  { id: "observer.undoChange", name: "Observer: Undo Observer Change", disabledReason: requiresActiveFile },
   { id: "markdown.edit", name: "Markdown: Edit Mode", disabledReason: requiresMarkdown },
   { id: "markdown.preview", name: "Markdown: Preview Mode", disabledReason: requiresMarkdown },
   { id: "markdown.split", name: "Markdown: Split Mode", disabledReason: requiresMarkdown },

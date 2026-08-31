@@ -4,7 +4,7 @@ import type { ObserverMode, ObserverProvider } from "./observer";
 const CODE_SETTING_MODES = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const;
 const SETTING_PROVIDERS = ["gemini", "openai", "deepseek", "anthropic", "demo"] as const;
 
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 
 export const SETTINGS_CHANNELS = {
   getLocal: "settings:get-local",
@@ -41,6 +41,7 @@ export interface LocalSettings {
   aiContextExclusions: string[];
   contextMaximumRelatedFiles: number;
   contextMaximumFileCharacters: number;
+  checkpointRetentionLimit: number;
 }
 
 export interface SyncedSettings {
@@ -88,6 +89,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
   aiContextExclusions: Object.freeze([]) as unknown as string[],
   contextMaximumRelatedFiles: 4,
   contextMaximumFileCharacters: 8_000,
+  checkpointRetentionLimit: 20,
 });
 
 export const DEFAULT_SYNCED_SETTINGS: SyncedSettings = Object.freeze({
@@ -152,6 +154,7 @@ export function normalizeLocalSettings(value: unknown): LocalSettings {
     aiContextExclusions: cleanExclusions(source.aiContextExclusions),
     contextMaximumRelatedFiles: boundedInt(source.contextMaximumRelatedFiles, DEFAULT_LOCAL_SETTINGS.contextMaximumRelatedFiles, 1, 10),
     contextMaximumFileCharacters: boundedInt(source.contextMaximumFileCharacters, DEFAULT_LOCAL_SETTINGS.contextMaximumFileCharacters, 500, 20_000),
+    checkpointRetentionLimit: boundedInt(source.checkpointRetentionLimit, DEFAULT_LOCAL_SETTINGS.checkpointRetentionLimit, 1, 100),
   };
 }
 

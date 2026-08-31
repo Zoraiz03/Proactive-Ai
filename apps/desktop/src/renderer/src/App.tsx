@@ -27,7 +27,6 @@ import type { RunDiagnostic } from "../../shared/runner";
 import type { DesktopAuthUser } from "../../shared/auth";
 import { searchMatchSelection, type WorkspaceSearchMatch } from "../../shared/search";
 import {
-  canInsertObserverSnippet,
   copyObserverSnippet,
   isObserverAskShortcut,
   isObserverDismissShortcut,
@@ -52,6 +51,8 @@ import SettingsPanel from "./SettingsPanel";
 import SourceControlPanel from "./SourceControlPanel";
 import GitDiffViewer from "./GitDiffViewer";
 import ContextPreview from "./ContextPreview";
+import ObserverEditReview, { type ObserverEditReviewState } from "./ObserverEditReview";
+import { sha256Text, validateAndBuildProposedEdit } from "../../shared/ai-edit";
 import { requiresCompleteFileConfirmation } from "../../shared/project-context";
 import type { GitChangedFile, GitDiffSnapshot } from "../../shared/git";
 import {
@@ -83,6 +84,7 @@ interface EditorTab {
   availability: "available" | "unavailable";
   externalConflict: WorkspaceTextFile | null;
   externalNotice: string | null;
+  autoSaveBlocked?: boolean;
 }
 
 type EditorSurface =
@@ -124,12 +126,6 @@ interface EditorObserverSnapshot {
   nearbyCode: string;
 }
 
-interface ObserverInsertRequest {
-  id: number;
-  relativePath: string;
-  snippet: string;
-}
-
 function runSupport(fileName: string): "supported" | "typescript" | "unsupported" {
   const extension = fileName.slice(fileName.lastIndexOf(".")).toLowerCase();
   if ([".py", ".js", ".mjs"].includes(extension)) return "supported";
@@ -168,8 +164,6 @@ interface EditorWorkspaceProps {
   onReloadExternal: (relativePath: string) => void;
   onKeepLocal: (relativePath: string) => void;
   onObserverContextChange: (snapshot: EditorObserverSnapshot) => void;
-  insertRequest: ObserverInsertRequest | null;
-  onInsertComplete: (id: number, inserted: boolean) => void;
   markdownViewMode: MarkdownViewMode;
   onMarkdownViewModeChange: (mode: MarkdownViewMode) => void;
   editorSettings: LocalSettings["editor"];
@@ -191,8 +185,6 @@ function EditorWorkspace({
   onReloadExternal,
   onKeepLocal,
   onObserverContextChange,
-  insertRequest,
-  onInsertComplete,
   markdownViewMode,
   onMarkdownViewModeChange,
   editorSettings,
@@ -202,18 +194,14 @@ function EditorWorkspace({
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const activePathRef = useRef(activePath);
   const observerContextRef = useRef(onObserverContextChange);
-  const insertCompleteRef = useRef(onInsertComplete);
   const editorDisposablesRef = useRef<Array<{ dispose: () => void }>>([]);
-  const handledInsertRef = useRef<number | null>(null);
   activePathRef.current = activePath;
   observerContextRef.current = onObserverContextChange;
-  insertCompleteRef.current = onInsertComplete;
 
   useEffect(() => {
     activePathRef.current = activePath;
     observerContextRef.current = onObserverContextChange;
-    insertCompleteRef.current = onInsertComplete;
-  }, [activePath, onInsertComplete, onObserverContextChange]);
+  }, [activePath, onObserverContextChange]);
 
   useEffect(() => () => {
     editorDisposablesRef.current.forEach((disposable) => disposable.dispose());
@@ -231,31 +219,6 @@ function EditorWorkspace({
     editorRef.current.revealLineInCenter(focusLocation.line);
     editorRef.current.focus();
   }, [activePath, focusLocation]);
-
-  useEffect(() => {
-    if (!insertRequest || handledInsertRef.current === insertRequest.id) return;
-    handledInsertRef.current = insertRequest.id;
-    const instance = editorRef.current;
-    const position = instance?.getPosition();
-    if (!instance || !position || insertRequest.relativePath !== activePath) {
-      insertCompleteRef.current(insertRequest.id, false);
-      return;
-    }
-    instance.pushUndoStop();
-    const inserted = instance.executeEdits("observer", [{
-      range: {
-        startLineNumber: position.lineNumber,
-        startColumn: position.column,
-        endLineNumber: position.lineNumber,
-        endColumn: position.column,
-      },
-      text: insertRequest.snippet,
-      forceMoveMarkers: true,
-    }]);
-    instance.pushUndoStop();
-    instance.focus();
-    insertCompleteRef.current(insertRequest.id, inserted);
-  }, [activePath, insertRequest]);
 
   const support = activeTab ? runSupport(activeTab.file.name) : "unsupported";
   const markdownActive = Boolean(activeTab && isMarkdownFile(activeTab.file.name));
@@ -539,7 +502,8 @@ export default function App({ user, onSignOut }: AppProps) {
   const [observerRequestPath, setObserverRequestPath] = useState<string | null>(null);
   const [sentContextSummary, setSentContextSummary] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
-  const [insertRequest, setInsertRequest] = useState<ObserverInsertRequest | null>(null);
+  const [observerEditReview, setObserverEditReview] = useState<ObserverEditReviewState | null>(null);
+  const [applyingObserverEdit, setApplyingObserverEdit] = useState(false);
   const [markdownViewModes, setMarkdownViewModes] = useState<Record<string, MarkdownViewMode>>({});
   const [sidebarView, setSidebarView] = useState<"explorer" | "search" | "source-control">("explorer");
   const [searchFocusToken, setSearchFocusToken] = useState(0);
@@ -567,7 +531,6 @@ export default function App({ user, onSignOut }: AppProps) {
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
-  const insertSequence = useRef(0);
   const requestSequence = useRef(0);
   const externalReadSequence = useRef(new Map<string, number>());
   const outputSequence = useRef(0);
@@ -648,6 +611,7 @@ export default function App({ user, onSignOut }: AppProps) {
         fileName: activeTab.file.name,
         language: monacoLanguageForFile(activeTab.file.name),
         content: activeTab.draft,
+        activeContentDirty: isDirty(activeTab),
         cursorLine: snapshot?.cursorLine ?? diagnostic?.line ?? 1,
         cursorColumn: snapshot?.cursorColumn ?? diagnostic?.column ?? 1,
         ...(snapshot?.selectedCode ? { selectedCode: snapshot.selectedCode } : {}),
@@ -732,6 +696,7 @@ export default function App({ user, onSignOut }: AppProps) {
             modifiedAtMs: result.value.modifiedAtMs,
           },
           saving: false,
+          autoSaveBlocked: false,
           externalNotice: null,
           saveStatus: {
             kind: "success",
@@ -853,7 +818,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverStatus("idle");
     setObserverRequestPath(null);
     setSentContextSummary(null);
-    setInsertRequest(null);
+    setObserverEditReview(null);
     setContextPreviewRequest(null);
     setGitDiff(null);
     setMarkdownViewModes({});
@@ -1066,7 +1031,7 @@ export default function App({ user, onSignOut }: AppProps) {
 
   useEffect(() => {
     if (localSettings.editor.autoSave !== "after_delay") return;
-    const pending = tabs.filter((tab) => isDirty(tab) && !tab.saving && tab.availability === "available" && !tab.externalConflict);
+    const pending = tabs.filter((tab) => isDirty(tab) && !tab.autoSaveBlocked && !tab.saving && tab.availability === "available" && !tab.externalConflict);
     if (!pending.length) return;
     const timeout = window.setTimeout(() => pending.forEach((tab) => void saveTab(tab.file.relativePath)), localSettings.editor.autoSaveDelayMs);
     return () => window.clearTimeout(timeout);
@@ -1220,7 +1185,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, []);
 
   const sendObserverRequest = useCallback(async (request: ObserverRequest) => {
-    if (!activeTab || observerRequestInFlight.current || observerSuggestion) return;
+    if (!activeTab || observerRequestInFlight.current || observerSuggestion || observerEditReview) return;
     if (request.contextPackage && requiresCompleteFileConfirmation(request.contextPackage, syncedSettings.confirmCompleteFile) &&
       !window.confirm("This package includes at least one complete local file. Send the reviewed package to Observer?")) { setObserverStatus("idle"); return; }
     observerRequestInFlight.current = true;
@@ -1242,18 +1207,117 @@ export default function App({ user, onSignOut }: AppProps) {
       appendOutput(`Observer: ${result.error}`, "error");
       return;
     }
+    if (result.value.suggestion.edit && request.editBase) {
+      const currentTab = tabsRef.current.find((tab) => tab.file.relativePath === requestedPath);
+      if (!currentTab) {
+        setObserverError("The target file is no longer open.");
+        setObserverStatus("error");
+        return;
+      }
+      const currentHash = await sha256Text(currentTab.draft);
+      const validated = validateAndBuildProposedEdit(result.value.suggestion.edit, request.editBase, currentTab.draft, currentHash);
+      setObserverEditReview({
+        request,
+        suggestion: result.value.suggestion,
+        originalContent: currentTab.draft,
+        proposedContent: validated.ok ? validated.value.proposedContent : currentTab.draft,
+        contextSummary: summary,
+        ...(!validated.ok ? { staleMessage: validated.message } : {}),
+      });
+      setObserverStatus("idle");
+      appendOutput(validated.ok ? "Observer change is ready for explicit diff review." : `Observer edit rejected: ${validated.message}`, validated.ok ? "success" : "error");
+      return;
+    }
     setObserverSuggestion(result.value.suggestion);
     setObserverStatus("ready");
     appendOutput(`Observer returned a ${OBSERVER_MODE_LABELS[request.mode].toLowerCase()} suggestion.`, "success");
-  }, [activeTab, appendOutput, observerSuggestion, syncedSettings.confirmCompleteFile]);
+  }, [activeTab, appendOutput, observerEditReview, observerSuggestion, syncedSettings.confirmCompleteFile]);
 
   const askObserver = useCallback(async () => {
-    if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion) return;
+    if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion || observerEditReview) return;
     setObserverStatus("thinking"); setObserverError(null);
     const prepared = await window.observer.prepare(observerRequest);
     if (!prepared.ok) { setObserverStatus("error"); setObserverError(prepared.error); appendOutput(`Observer: ${prepared.error}`, "error"); return; }
     setObserverStatus("idle"); setContextPreviewRequest(prepared.value);
-  }, [activeTab, appendOutput, observerRequest, observerSuggestion]);
+  }, [activeTab, appendOutput, observerEditReview, observerRequest, observerSuggestion]);
+
+  const rejectObserverEdit = useCallback(() => {
+    const suggestionId = observerEditReview?.suggestion.id;
+    setObserverEditReview(null);
+    setObserverStatus("idle");
+    setObserverRequestPath(null);
+    setSentContextSummary(null);
+    appendOutput("Observer change rejected; the editor was not modified.");
+    if (suggestionId) void window.observer.recordOutcome({ suggestionId, outcome: "dismissed" });
+  }, [appendOutput, observerEditReview]);
+
+  const regenerateObserverEdit = useCallback(() => {
+    const suggestionId = observerEditReview?.suggestion.id;
+    setObserverEditReview(null);
+    if (suggestionId) void window.observer.recordOutcome({ suggestionId, outcome: "dismissed" });
+    window.setTimeout(() => void askObserver(), 0);
+  }, [askObserver, observerEditReview]);
+
+  const acceptObserverEdit = useCallback(async () => {
+    const review = observerEditReview;
+    const workspaceId = openedWorkspace?.workspaceId;
+    const editBase = review?.request.editBase;
+    const edit = review?.suggestion.edit;
+    if (!review || !workspaceId || !editBase || !edit || applyingObserverEdit) return;
+    setApplyingObserverEdit(true);
+    const currentTab = tabsRef.current.find((tab) => tab.file.relativePath === editBase.targetRelativePath);
+    const currentHash = currentTab ? await sha256Text(currentTab.draft) : "";
+    const validated = currentTab ? validateAndBuildProposedEdit(edit, editBase, currentTab.draft, currentHash) : null;
+    if (!currentTab || !validated?.ok) {
+      const message = validated && !validated.ok ? validated.message : "The target file is no longer open.";
+      setObserverEditReview((current) => current ? { ...current, staleMessage: message } : current);
+      setApplyingObserverEdit(false);
+      return;
+    }
+    const appliedContentHash = await sha256Text(validated.value.proposedContent);
+    const checkpoint = await window.checkpoints.create({
+      workspaceId,
+      relativePath: editBase.targetRelativePath,
+      previousContent: currentTab.draft,
+      previousContentHash: currentHash,
+      appliedContentHash,
+      ...(review.suggestion.id ? { suggestionId: review.suggestion.id } : {}),
+      retentionLimit: localSettings.checkpointRetentionLimit,
+    });
+    if (!checkpoint.ok) {
+      setApplyingObserverEdit(false);
+      setObserverEditReview((current) => current ? { ...current, staleMessage: `Checkpoint creation failed: ${checkpoint.error}` } : current);
+      appendOutput(`Observer change was not applied: ${checkpoint.error}`, "error");
+      return;
+    }
+    const latest = tabsRef.current.find((tab) => tab.file.relativePath === editBase.targetRelativePath);
+    if (!latest || await sha256Text(latest.draft) !== currentHash) {
+      setApplyingObserverEdit(false);
+      setObserverEditReview((current) => current ? { ...current, staleMessage: "The file changed after this suggestion was generated." } : current);
+      return;
+    }
+    setTabs((current) => current.map((tab) => tab.file.relativePath === editBase.targetRelativePath
+      ? { ...tab, draft: validated.value.proposedContent, saveStatus: null, autoSaveBlocked: true }
+      : tab));
+    setObserverEditReview(null);
+    setApplyingObserverEdit(false);
+    setObserverRequestPath(null);
+    setSentContextSummary(null);
+    appendOutput("Observer change applied in memory. The file remains unsaved; use Undo Observer Change to restore the checkpoint.", "success");
+    if (review.suggestion.id) void window.observer.recordOutcome({ suggestionId: review.suggestion.id, outcome: "accepted" });
+  }, [applyingObserverEdit, appendOutput, localSettings.checkpointRetentionLimit, observerEditReview, openedWorkspace?.workspaceId]);
+
+  const undoObserverChange = useCallback(async () => {
+    if (!activeTab || !openedWorkspace) { appendOutput("Open the edited file before undoing an Observer change.", "error"); return; }
+    if (activeTab.externalConflict || activeTab.availability !== "available") { appendOutput("The underlying file changed or is unavailable, so the checkpoint cannot be safely restored.", "error"); return; }
+    const currentContentHash = await sha256Text(activeTab.draft);
+    const restored = await window.checkpoints.restore({ workspaceId: openedWorkspace.workspaceId, relativePath: activeTab.file.relativePath, currentContentHash });
+    if (!restored.ok) { appendOutput(restored.error, "error"); return; }
+    setTabs((current) => current.map((tab) => tab.file.relativePath === activeTab.file.relativePath
+      ? { ...tab, draft: restored.value.previousContent, saveStatus: null, autoSaveBlocked: true }
+      : tab));
+    appendOutput("Restored the previous content from the local Observer checkpoint.", "success");
+  }, [activeTab, appendOutput, openedWorkspace]);
 
   const dismissObserver = useCallback(() => {
     const suggestionId = observerSuggestion?.id;
@@ -1263,7 +1327,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverRequestPath(null);
     setSentContextSummary(null);
     setCopyStatus("idle");
-    setInsertRequest(null);
+    setObserverEditReview(null);
     if (suggestionId) {
       void window.observer.recordOutcome({ suggestionId, outcome: "dismissed" });
     }
@@ -1282,58 +1346,17 @@ export default function App({ user, onSignOut }: AppProps) {
     setCopyStatus(copied ? "copied" : "error");
   }, [observerSuggestion]);
 
-  const observerCanInsert = canInsertObserverSnippet(
-    observerSuggestion,
-    observerRequestPath,
-    activePath,
-    Boolean(
-      activeTab &&
-      activeTab.availability === "available" &&
-      !activeTab.externalConflict &&
-      (!activeIsMarkdown || activeMarkdownViewMode !== "preview")
-    )
-  );
-
-  const insertObserverSnippet = useCallback(() => {
-    if (!observerCanInsert || !observerSuggestion?.snippet || !observerRequestPath) return;
-    setInsertRequest({
-      id: ++insertSequence.current,
-      relativePath: observerRequestPath,
-      snippet: observerSuggestion.snippet,
-    });
-  }, [observerCanInsert, observerRequestPath, observerSuggestion]);
-
-  const finishObserverInsert = useCallback((id: number, inserted: boolean) => {
-    setInsertRequest((current) => current?.id === id ? null : current);
-    if (!inserted) {
-      setObserverError("The snippet could not be inserted safely. Return to the requested file and try again.");
-      setObserverStatus("error");
-      return;
-    }
-    const suggestionId = observerSuggestion?.id;
-    setObserverSuggestion(null);
-    setObserverError(null);
-    setObserverStatus("idle");
-    setObserverRequestPath(null);
-    setSentContextSummary(null);
-    setCopyStatus("idle");
-    appendOutput("Inserted Observer snippet at the cursor. Use Undo to revert it.", "success");
-    if (suggestionId) {
-      void window.observer.recordOutcome({ suggestionId, outcome: "accepted" });
-    }
-  }, [appendOutput, observerSuggestion]);
-
   useEffect(() => {
     const handleObserverShortcut = (event: KeyboardEvent) => {
       if (!isObserverAskShortcut(event)) return;
       event.preventDefault();
-      if (observerRequest && observerStatus !== "thinking" && !observerSuggestion && !contextPreviewRequest) {
+      if (observerRequest && observerStatus !== "thinking" && !observerSuggestion && !observerEditReview && !contextPreviewRequest) {
         void askObserver();
       }
     };
     window.addEventListener("keydown", handleObserverShortcut, { capture: true });
     return () => window.removeEventListener("keydown", handleObserverShortcut, { capture: true });
-  }, [askObserver, contextPreviewRequest, observerRequest, observerStatus, observerSuggestion]);
+  }, [askObserver, contextPreviewRequest, observerEditReview, observerRequest, observerStatus, observerSuggestion]);
 
   useEffect(() => {
     if (!contextPreviewRequest) return;
@@ -1352,6 +1375,17 @@ export default function App({ user, onSignOut }: AppProps) {
     window.addEventListener("keydown", handleObserverDismiss, { capture: true });
     return () => window.removeEventListener("keydown", handleObserverDismiss, { capture: true });
   }, [dismissObserver, observerStatus, observerSuggestion]);
+
+  useEffect(() => {
+    if (!observerEditReview) return;
+    const closeReview = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      rejectObserverEdit();
+    };
+    window.addEventListener("keydown", closeReview, { capture: true });
+    return () => window.removeEventListener("keydown", closeReview, { capture: true });
+  }, [observerEditReview, rejectObserverEdit]);
 
   const signOut = useCallback(async () => {
     if (!(await canOpenWorkspace())) return;
@@ -1394,7 +1428,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverStatus("idle");
     setObserverRequestPath(null);
     setSentContextSummary(null);
-    setInsertRequest(null);
+    setObserverEditReview(null);
     setMarkdownViewModes({});
     setSidebarView("explorer");
     appendOutput("Workspace closed. Welcome screen opened.");
@@ -1445,6 +1479,10 @@ export default function App({ user, onSignOut }: AppProps) {
     const result = await window.settings.clearObserverHistory();
     return result.ok ? null : result.error;
   }, []);
+  const clearObserverCheckpoints = useCallback(async () => {
+    const result = await window.checkpoints.clear();
+    return result.ok ? null : result.error;
+  }, []);
 
   const issueExplorerCommand = useCallback((action: "open-folder" | "new-file" | "new-folder") => {
     if (action !== "open-folder") setSidebarView("explorer");
@@ -1466,7 +1504,7 @@ export default function App({ user, onSignOut }: AppProps) {
     runActive: runOutput?.status === "running",
     terminalActive: terminalState.active,
     terminalCreating: terminalState.creating,
-    observerCanAsk: Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !contextPreviewRequest,
+    observerCanAsk: Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest,
     markdownActive: activeIsMarkdown,
     welcomeOpen: !workspaceOpen,
   }), [
@@ -1476,6 +1514,7 @@ export default function App({ user, onSignOut }: AppProps) {
     contextPreviewRequest,
     observerStatus,
     observerSuggestion,
+    observerEditReview,
     runOutput?.status,
     tabs,
     terminalState,
@@ -1506,6 +1545,7 @@ export default function App({ user, onSignOut }: AppProps) {
     "run.currentFile": () => void runCurrentFile(),
     "run.stop": () => void stopCurrentRun(),
     "observer.ask": () => void askObserver(),
+    "observer.undoChange": () => void undoObserverChange(),
     "markdown.edit": () => {
       if (activePath) setMarkdownViewModes((current) => ({ ...current, [activePath]: "edit" }));
     },
@@ -1527,6 +1567,7 @@ export default function App({ user, onSignOut }: AppProps) {
     saveAll,
     saveTab,
     stopCurrentRun,
+    undoObserverChange,
   ]);
 
   const resolvedCommands = useMemo(
@@ -1682,6 +1723,17 @@ export default function App({ user, onSignOut }: AppProps) {
               onWorkspaceOpened={clearWorkspaceTabs}
               refreshToken={recentRefreshToken}
             />
+          ) : observerEditReview ? (
+            <ObserverEditReview
+              review={observerEditReview}
+              settings={localSettings.editor}
+              theme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+              applying={applyingObserverEdit}
+              onAccept={() => void acceptObserverEdit()}
+              onReject={rejectObserverEdit}
+              onRegenerate={regenerateObserverEdit}
+              onCopy={() => void window.observer.copySnippet(observerEditReview.proposedContent)}
+            />
           ) : gitDiff?.status === "loading" ? (
             <div className="git-diff-loading"><span aria-hidden="true">⋯</span><p>Loading diff for {gitDiff.file.relativePath}…</p><button type="button" onClick={() => { void window.git.cancel(); setGitDiff(null); }}>Cancel</button></div>
           ) : gitDiff?.status === "error" ? (
@@ -1717,8 +1769,6 @@ export default function App({ user, onSignOut }: AppProps) {
             onReloadExternal={reloadExternalVersion}
             onKeepLocal={keepLocalChanges}
             onObserverContextChange={setObserverSnapshot}
-            insertRequest={insertRequest}
-            onInsertComplete={finishObserverInsert}
             markdownViewMode={activeMarkdownViewMode}
             onMarkdownViewModeChange={(mode) => {
               if (!activePath) return;
@@ -1741,8 +1791,7 @@ export default function App({ user, onSignOut }: AppProps) {
             suggestion={observerSuggestion}
             error={observerError}
             copyStatus={copyStatus}
-            canAsk={syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !contextPreviewRequest}
-            canInsert={observerCanInsert}
+            canAsk={syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest}
             onModeChange={(mode) => {
               setObserverMode(mode);
               if (observerStatus === "error") dismissObserver();
@@ -1753,8 +1802,9 @@ export default function App({ user, onSignOut }: AppProps) {
             }}
             onAsk={() => void askObserver()}
             onCopy={() => void copySnippet()}
-            onInsert={insertObserverSnippet}
             onDismiss={dismissObserver}
+            onUndo={() => void undoObserverChange()}
+            canUndo={Boolean(activeTab && openedWorkspace)}
             focusToken={observerFocusToken}
           />
         </aside>
@@ -1814,6 +1864,7 @@ export default function App({ user, onSignOut }: AppProps) {
         onResetLocal={resetLocalSettings}
         onClearRecents={clearRecentProjects}
         onClearHistory={clearObserverHistory}
+        onClearCheckpoints={clearObserverCheckpoints}
         onSignOut={() => void signOut()}
       />
       {contextPreviewRequest && <ContextPreview

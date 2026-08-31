@@ -83,6 +83,7 @@ export interface ProjectContextSeed {
   maximumTotalCharacters: number;
   maximumRelatedFiles: number;
   maximumCharactersPerFile: number;
+  activeContentDirty?: boolean;
 }
 
 export const projectContextCost = (content: string) => ({

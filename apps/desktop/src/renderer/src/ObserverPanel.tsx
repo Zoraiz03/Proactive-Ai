@@ -22,13 +22,13 @@ interface ObserverPanelProps {
   error: string | null;
   copyStatus: "idle" | "copied" | "error";
   canAsk: boolean;
-  canInsert: boolean;
   onModeChange: (mode: ObserverMode) => void;
   onProviderChange: (provider: ObserverProvider) => void;
   onAsk: () => void;
   onCopy: () => void;
-  onInsert: () => void;
   onDismiss: () => void;
+  onUndo: () => void;
+  canUndo: boolean;
   focusToken: number;
 }
 
@@ -42,13 +42,13 @@ export default function ObserverPanel({
   error,
   copyStatus,
   canAsk,
-  canInsert,
   onModeChange,
   onProviderChange,
   onAsk,
   onCopy,
-  onInsert,
   onDismiss,
+  onUndo,
+  canUndo,
   focusToken,
 }: ObserverPanelProps) {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
@@ -100,6 +100,7 @@ export default function ObserverPanel({
           {status === "thinking" ? "Asking Observer…" : "Ask Observer"}
         </button>
         <span className="observer-shortcut">Ctrl/⌘ + Enter</span>
+        <button type="button" onClick={onUndo} disabled={!canUndo}>Undo Observer Change</button>
       </div>
 
       <div className="observer-result" aria-live="polite">
@@ -139,15 +140,6 @@ export default function ObserverPanel({
                 <>
                   <button type="button" onClick={onCopy}>
                     {copyStatus === "copied" ? "Copied" : copyStatus === "error" ? "Copy failed" : "Copy snippet"}
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={onInsert}
-                    disabled={!canInsert}
-                    title={canInsert ? "Insert at the current cursor with undo support" : "Return to the requested file to insert"}
-                  >
-                    Insert at cursor
                   </button>
                 </>
               )}

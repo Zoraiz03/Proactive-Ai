@@ -67,7 +67,6 @@ import {
   CODE_OBSERVER_MODES,
   DOCUMENT_OBSERVER_MODES,
   OBSERVER_MODES,
-  canInsertObserverSnippet,
   copyObserverSnippet,
   createObserverRequest,
   isObserverAskShortcut,
@@ -897,7 +896,7 @@ test("blocks sensitive files and limits active-file context to test generation",
   assert.equal(improve?.activeFile, undefined);
 });
 
-test("recognizes Observer shortcuts and safe explicit snippet actions", async () => {
+test("recognizes Observer shortcuts and safe explicit copy actions", async () => {
   assert.equal(isObserverAskShortcut({ key: "Enter", ctrlKey: true, metaKey: false }), true);
   assert.equal(isObserverAskShortcut({ key: "Enter", ctrlKey: false, metaKey: true }), true);
   assert.equal(isObserverAskShortcut({ key: "Enter", ctrlKey: false, metaKey: false }), false);
@@ -908,12 +907,23 @@ test("recognizes Observer shortcuts and safe explicit snippet actions", async ()
     snippet: "const value = 1;",
     reason: "Manual improve code request.",
   };
-  assert.equal(canInsertObserverSnippet(suggestion, "src/app.ts", "src/app.ts", true), true);
-  assert.equal(canInsertObserverSnippet(suggestion, "src/app.ts", "src/other.ts", true), false);
   let copied = "";
   assert.equal(await copyObserverSnippet(suggestion.snippet, async (value) => { copied = value; }), true);
   assert.equal(copied, suggestion.snippet);
   assert.equal(await copyObserverSnippet(suggestion.snippet, async () => { throw new Error("denied"); }), false);
+});
+
+test("Observer review actions checkpoint before apply and never save or execute commands", async () => {
+  const appSource = await readFile(new URL("../renderer/src/App.tsx", import.meta.url), "utf8");
+  const accept = appSource.slice(appSource.indexOf("const acceptObserverEdit"), appSource.indexOf("const undoObserverChange"));
+  assert.ok(accept.indexOf("window.checkpoints.create") >= 0);
+  assert.ok(accept.indexOf("window.checkpoints.create") < accept.indexOf("setTabs"));
+  assert.doesNotMatch(accept, /saveTab|window\.(?:runner|terminal|git)\./);
+  assert.match(accept, /autoSaveBlocked: true/);
+  const reject = appSource.slice(appSource.indexOf("const rejectObserverEdit"), appSource.indexOf("const acceptObserverEdit"));
+  assert.doesNotMatch(reject, /setTabs|window\.checkpoints\.create/);
+  assert.match(reject, /recordOutcome/);
+  assert.match(reject, /askObserver/);
 });
 
 test("sends every Observer mode with a bearer token and handles outcomes and API errors", async () => {
