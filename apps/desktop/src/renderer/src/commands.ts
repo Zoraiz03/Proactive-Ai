@@ -6,6 +6,7 @@ export type CommandId =
   | "file.newFile"
   | "file.newFolder"
   | "search.findInFiles"
+  | "git.showSourceControl"
   | "view.showExplorer"
   | "view.showSearch"
   | "view.toggleTerminal"
@@ -76,6 +77,7 @@ export const IDE_COMMANDS: readonly CommandDefinition[] = defineCommandRegistry(
   { id: "file.newFile", name: "File: New File", disabledReason: requiresWorkspace },
   { id: "file.newFolder", name: "File: New Folder", disabledReason: requiresWorkspace },
   { id: "search.findInFiles", name: "Search: Find in Files", shortcut: "Mod+Shift+F", disabledReason: requiresWorkspace },
+  { id: "git.showSourceControl", name: "Git: Show Source Control", shortcut: "Mod+Shift+G", disabledReason: requiresWorkspace },
   { id: "view.showExplorer", name: "View: Show Explorer", disabledReason: available },
   { id: "view.showSearch", name: "View: Show Search", disabledReason: available },
   { id: "view.toggleTerminal", name: "View: Toggle Terminal", disabledReason: available },
@@ -190,6 +192,10 @@ export function shouldOpenCommandPalette(event: PaletteShortcutEvent): boolean {
 
 export function shouldOpenSettings(event: PaletteShortcutEvent): boolean {
   return (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key === ",";
+}
+
+export function shouldOpenSourceControl(event: PaletteShortcutEvent): boolean {
+  return (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === "g";
 }
 
 export function isTerminalKeyboardTarget(target: unknown): boolean {

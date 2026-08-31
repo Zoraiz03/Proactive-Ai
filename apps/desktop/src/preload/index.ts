@@ -50,6 +50,7 @@ import {
   type SettingsBridge,
   type SyncedSettings,
 } from "../shared/settings";
+import { GIT_CHANNELS, type GitBridge, type GitDiffRequest } from "../shared/git";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -170,3 +171,10 @@ const settingsBridge: SettingsBridge = Object.freeze({
 });
 
 contextBridge.exposeInMainWorld("settings", settingsBridge);
+
+const gitBridge: GitBridge = Object.freeze({
+  status: () => ipcRenderer.invoke(GIT_CHANNELS.status),
+  diff: (request: GitDiffRequest) => ipcRenderer.invoke(GIT_CHANNELS.diff, request),
+  cancel: () => ipcRenderer.invoke(GIT_CHANNELS.cancel),
+});
+contextBridge.exposeInMainWorld("git", gitBridge);

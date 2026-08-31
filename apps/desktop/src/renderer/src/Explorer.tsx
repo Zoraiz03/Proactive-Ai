@@ -168,6 +168,7 @@ interface ExplorerProps {
   onStatus: (message: string, kind?: "info" | "success" | "error") => void;
   commandRequest: { token: number; action: "open-folder" | "new-file" | "new-folder" } | null;
   confirmBeforeDelete: boolean;
+  revealRequest?: { relativePath: string; token: number } | null;
 }
 
 function parentPath(relativePath: string): string {
@@ -188,6 +189,7 @@ export default function Explorer({
   onStatus,
   commandRequest,
   confirmBeforeDelete,
+  revealRequest,
 }: ExplorerProps) {
   const [workspace, setWorkspace] = useState<OpenWorkspace | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -217,6 +219,13 @@ export default function Explorer({
     setRefreshVersion((version) => version + 1);
     setError(null);
   }, [openedWorkspace, workspaceOpen]);
+
+  useEffect(() => {
+    if (!workspace || !revealRequest) return;
+    const name = revealRequest.relativePath.split("/").at(-1) ?? revealRequest.relativePath;
+    setRevealPath(revealRequest.relativePath);
+    setSelectedEntry({ name, relativePath: revealRequest.relativePath, kind: "file", isSymbolicLink: false });
+  }, [revealRequest?.token, workspace]);
 
   const openFolder = async () => {
     if (loading || !(await onBeforeWorkspaceOpen())) return;

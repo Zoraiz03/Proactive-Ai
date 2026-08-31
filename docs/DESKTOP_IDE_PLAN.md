@@ -34,6 +34,7 @@ implementation and its verification evidence in the changelog.
 | Phase 7B | Complete | Recent projects and secure workspace reopening |
 | Phase 7C | Complete | Typed command palette and keyboard-first navigation |
 | Phase 7D | Complete | Settings and Privacy Center |
+| Phase 7E | Complete | Read-only Git status and diff viewer |
 | Phase 8 | Not Started | Packaging, signing, updates, and release checks |
 
 ## Recommended folder structure
@@ -578,6 +579,40 @@ Required verification:
 - [x] **Complete** — Desktop tests/type/build and web tests/lint/build pass; desktop
   output contains no server credential identifiers or raw provider-key patterns.
 
+## Phase 7E — Read-only Git status and diff viewer
+
+**Goal:** Inspect the authorized workspace's local Git state and HEAD-to-worktree
+diffs without exposing Git, process, or filesystem capabilities to the renderer.
+
+- [x] **Complete** — Add a Source Control sidebar with repository name, branch,
+  changed count, staged, unstaged, renamed, deleted, and untracked groups.
+- [x] **Complete** — Add manual Refresh, Ctrl/Cmd+Shift+G, the typed “Git: Show
+  Source Control” command, and debounced refresh after workspace file changes.
+- [x] **Complete** — Parse bounded NUL-delimited porcelain-v2 status output so
+  spaces, rename source paths, detached HEAD, and non-human status data are safe.
+- [x] **Complete** — Open read-only Monaco side-by-side diffs without disturbing
+  normal editor tabs; use an empty side for untracked/added or deleted content.
+- [x] **Complete** — Show explicit binary, oversized, unavailable, missing-Git,
+  non-repository, loading, error, clean, cancelled, and truncated states.
+- [x] **Complete** — Run only fixed `status` and `cat-file` argument arrays from
+  Electron main with `shell: false`, filtered environment, validated workspace cwd,
+  timeouts, cancellation, output caps, and a 500-file result limit.
+- [x] **Complete** — Keep the renderer behind a narrow typed status/diff/cancel IPC
+  allowlist; reject extra request fields, paths outside the refreshed status result,
+  traversal, symlinks, and canonical workspace escapes.
+- [x] **Complete** — Exclude every Git write, remote, credential, AI-review, and
+  proactive operation from this phase.
+
+Required verification:
+
+- [x] **Complete** — Temporary-repository tests cover repository detection, branch
+  parsing, staged/unstaged/untracked/deleted/renamed/binary files, and paths with spaces.
+- [x] **Complete** — Tests cover correct original/current content, result limits,
+  timeout/cancellation, missing Git, non-repositories, and arbitrary-command rejection.
+- [x] **Complete** — Desktop tests/type/build and existing web tests/lint/build pass.
+- [x] **Complete** — Production code contains no shell mode, write/remote Git command,
+  credential operation, or renderer filesystem/process access.
+
 ## Phase 8 — Packaging and release readiness
 
 **Goal:** Produce secure, installable, supportable desktop releases.
@@ -758,6 +793,21 @@ Required verification:
     applies user-defined relative exclusions plus a 1,000–50,000 character bound.
     The existing Next.js `/api/suggest` sensitive-basename validation remains a second
     server-side boundary. Complete-file context can require an explicit confirmation.
+38. **Keep Git execution fixed and main-process-only.** Phase 7E invokes the user's
+    PATH-resolved Git executable with `spawn`, `shell: false`, the validated workspace
+    root as `cwd`, a filtered non-interactive environment, and compile-time argument
+    arrays for porcelain-v2 `status` and `cat-file` only. Renderer input cannot select
+    a binary, subcommand, revision, option, working directory, or arbitrary argument.
+39. **Authorize diffs from the latest bounded status snapshot.** Main accepts a
+    normalized relative path only when it appeared in the latest displayed status
+    result, then rechecks the current file lexically and canonically and refuses
+    symlinks. Original text comes from `HEAD:<path>`; current text comes from the
+    validated worktree. Both sides are capped at 2 MiB and invalid UTF-8/NUL content
+    is reported as binary rather than decoded.
+40. **Make Source Control observational.** Status is capped at 500 changed files,
+    command output and stderr are bounded, operations time out and can be cancelled,
+    and the UI remains independent of normal editor tabs. This phase provides no Git
+    mutation, remote, credential, terminal-command, or AI-review capability.
 
 ### Desktop-to-backend authentication boundary
 
@@ -807,6 +857,11 @@ headers return 401, and authorization data is not logged.
 - Search only supported extensions and exclude `.git`, `node_modules`, `.next`, `dist`,
   `build`, `coverage`, binary/large files, `.env*`, credentials, secrets, and private
   keys even when user include patterns are broad.
+- Run Git only in Electron main against the currently authorized workspace with fixed
+  read-only argument arrays, `shell: false`, a filtered non-interactive environment,
+  timeout/cancellation, output limits, and porcelain output. Never expose a general
+  Git command, revision, option, process, filesystem path, credential, or remote action
+  to renderer code.
 - Limit directory listing size and ignore generated dependency/build directories.
 - Permit file content reads only for the documented extension allowlist, require a
   regular file, cap reads at 2 MiB before and after loading, and reject NUL bytes or
@@ -851,6 +906,38 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-08-31 — Phase 7E complete
+
+Changed files and architecture:
+
+- Git shared/main/preload modules — added typed status/diff states, strict request
+  validation, a workspace-scoped repository service, trusted-window IPC, cancellation,
+  and a frozen renderer bridge. Git runs only fixed porcelain-v2 status and HEAD
+  `cat-file` calls with controlled arguments and no shell.
+- Source Control and diff renderer modules, App/Explorer integration, styles, and the
+  command registry — added the sidebar, standard shortcut, categorized status, refresh
+  states, Explorer reveal, and read-only Monaco Diff Editor while preserving normal tabs.
+- Focused Git and command tests plus desktop test configuration — added temporary-repo
+  coverage without touching this repository's history.
+- This living plan — records the Phase 7E architecture, read-only boundary, results,
+  limitations, and next task. The existing Next.js application source is unchanged.
+
+Verification and limitations:
+
+- Desktop tests passed 88/88. Strict main/preload/renderer TypeScript and the Electron
+  production build passed. Root tests, lint, and the Next.js production build passed.
+- Tests cover repository/non-repository/missing-Git states, branches, staged and
+  unstaged changes, untracked/deleted/renamed/binary files, spaces, limits, timeout,
+  cancellation, request rejection, and correct original/current diff content.
+- Diffs compare HEAD with the current worktree; this is not a three-way index/worktree
+  viewer. Binary and over-2-MiB sides receive explanatory states instead of text diffs.
+  Status displays at most 500 changed files, and external index-only changes can require
+  manual Refresh when they do not produce a workspace file event.
+- There are no stage, unstage, commit, discard, checkout, branch, merge/rebase,
+  pull/push/fetch, remote, credential, AI-review, or proactive operations. Git must
+  already be installed and available on PATH. Signed-in visual interaction remains a
+  manual verification step.
 
 ### 2026-08-31 — Phase 7D complete
 
@@ -1676,8 +1763,11 @@ Verification:
 | 2026-08-31 | Phase 7D Supabase security verification | Complete | Migration applied to the linked project; SQL verification confirmed RLS enabled, owner-only SELECT/INSERT/UPDATE/DELETE policies, UPDATE `USING` and `WITH CHECK`, explicit grants, and matching local/remote migration history. Local Docker remained unavailable. |
 | 2026-08-31 | Phase 7D desktop checks | Complete | Strict TypeScript, Electron production build, and desktop output secret scan passed. |
 | 2026-08-31 | Phase 7D web regression | Complete | Root tests, lint, and Next.js production build passed with cookie behavior preserved and additive bearer APIs. |
+| 2026-08-31 | Phase 7E focused Git tests | Complete | 88/88 desktop tests passed, including temporary-repository status/diff, branches, staged/unstaged/untracked/deleted/renamed/binary/space paths, limits, timeout/cancellation, and arbitrary-command rejection. |
+| 2026-08-31 | Phase 7E desktop checks | Complete | Strict main/preload/renderer TypeScript and the Electron production build passed. |
+| 2026-08-31 | Phase 7E web regression | Complete | Root tests, lint, and Next.js production build passed with no web application source changes. |
 
 ## Recommended next task
 
-Implement **Basic Git status and diff viewer**. Keep Git operations read-only, bounded to
-the authorized workspace, outside the renderer process, and free of arbitrary shell input.
+Implement the **Project Context Engine**. Keep context local and explicitly scoped,
+exclude secrets and generated content by default, and do not add proactive AI requests.

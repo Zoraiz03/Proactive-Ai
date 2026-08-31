@@ -7,6 +7,7 @@ import {
   resolveCommands,
   shouldOpenCommandPalette,
   shouldOpenSettings,
+  shouldOpenSourceControl,
   shouldPreserveTerminalShortcut,
   type CommandDefinition,
   type CommandHandlers,
@@ -40,8 +41,8 @@ function handlers(onExecute: (id: string) => void = () => undefined): CommandHan
 }
 
 test("opens and closes the command palette with reset search state", () => {
-  assert.equal(IDE_COMMANDS.length, 21);
-  assert.equal(new Set(IDE_COMMANDS.map((command) => command.id)).size, 21);
+  assert.equal(IDE_COMMANDS.length, 22);
+  assert.equal(new Set(IDE_COMMANDS.map((command) => command.id)).size, 22);
   assert.equal(IDE_COMMANDS.find((command) => command.id === "preferences.openSettings")?.shortcut, "Mod+,");
   const opened = commandPaletteReducer(CLOSED_COMMAND_PALETTE, { type: "open" });
   assert.deepEqual(opened, { open: true, query: "", selectedIndex: 0 });
@@ -133,4 +134,11 @@ test("settings opens only from the intentional global Ctrl/Cmd+Comma shortcut", 
   assert.equal(shouldOpenSettings({ ...event, ctrlKey: false, metaKey: true }), true);
   assert.equal(shouldOpenSettings({ ...event, shiftKey: true }), false);
   assert.equal(shouldOpenSettings({ ...event, key: "." }), false);
+});
+
+test("Source Control uses the standard non-conflicting Ctrl/Cmd+Shift+G shortcut", () => {
+  const event = { ctrlKey: true, metaKey: false, shiftKey: true, altKey: false, key: "G" };
+  assert.equal(shouldOpenSourceControl(event), true);
+  assert.equal(shouldOpenSourceControl({ ...event, ctrlKey: false, metaKey: true }), true);
+  assert.equal(shouldOpenSourceControl({ ...event, shiftKey: false }), false);
 });

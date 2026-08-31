@@ -5,6 +5,7 @@ import type { DesktopAuthBridge } from "../../shared/auth";
 import type { ObserverBridge } from "../../shared/observer";
 import type { WorkspaceSearchBridge } from "../../shared/search";
 import type { SettingsBridge } from "../../shared/settings";
+import type { GitBridge } from "../../shared/git";
 
 declare global {
   interface Window {
@@ -14,6 +15,7 @@ declare global {
     desktopAuth: DesktopAuthBridge;
     observer: ObserverBridge;
     settings: SettingsBridge;
+    git: GitBridge;
     workspaceSearch: WorkspaceSearchBridge;
   }
 }

@@ -6,6 +6,7 @@ import { registerRunIpc } from "./run-ipc";
 import { registerAuthIpc } from "./auth-ipc";
 import { registerObserverIpc } from "./observer-ipc";
 import { registerSettingsIpc } from "./settings-ipc";
+import { registerGitIpc } from "./git-ipc";
 
 declare const __DESKTOP_API_BASE_URL__: string;
 
@@ -94,21 +95,25 @@ app.whenReady().then(() => {
     () => authIpc.controller.getAccessToken(),
     __DESKTOP_API_BASE_URL__.trim()
   );
+  const gitIpc = registerGitIpc(getAuthenticatedWindow);
   terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
   runIpc = registerRunIpc(getAuthenticatedWindow);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
     onWorkspaceOpened: (rootPath, webContentsId) => {
       terminalIpc?.controller.setWorkspace(rootPath, webContentsId);
       runIpc?.controller.setWorkspace(rootPath, webContentsId);
+      gitIpc.controller.setWorkspace(rootPath, webContentsId);
     },
     onWorkspaceClosed: (webContentsId) => {
       terminalIpc?.controller.clearWorkspace(webContentsId);
       runIpc?.controller.clearWorkspace(webContentsId);
+      gitIpc.controller.clearWorkspace(webContentsId);
     },
   }, app.getPath("userData"));
   app.once("will-quit", () => {
     observerIpc.cleanup();
     settingsIpc.cleanup();
+    gitIpc.cleanup();
     authIpc.cleanup();
     runIpc?.cleanup();
     terminalIpc?.cleanup();

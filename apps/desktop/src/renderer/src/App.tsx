@@ -50,6 +50,9 @@ import SearchPanel from "./SearchPanel";
 import WelcomeScreen from "./WelcomeScreen";
 import CommandPalette from "./CommandPalette";
 import SettingsPanel from "./SettingsPanel";
+import SourceControlPanel from "./SourceControlPanel";
+import GitDiffViewer from "./GitDiffViewer";
+import type { GitChangedFile, GitDiffSnapshot } from "../../shared/git";
 import {
   DEFAULT_LOCAL_SETTINGS,
   DEFAULT_SYNCED_SETTINGS,
@@ -63,6 +66,7 @@ import {
   resolveCommands,
   shouldOpenCommandPalette,
   shouldOpenSettings,
+  shouldOpenSourceControl,
   shouldPreserveTerminalShortcut,
   type CommandHandlers,
   type CommandState,
@@ -533,7 +537,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
   const [insertRequest, setInsertRequest] = useState<ObserverInsertRequest | null>(null);
   const [markdownViewModes, setMarkdownViewModes] = useState<Record<string, MarkdownViewMode>>({});
-  const [sidebarView, setSidebarView] = useState<"explorer" | "search">("explorer");
+  const [sidebarView, setSidebarView] = useState<"explorer" | "search" | "source-control">("explorer");
   const [searchFocusToken, setSearchFocusToken] = useState(0);
   const [commandPaletteToken, setCommandPaletteToken] = useState(0);
   const [explorerCommandRequest, setExplorerCommandRequest] = useState<{
@@ -552,6 +556,9 @@ export default function App({ user, onSignOut }: AppProps) {
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [recentRefreshToken, setRecentRefreshToken] = useState(0);
+  const [gitRefreshToken, setGitRefreshToken] = useState(0);
+  const [gitDiff, setGitDiff] = useState<{ status: "loading"; file: GitChangedFile } | { status: "error"; file: GitChangedFile; message: string } | { status: "ready"; value: GitDiffSnapshot } | null>(null);
+  const [explorerRevealRequest, setExplorerRevealRequest] = useState<{ relativePath: string; token: number } | null>(null);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -772,6 +779,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [askAboutUnsavedChanges, saveTab]);
 
   const selectFile = useCallback(async (entry: WorkspaceEntry) => {
+    setGitDiff(null);
     const existing = tabsRef.current.find((tab) => tab.file.relativePath === entry.relativePath);
     if (existing) {
       setActivePath(entry.relativePath);
@@ -848,6 +856,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverRequestPath(null);
     setSentContextSummary(null);
     setInsertRequest(null);
+    setGitDiff(null);
     setMarkdownViewModes({});
     appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
     if (localSettings.restoreOpenTabs) {
@@ -966,6 +975,7 @@ export default function App({ user, onSignOut }: AppProps) {
 
   useEffect(() => window.workspace.onDidChange((batch) => {
     setExternalChanges(batch);
+    setGitRefreshToken((value) => value + 1);
     appendOutput(
       `Workspace updated externally (${batch.changes.length} change${batch.changes.length === 1 ? "" : "s"}).`
     );
@@ -1465,6 +1475,7 @@ export default function App({ user, onSignOut }: AppProps) {
       setSidebarView("search");
       setSearchFocusToken((current) => current + 1);
     },
+    "git.showSourceControl": () => setSidebarView("source-control"),
     "view.showExplorer": () => setSidebarView("explorer"),
     "view.showSearch": () => {
       setSidebarView("search");
@@ -1516,6 +1527,27 @@ export default function App({ user, onSignOut }: AppProps) {
     window.addEventListener("keydown", handleCommandPaletteShortcut, { capture: true });
     return () => window.removeEventListener("keydown", handleCommandPaletteShortcut, { capture: true });
   }, [unsavedPrompt]);
+
+  useEffect(() => {
+    const openSourceControl = (event: KeyboardEvent) => {
+      if (!shouldOpenSourceControl(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (workspaceOpen) setSidebarView("source-control");
+    };
+    window.addEventListener("keydown", openSourceControl, { capture: true });
+    return () => window.removeEventListener("keydown", openSourceControl, { capture: true });
+  }, [workspaceOpen]);
+
+  const openGitDiff = useCallback(async (file: GitChangedFile) => {
+    if (file.kind !== "deleted") setExplorerRevealRequest({ relativePath: file.relativePath, token: Date.now() });
+    setGitDiff({ status: "loading", file });
+    const result = await window.git.diff({ relativePath: file.relativePath });
+    setGitDiff((current) => {
+      if (!current || current.status !== "loading" || current.file.relativePath !== file.relativePath) return current;
+      return result.ok ? { status: "ready", value: result.value } : { status: "error", file, message: result.error };
+    });
+  }, []);
 
   useEffect(() => {
     const openSettings = (event: KeyboardEvent) => {
@@ -1584,6 +1616,7 @@ export default function App({ user, onSignOut }: AppProps) {
           <div className="sidebar-tabs" role="tablist" aria-label="Project sidebar">
             <button type="button" role="tab" aria-selected={sidebarView === "explorer"} className={sidebarView === "explorer" ? "active" : ""} onClick={() => setSidebarView("explorer")}>Explorer</button>
             <button type="button" role="tab" aria-selected={sidebarView === "search"} className={sidebarView === "search" ? "active" : ""} onClick={() => { setSidebarView("search"); setSearchFocusToken((current) => current + 1); }}>Search</button>
+            <button type="button" role="tab" aria-selected={sidebarView === "source-control"} className={sidebarView === "source-control" ? "active" : ""} title="Source Control (Ctrl/Cmd+Shift+G)" onClick={() => setSidebarView("source-control")}>Source</button>
           </div>
           <div className={`sidebar-view ${sidebarView === "explorer" ? "active" : ""}`}>
             <Explorer
@@ -1600,6 +1633,7 @@ export default function App({ user, onSignOut }: AppProps) {
               onStatus={appendOutput}
               commandRequest={explorerCommandRequest}
               confirmBeforeDelete={localSettings.confirmBeforeDelete}
+              revealRequest={explorerRevealRequest}
             />
           </div>
           <div className={`sidebar-view ${sidebarView === "search" ? "active" : ""}`}>
@@ -1611,6 +1645,15 @@ export default function App({ user, onSignOut }: AppProps) {
               onOpenMatch={(match) => void focusSearchMatch(match)}
             />
           </div>
+          <div className={`sidebar-view ${sidebarView === "source-control" ? "active" : ""}`}>
+            <SourceControlPanel
+              active={sidebarView === "source-control"}
+              workspaceOpen={workspaceOpen}
+              workspaceVersion={workspaceVersion}
+              refreshToken={gitRefreshToken}
+              onOpenDiff={(file) => void openGitDiff(file)}
+            />
+          </div>
         </aside>
 
         <main className="panel editor-panel">
@@ -1620,6 +1663,22 @@ export default function App({ user, onSignOut }: AppProps) {
               onBeforeOpen={canOpenWorkspace}
               onWorkspaceOpened={clearWorkspaceTabs}
               refreshToken={recentRefreshToken}
+            />
+          ) : gitDiff?.status === "loading" ? (
+            <div className="git-diff-loading"><span aria-hidden="true">⋯</span><p>Loading diff for {gitDiff.file.relativePath}…</p><button type="button" onClick={() => { void window.git.cancel(); setGitDiff(null); }}>Cancel</button></div>
+          ) : gitDiff?.status === "error" ? (
+            <div className="git-diff-loading error" role="alert"><span aria-hidden="true">!</span><p>{gitDiff.message}</p><button type="button" onClick={() => setGitDiff(null)}>Back to Editor</button></div>
+          ) : gitDiff?.status === "ready" ? (
+            <GitDiffViewer
+              diff={gitDiff.value}
+              editorSettings={localSettings.editor}
+              theme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+              onClose={() => setGitDiff(null)}
+              onOpenFile={() => {
+                const relativePath = gitDiff.value.relativePath;
+                setSidebarView("explorer");
+                void selectFile({ name: relativePath.split("/").at(-1) ?? relativePath, relativePath, kind: "file", isSymbolicLink: false });
+              }}
             />
           ) : (
           <EditorWorkspace
@@ -1698,7 +1757,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 7D</span>
+        <span>Phase 7E</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
