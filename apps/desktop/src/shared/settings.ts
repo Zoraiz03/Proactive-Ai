@@ -1,10 +1,12 @@
 import type { IpcResult } from "./workspace";
 import type { ObserverMode, ObserverProvider } from "./observer";
+import type { ProactiveObserverMode } from "./proactive-observer.ts";
+import type { ProactiveFeedbackRecord } from "./proactive-observer.ts";
 
 const CODE_SETTING_MODES = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const;
 const SETTING_PROVIDERS = ["gemini", "openai", "deepseek", "anthropic", "demo"] as const;
 
-export const SETTINGS_VERSION = 4;
+export const SETTINGS_VERSION = 5;
 
 export const SETTINGS_CHANNELS = {
   getLocal: "settings:get-local",
@@ -18,6 +20,7 @@ export const SETTINGS_CHANNELS = {
   clearObserverHistory: "settings:clear-observer-history",
   getWorkspaceTabs: "settings:get-workspace-tabs",
   saveWorkspaceTabs: "settings:save-workspace-tabs",
+  recordProactiveFeedback: "settings:record-proactive-feedback",
 } as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -45,6 +48,16 @@ export interface LocalSettings {
   multiFileMaximumFiles: number;
   multiFileMaximumChangedLines: number;
   multiFileMaximumGeneratedBytes: number;
+  proactiveObserverMode: ProactiveObserverMode;
+  proactivePersistentDiagnostics: boolean;
+  proactiveFailedRuns: boolean;
+  proactiveFailedTests: boolean;
+  proactiveFailedBuilds: boolean;
+  proactiveCooldownMinutes: number;
+  proactiveMaximumNudgesPerHour: number;
+  proactiveMutedErrors: string[];
+  proactiveMutedFiles: string[];
+  proactiveMutedProjects: string[];
 }
 
 export interface SyncedSettings {
@@ -96,6 +109,16 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
   multiFileMaximumFiles: 5,
   multiFileMaximumChangedLines: 500,
   multiFileMaximumGeneratedBytes: 200_000,
+  proactiveObserverMode: "manual",
+  proactivePersistentDiagnostics: true,
+  proactiveFailedRuns: true,
+  proactiveFailedTests: true,
+  proactiveFailedBuilds: true,
+  proactiveCooldownMinutes: 10,
+  proactiveMaximumNudgesPerHour: 3,
+  proactiveMutedErrors: Object.freeze([]) as unknown as string[],
+  proactiveMutedFiles: Object.freeze([]) as unknown as string[],
+  proactiveMutedProjects: Object.freeze([]) as unknown as string[],
 });
 
 export const DEFAULT_SYNCED_SETTINGS: SyncedSettings = Object.freeze({
@@ -137,6 +160,8 @@ function cleanExclusions(value: unknown): string[] {
   ).map((item) => item.trim().replaceAll("\\", "/")))).slice(0, 100);
 }
 
+const cleanIdentifiers = (value: unknown, pattern: RegExp, maximum = 200): string[] => Array.isArray(value) ? Array.from(new Set(value.filter((item): item is string => typeof item === "string" && pattern.test(item)))).slice(0, maximum) : [];
+
 export function normalizeLocalSettings(value: unknown): LocalSettings {
   const source = plainObject(value) ? value : {};
   const editor = plainObject(source.editor) ? source.editor : {};
@@ -164,6 +189,16 @@ export function normalizeLocalSettings(value: unknown): LocalSettings {
     multiFileMaximumFiles: boundedInt(source.multiFileMaximumFiles, DEFAULT_LOCAL_SETTINGS.multiFileMaximumFiles, 1, 10),
     multiFileMaximumChangedLines: boundedInt(source.multiFileMaximumChangedLines, DEFAULT_LOCAL_SETTINGS.multiFileMaximumChangedLines, 25, 5_000),
     multiFileMaximumGeneratedBytes: boundedInt(source.multiFileMaximumGeneratedBytes, DEFAULT_LOCAL_SETTINGS.multiFileMaximumGeneratedBytes, 10_000, 1_000_000),
+    proactiveObserverMode: ["off", "manual", "assist"].includes(String(source.proactiveObserverMode)) ? source.proactiveObserverMode as ProactiveObserverMode : DEFAULT_LOCAL_SETTINGS.proactiveObserverMode,
+    proactivePersistentDiagnostics: bool(source.proactivePersistentDiagnostics, DEFAULT_LOCAL_SETTINGS.proactivePersistentDiagnostics),
+    proactiveFailedRuns: bool(source.proactiveFailedRuns, DEFAULT_LOCAL_SETTINGS.proactiveFailedRuns),
+    proactiveFailedTests: bool(source.proactiveFailedTests, DEFAULT_LOCAL_SETTINGS.proactiveFailedTests),
+    proactiveFailedBuilds: bool(source.proactiveFailedBuilds, DEFAULT_LOCAL_SETTINGS.proactiveFailedBuilds),
+    proactiveCooldownMinutes: boundedInt(source.proactiveCooldownMinutes, DEFAULT_LOCAL_SETTINGS.proactiveCooldownMinutes, 1, 1_440),
+    proactiveMaximumNudgesPerHour: boundedInt(source.proactiveMaximumNudgesPerHour, DEFAULT_LOCAL_SETTINGS.proactiveMaximumNudgesPerHour, 1, 10),
+    proactiveMutedErrors: cleanIdentifiers(source.proactiveMutedErrors, /^[a-f0-9]{16}$/),
+    proactiveMutedFiles: cleanIdentifiers(source.proactiveMutedFiles, /^(?!\/)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))[^\0]{1,4096}$/),
+    proactiveMutedProjects: cleanIdentifiers(source.proactiveMutedProjects, /^[a-f0-9]{64}$/),
   };
 }
 
@@ -227,4 +262,5 @@ export interface SettingsBridge {
   clearObserverHistory: () => Promise<IpcResult<void>>;
   getWorkspaceTabs: (workspaceId: string) => Promise<IpcResult<string[]>>;
   saveWorkspaceTabs: (workspaceId: string, paths: string[]) => Promise<IpcResult<void>>;
+  recordProactiveFeedback: (record: ProactiveFeedbackRecord) => Promise<IpcResult<void>>;
 }

@@ -54,6 +54,8 @@ import {
 import { GIT_CHANNELS, type GitBridge, type GitDiffRequest } from "../shared/git";
 import { CHECKPOINT_CHANNELS, type CheckpointBridge, type CreateCheckpointRequest, type RestoreCheckpointRequest } from "../shared/checkpoints";
 import { MULTI_FILE_CHANNELS, type MultiFileApplyRequest, type MultiFileBridge, type MultiFileGenerateRequest, type MultiFileLimits, type MultiFileOutcomeRequest, type MultiFilePlan, type MultiFilePlanRequest } from "../shared/multi-file-change";
+import type { ProactiveFeedbackRecord } from "../shared/proactive-observer";
+import { VERIFICATION_TASK_CHANNELS, type VerificationTaskBridge, type VerificationTaskRequest } from "../shared/verification-task";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -172,6 +174,7 @@ const settingsBridge: SettingsBridge = Object.freeze({
   clearObserverHistory: () => ipcRenderer.invoke(SETTINGS_CHANNELS.clearObserverHistory),
   getWorkspaceTabs: (workspaceId: string) => ipcRenderer.invoke(SETTINGS_CHANNELS.getWorkspaceTabs, workspaceId),
   saveWorkspaceTabs: (workspaceId: string, paths: string[]) => ipcRenderer.invoke(SETTINGS_CHANNELS.saveWorkspaceTabs, workspaceId, paths),
+  recordProactiveFeedback: (record: ProactiveFeedbackRecord) => ipcRenderer.invoke(SETTINGS_CHANNELS.recordProactiveFeedback, record),
 });
 
 contextBridge.exposeInMainWorld("settings", settingsBridge);
@@ -199,3 +202,6 @@ const multiFileBridge: MultiFileBridge = Object.freeze({
   outcome: (request: MultiFileOutcomeRequest) => ipcRenderer.invoke(MULTI_FILE_CHANNELS.outcome, request),
 });
 contextBridge.exposeInMainWorld("multiFileObserver", multiFileBridge);
+
+const verificationTaskBridge: VerificationTaskBridge = Object.freeze({ run: (request: VerificationTaskRequest) => ipcRenderer.invoke(VERIFICATION_TASK_CHANNELS.run, request) });
+contextBridge.exposeInMainWorld("verificationTask", verificationTaskBridge);

@@ -76,6 +76,17 @@ import {
   type CommandHandlers,
   type CommandState,
 } from "./commands";
+import {
+  ProactiveObserverEngine,
+  proactiveFeedback,
+  type DiagnosticSignal,
+  type ProactiveAction,
+  type ProactiveEvent,
+  type ProactiveNudge,
+  type ProactiveObservation,
+  type ProactiveOutcome,
+  type ProactiveSettingsSnapshot,
+} from "../../shared/proactive-observer";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -167,6 +178,7 @@ interface EditorWorkspaceProps {
   onReloadExternal: (relativePath: string) => void;
   onKeepLocal: (relativePath: string) => void;
   onObserverContextChange: (snapshot: EditorObserverSnapshot) => void;
+  onDiagnosticsChange: (relativePath: string, diagnostics: DiagnosticSignal[]) => void;
   markdownViewMode: MarkdownViewMode;
   onMarkdownViewModeChange: (mode: MarkdownViewMode) => void;
   editorSettings: LocalSettings["editor"];
@@ -188,6 +200,7 @@ function EditorWorkspace({
   onReloadExternal,
   onKeepLocal,
   onObserverContextChange,
+  onDiagnosticsChange,
   markdownViewMode,
   onMarkdownViewModeChange,
   editorSettings,
@@ -441,6 +454,12 @@ function EditorWorkspace({
                 emitObserverContext();
               }}
               onChange={(value) => onChange(activeTab.file.relativePath, value ?? "")}
+              onValidate={(markers) => onDiagnosticsChange(activeTab.file.relativePath, markers.map((marker) => ({
+                severity: marker.severity === 8 ? "error" : marker.severity === 4 ? "warning" : marker.severity === 2 ? "info" : "hint",
+                message: marker.message,
+                line: marker.startLineNumber,
+                column: marker.startColumn,
+              })))}
               loading={<Placeholder icon="⋯">Starting editor…</Placeholder>}
               saveViewState
               options={{
@@ -518,8 +537,7 @@ export default function App({ user, onSignOut }: AppProps) {
   } | null>(null);
   const [bottomCommandRequest, setBottomCommandRequest] = useState<{
     token: number;
-    action: "terminal" | "output" | "new-terminal" | "run-verification";
-    commands?: string[];
+    action: "terminal" | "output" | "new-terminal";
   } | null>(null);
   const [terminalState, setTerminalState] = useState({ active: false, creating: false });
   const [observerFocusToken, setObserverFocusToken] = useState(0);
@@ -542,12 +560,17 @@ export default function App({ user, onSignOut }: AppProps) {
   const [multiFileError, setMultiFileError] = useState<string | null>(null);
   const [multiFileActiveIndex, setMultiFileActiveIndex] = useState(0);
   const [multiFilePreviewPhase, setMultiFilePreviewPhase] = useState<"plan" | "generate" | null>(null);
+  const [proactiveNudge, setProactiveNudge] = useState<ProactiveNudge | null>(null);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
   const requestSequence = useRef(0);
   const externalReadSequence = useRef(new Map<string, number>());
   const outputSequence = useRef(0);
+  const proactiveEngineRef = useRef(new ProactiveObserverEngine());
+  const proactiveDiagnosticsRef = useRef(new Map<string, DiagnosticSignal[]>());
+  const proactiveEvidenceRef = useRef(new Map<string, { message: string; runError?: string }>());
+  const proactiveFailureReportedRef = useRef(false);
 
   useEffect(() => {
     void Promise.all([window.settings.getLocal(), window.settings.getSynced(), window.settings.providerStatus()]).then(([local, synced, providers]) => {
@@ -586,6 +609,36 @@ export default function App({ user, onSignOut }: AppProps) {
     []
   );
 
+  const recordProactiveOutcome = useCallback((event: ProactiveEvent, outcome: ProactiveOutcome) => {
+    void window.settings.recordProactiveFeedback(proactiveFeedback(event, outcome)).then((result) => {
+      if (!result.ok && !proactiveFailureReportedRef.current) {
+        proactiveFailureReportedRef.current = true;
+        appendOutput("Proactive Observer local feedback could not be recorded. Detection continues safely.", "error");
+      }
+    });
+  }, [appendOutput]);
+
+  const consumeProactiveObservation = useCallback((observation: ProactiveObservation, evidence?: { message: string; runError?: string }) => {
+    if (observation.failedSafely) {
+      if (!proactiveFailureReportedRef.current) {
+        proactiveFailureReportedRef.current = true;
+        appendOutput("Proactive Observer detection failed safely; no assistance request was made.", "error");
+      }
+      return;
+    }
+    for (const event of observation.resolved) {
+      proactiveEvidenceRef.current.delete(event.normalizedSignature);
+      recordProactiveOutcome(event, "resolved");
+    }
+    if (observation.nudge) {
+      if (evidence) proactiveEvidenceRef.current.set(observation.nudge.event.normalizedSignature, evidence);
+      setProactiveNudge(observation.nudge);
+      recordProactiveOutcome(observation.nudge.event, "shown");
+    } else if (!proactiveEngineRef.current.currentNudge()) {
+      setProactiveNudge(null);
+    }
+  }, [appendOutput, recordProactiveOutcome]);
+
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
@@ -605,6 +658,18 @@ export default function App({ user, onSignOut }: AppProps) {
     ? observerMode
     : activeIsMarkdown ? "explain_document" : "explain";
   const multiFileLimits = useMemo<MultiFileLimits>(() => ({ maximumFiles: localSettings.multiFileMaximumFiles, maximumChangedLines: localSettings.multiFileMaximumChangedLines, maximumGeneratedBytes: localSettings.multiFileMaximumGeneratedBytes }), [localSettings.multiFileMaximumChangedLines, localSettings.multiFileMaximumFiles, localSettings.multiFileMaximumGeneratedBytes]);
+  const proactiveSettings = useMemo<ProactiveSettingsSnapshot>(() => ({
+    mode: localSettings.proactiveObserverMode,
+    persistentDiagnostics: localSettings.proactivePersistentDiagnostics,
+    failedRuns: localSettings.proactiveFailedRuns,
+    failedTests: localSettings.proactiveFailedTests,
+    failedBuilds: localSettings.proactiveFailedBuilds,
+    cooldownMinutes: localSettings.proactiveCooldownMinutes,
+    maximumNudgesPerHour: localSettings.proactiveMaximumNudgesPerHour,
+    mutedErrors: localSettings.proactiveMutedErrors,
+    mutedFiles: localSettings.proactiveMutedFiles,
+    mutedProjects: localSettings.proactiveMutedProjects,
+  }), [localSettings]);
 
   const observerRequest = useMemo<ObserverPrepareRequest | null>(() => {
     if (!syncedSettings.observerEnabled || !activeTab || activeTab.availability !== "available" || activeTab.externalConflict || isExcludedFromAiContext(activeTab.file.relativePath, localSettings.aiContextExclusions)) return null;
@@ -722,8 +787,16 @@ export default function App({ user, onSignOut }: AppProps) {
       })
     );
     appendOutput(`Saved ${tab.file.relativePath}.`, "success");
+    if (openedWorkspace) {
+      consumeProactiveObservation(proactiveEngineRef.current.observeDiagnosticCycle(
+        openedWorkspace.workspaceId,
+        tab.file.relativePath,
+        proactiveDiagnosticsRef.current.get(tab.file.relativePath) ?? [],
+        proactiveSettings
+      ));
+    }
     return !hasNewerChanges;
-  }, [appendOutput]);
+  }, [appendOutput, consumeProactiveObservation, openedWorkspace, proactiveSettings]);
 
   const askAboutUnsavedChanges = useCallback(
     (details: Omit<UnsavedPrompt, "resolve">): Promise<UnsavedChoice> => {
@@ -818,6 +891,10 @@ export default function App({ user, onSignOut }: AppProps) {
 
   const clearWorkspaceTabs = useCallback((workspace: OpenWorkspace) => {
     requestSequence.current += 1;
+    proactiveEngineRef.current = new ProactiveObserverEngine();
+    proactiveDiagnosticsRef.current.clear();
+    proactiveEvidenceRef.current.clear();
+    setProactiveNudge(null);
     setTabs([]);
     setActivePath(null);
     setSurface({ status: "idle" });
@@ -855,6 +932,12 @@ export default function App({ user, onSignOut }: AppProps) {
       });
     }
   }, [appendOutput, localSettings.restoreOpenTabs, selectFile]);
+
+  useEffect(() => {
+    if (localSettings.proactiveObserverMode === "assist") return;
+    proactiveEngineRef.current.clearActive();
+    setProactiveNudge(null);
+  }, [localSettings.proactiveObserverMode]);
 
   const startupAttempted = useRef(false);
   useEffect(() => {
@@ -904,6 +987,11 @@ export default function App({ user, onSignOut }: AppProps) {
   }, []);
 
   const deleteOpenEntries = useCallback((relativePath: string, kind: WorkspaceEntry["kind"]) => {
+    if (openedWorkspace) {
+      for (const tab of tabsRef.current.filter((candidate) => workspaceEntryContainsPath(candidate.file.relativePath, relativePath, kind))) {
+        consumeProactiveObservation(proactiveEngineRef.current.resolveFile(openedWorkspace.workspaceId, tab.file.relativePath));
+      }
+    }
     const currentTabs = tabsRef.current;
     const remaining = currentTabs.filter(
       (tab) => !workspaceEntryContainsPath(tab.file.relativePath, relativePath, kind)
@@ -917,7 +1005,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setMarkdownViewModes((current) => Object.fromEntries(
       Object.entries(current).filter(([path]) => !workspaceEntryContainsPath(path, relativePath, kind))
     ));
-  }, []);
+  }, [consumeProactiveObservation, openedWorkspace]);
 
   const getDeleteImpact = useCallback((entry: WorkspaceEntry) => {
     const affected = tabsRef.current.filter((tab) =>
@@ -969,6 +1057,7 @@ export default function App({ user, onSignOut }: AppProps) {
     for (const snapshot of tabsRef.current) {
       const deleted = batchDeletesPath(batch, snapshot.file.relativePath);
       if (deleted) {
+        if (openedWorkspace) consumeProactiveObservation(proactiveEngineRef.current.resolveFile(openedWorkspace.workspaceId, snapshot.file.relativePath));
         externalReadSequence.current.set(
           snapshot.file.relativePath,
           (externalReadSequence.current.get(snapshot.file.relativePath) ?? 0) + 1
@@ -1037,7 +1126,7 @@ export default function App({ user, onSignOut }: AppProps) {
         );
       });
     }
-  }), [appendOutput]);
+  }), [appendOutput, consumeProactiveObservation, openedWorkspace]);
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -1070,6 +1159,7 @@ export default function App({ user, onSignOut }: AppProps) {
       });
     });
     const unsubscribeComplete = window.runner.onComplete((event) => {
+      const completedRun = runOutputRef.current;
       setRunOutput((current) => {
         if (!current || current.runId !== event.runId) return current;
         const updated: RunOutputState = {
@@ -1089,13 +1179,35 @@ export default function App({ user, onSignOut }: AppProps) {
           : `Run ${event.status} in ${event.durationMs} ms${event.exitCode === null ? "" : ` (exit ${event.exitCode})`}.`,
         kind
       );
+      if (openedWorkspace && completedRun && event.status !== "stopped") {
+        const diagnostic = event.diagnostics[0];
+        const relevantError = event.status === "failed"
+          ? relevantObserverRunError(completedRun.stderr, diagnostic ? {
+              fileName: diagnostic.relativePath.split("/").at(-1) ?? diagnostic.relativePath,
+              line: diagnostic.line,
+              column: diagnostic.column,
+              message: diagnostic.message,
+            } : undefined)
+          : undefined;
+        consumeProactiveObservation(proactiveEngineRef.current.observeObjectiveFailure({
+          kind: "run",
+          workspaceId: openedWorkspace.workspaceId,
+          relativePath: completedRun.relativePath,
+          ...(diagnostic ? { line: diagnostic.line, column: diagnostic.column } : {}),
+          message: diagnostic?.message ?? relevantError ?? `exit:${event.exitCode ?? "unknown"}`,
+          succeeded: event.status === "succeeded",
+        }, proactiveSettings), {
+          message: diagnostic?.message ?? relevantError ?? "The controlled run returned a non-zero result.",
+          ...(relevantError ? { runError: relevantError } : {}),
+        });
+      }
       setOutputFocusToken((current) => current + 1);
     });
     return () => {
       unsubscribeOutput();
       unsubscribeComplete();
     };
-  }, [appendOutput]);
+  }, [appendOutput, consumeProactiveObservation, openedWorkspace, proactiveSettings]);
 
   const runCurrentFile = useCallback(async () => {
     if (runOutputRef.current?.status === "running") {
@@ -1333,6 +1445,92 @@ export default function App({ user, onSignOut }: AppProps) {
     setContextPreviewRequest(prepared.value);
   }, [activeTab, appendOutput, observerEditReview, observerRequest, observerSuggestion]);
 
+  const finishProactiveNudge = useCallback((outcome: Exclude<ProactiveOutcome, "shown" | "resolved">) => {
+    const event = proactiveEngineRef.current.dismiss(outcome);
+    setProactiveNudge(null);
+    if (event) recordProactiveOutcome(event, outcome);
+    return event;
+  }, [recordProactiveOutcome]);
+
+  const updateProactiveLocal = useCallback(async (update: (current: LocalSettings) => LocalSettings) => {
+    const result = await window.settings.updateLocal(update(localSettings));
+    if (result.ok) setLocalSettings(result.value);
+    else appendOutput(`Proactive Observer settings: ${result.error}`, "error");
+  }, [appendOutput, localSettings]);
+
+  const handleProactiveAction = useCallback(async (action: ProactiveAction) => {
+    const event = proactiveNudge?.event;
+    if (!event || !syncedSettings.observerEnabled) return;
+    const evidence = proactiveEvidenceRef.current.get(event.normalizedSignature);
+    let tab = event.relativePath ? tabsRef.current.find((candidate) => candidate.file.relativePath === event.relativePath) : undefined;
+    if (!tab && event.relativePath) {
+      const read = await window.workspace.readFile(event.relativePath);
+      if (read.ok) {
+        tab = { file: read.value, draft: read.value.content, saving: false, saveStatus: null, availability: "available", externalConflict: null, externalNotice: null };
+        await selectFile({ name: read.value.name, relativePath: read.value.relativePath, kind: "file", isSymbolicLink: false });
+      }
+    }
+    tab ??= tabsRef.current.find((candidate) => candidate.file.relativePath === activePath);
+    if (!tab || isExcludedFromAiContext(tab.file.relativePath, localSettings.aiContextExclusions)) {
+      appendOutput("The proactive event has no safe file context to preview.", "error");
+      return;
+    }
+    const mode: ObserverMode = action === "explain" || action === "investigate" ? "explain" : "fix_error";
+    const lines = tab.draft.split("\n");
+    const cursorLine = event.line ?? 1;
+    const start = Math.max(0, cursorLine - 21);
+    const end = Math.min(lines.length, cursorLine + 20);
+    const prepare: ObserverPrepareRequest = {
+      provider: observerProvider,
+      ...(observerProvider === syncedSettings.preferredProvider ? { model: syncedSettings.preferredModel } : {}),
+      storeHistory: syncedSettings.storeSuggestionHistory,
+      seed: {
+        mode,
+        kind: isMarkdownFile(tab.file.name) ? "doc" : "code",
+        activeRelativePath: tab.file.relativePath,
+        fileName: tab.file.name,
+        language: monacoLanguageForFile(tab.file.name),
+        content: tab.draft,
+        activeContentDirty: isDirty(tab),
+        cursorLine,
+        cursorColumn: event.column ?? 1,
+        nearbyCode: lines.slice(start, end).join("\n"),
+        ...(syncedSettings.includeDiagnostics && (event.line || evidence?.message) ? { diagnostic: { fileName: tab.file.name, line: event.line ?? 1, column: event.column ?? 1, message: evidence?.message ?? event.reason } } : {}),
+        ...(syncedSettings.includeTerminalError && evidence?.runError ? { runError: evidence.runError } : {}),
+        exclusions: localSettings.aiContextExclusions,
+        maximumTotalCharacters: syncedSettings.maximumContextChars,
+        maximumRelatedFiles: localSettings.contextMaximumRelatedFiles,
+        maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
+      },
+    };
+    finishProactiveNudge(action);
+    setObserverMode(mode);
+    setObserverStatus("thinking");
+    const prepared = await window.observer.prepare(prepare);
+    setObserverStatus("idle");
+    if (!prepared.ok) {
+      setObserverError(prepared.error);
+      setObserverStatus("error");
+      return;
+    }
+    setContextPreviewRequest(prepared.value);
+  }, [activePath, appendOutput, finishProactiveNudge, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, observerProvider, proactiveNudge, selectFile, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+
+  const muteProactiveNudge = useCallback((scope: "error" | "file" | "project") => {
+    const event = finishProactiveNudge(scope === "error" ? "mute_error" : scope === "file" ? "mute_file" : "mute_project");
+    if (!event) return;
+    void updateProactiveLocal((current) => scope === "error"
+      ? { ...current, proactiveMutedErrors: Array.from(new Set([...current.proactiveMutedErrors, event.normalizedSignature])) }
+      : scope === "file" && event.relativePath
+        ? { ...current, proactiveMutedFiles: Array.from(new Set([...current.proactiveMutedFiles, event.relativePath])) }
+        : { ...current, proactiveMutedProjects: Array.from(new Set([...current.proactiveMutedProjects, event.workspaceId])) });
+  }, [finishProactiveNudge, updateProactiveLocal]);
+
+  const disableProactiveAssist = useCallback(() => {
+    finishProactiveNudge("disable_assist");
+    void updateProactiveLocal((current) => ({ ...current, proactiveObserverMode: "manual" }));
+  }, [finishProactiveNudge, updateProactiveLocal]);
+
   const rejectObserverEdit = useCallback(() => {
     const suggestionId = observerEditReview?.suggestion.id;
     setObserverEditReview(null);
@@ -1458,6 +1656,17 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [contextPreviewRequest]);
 
   useEffect(() => {
+    if (!proactiveNudge || contextPreviewRequest || observerEditReview || settingsOpen) return;
+    const dismissNudge = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      finishProactiveNudge("not_now");
+    };
+    window.addEventListener("keydown", dismissNudge, { capture: true });
+    return () => window.removeEventListener("keydown", dismissNudge, { capture: true });
+  }, [contextPreviewRequest, finishProactiveNudge, observerEditReview, proactiveNudge, settingsOpen]);
+
+  useEffect(() => {
     if (observerStatus !== "ready" || !observerSuggestion) return;
     const handleObserverDismiss = (event: KeyboardEvent) => {
       if (!isObserverDismissShortcut(event)) return;
@@ -1504,6 +1713,10 @@ export default function App({ user, onSignOut }: AppProps) {
       return;
     }
     requestSequence.current += 1;
+    proactiveEngineRef.current = new ProactiveObserverEngine();
+    proactiveDiagnosticsRef.current.clear();
+    proactiveEvidenceRef.current.clear();
+    setProactiveNudge(null);
     setTabs([]);
     setActivePath(null);
     setSurface({ status: "idle" });
@@ -1588,9 +1801,38 @@ export default function App({ user, onSignOut }: AppProps) {
     setExplorerCommandRequest({ token: Date.now() + Math.random(), action });
   }, []);
 
-  const issueBottomCommand = useCallback((action: "terminal" | "output" | "new-terminal" | "run-verification", commands?: string[]) => {
-    setBottomCommandRequest({ token: Date.now() + Math.random(), action, ...(commands ? { commands } : {}) });
+  const issueBottomCommand = useCallback((action: "terminal" | "output" | "new-terminal") => {
+    setBottomCommandRequest({ token: Date.now() + Math.random(), action });
   }, []);
+
+  const runVerificationTasks = useCallback(async (commands: string[]) => {
+    if (!openedWorkspace) return;
+    setOutputFocusToken((current) => current + 1);
+    for (const command of commands) {
+      appendOutput(`Running explicit verification: ${command}`);
+      const result = await window.verificationTask.run({ taskId: crypto.randomUUID(), command });
+      if (!result.ok) {
+        appendOutput(result.error, "error");
+        continue;
+      }
+      const task = result.value;
+      if (task.stdout.trim()) appendOutput(task.stdout.slice(-8_000));
+      if (task.stderr.trim()) appendOutput(task.stderr.slice(-8_000), task.status === "succeeded" ? "info" : "error");
+      appendOutput(`${task.kind === "test" ? "Test" : "Build"} ${task.status} in ${task.durationMs} ms${task.exitCode === null ? "" : ` (exit ${task.exitCode})`}.`, task.status === "succeeded" ? "success" : "error");
+      const message = `${command}\n${task.stderr || task.stdout || `exit:${task.exitCode ?? "unknown"}`}`.slice(0, 16_000);
+      consumeProactiveObservation(proactiveEngineRef.current.observeObjectiveFailure({
+        kind: task.kind,
+        workspaceId: openedWorkspace.workspaceId,
+        ...(activePath ? { relativePath: activePath } : {}),
+        message,
+        succeeded: task.status === "succeeded",
+      }, proactiveSettings), {
+        message: (task.stderr || task.stdout).slice(-2_000) || `The explicit ${task.kind} action failed.`,
+        ...(task.stderr ? { runError: task.stderr.slice(-8_000) } : {}),
+      });
+      if (task.status !== "succeeded") break;
+    }
+  }, [activePath, appendOutput, consumeProactiveObservation, openedWorkspace, proactiveSettings]);
 
   const commandState = useMemo<CommandState>(() => ({
     workspaceOpen,
@@ -1837,7 +2079,7 @@ export default function App({ user, onSignOut }: AppProps) {
               onRunVerification={() => {
                 const commands = safeVerificationCommands(multiFileApplied.changeSet.verificationSuggestions);
                 if (!commands) { appendOutput("Suggested verification contains an unsupported or unsafe command. Review and run it manually in the terminal.", "error"); issueBottomCommand("terminal"); return; }
-                if (window.confirm(`Run these commands in the workspace terminal?\n\n${commands.join("\n")}`)) issueBottomCommand("run-verification", commands);
+                if (window.confirm(`Run these controlled verification actions?\n\n${commands.join("\n")}`)) void runVerificationTasks(commands);
               }}
             />
           ) : multiFileChangeSet ? (
@@ -1908,6 +2150,9 @@ export default function App({ user, onSignOut }: AppProps) {
             onReloadExternal={reloadExternalVersion}
             onKeepLocal={keepLocalChanges}
             onObserverContextChange={setObserverSnapshot}
+            onDiagnosticsChange={(relativePath, diagnostics) => {
+              proactiveDiagnosticsRef.current.set(relativePath, diagnostics);
+            }}
             markdownViewMode={activeMarkdownViewMode}
             onMarkdownViewModeChange={(mode) => {
               if (!activePath) return;
@@ -1947,6 +2192,11 @@ export default function App({ user, onSignOut }: AppProps) {
             focusToken={observerFocusToken}
             multiFileDescription={multiFileDescription}
             onMultiFileDescriptionChange={setMultiFileDescription}
+            proactiveNudge={proactiveNudge}
+            onProactiveAction={(action) => void handleProactiveAction(action)}
+            onProactiveNotNow={() => finishProactiveNudge("not_now")}
+            onProactiveMute={muteProactiveNudge}
+            onDisableProactiveAssist={disableProactiveAssist}
           />
         </aside>
 
@@ -1966,7 +2216,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 9B Safe Change Sets</span>
+        <span>Phase 10A Optional Proactive Observer</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 

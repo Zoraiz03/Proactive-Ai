@@ -1182,6 +1182,18 @@ button.tree-row {
 .observer-ask:hover:not(:disabled) { background: #7357cc; }
 .observer-ask:disabled { border-color: #343c49; background: #242a34; color: #687385; cursor: default; }
 .observer-shortcut { color: #687385; font-family: "SFMono-Regular", Consolas, monospace; font-size: 8px; text-align: center; }
+.proactive-nudge { margin: 0 9px 9px; padding: 10px; border: 1px solid #5d7190; border-radius: 7px; background: #182230; color: #dce5ef; }
+.proactive-nudge-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; color: #93b9df; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
+.proactive-nudge-heading button { border: 0; background: transparent; color: #aeb9c7; font-size: 16px; cursor: pointer; }
+.proactive-nudge > strong { display: block; font-size: 11px; line-height: 1.4; }
+.proactive-nudge > p { margin: 6px 0; color: #aeb9c7; font-size: 9px; line-height: 1.45; }
+.proactive-nudge > small { display: block; color: #7f91a5; font-size: 8px; line-height: 1.4; }
+.proactive-nudge-actions, .proactive-mute-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.proactive-nudge-actions button, .proactive-mute-actions button { border: 1px solid #46586d; border-radius: 5px; padding: 5px 7px; background: #222e3d; color: #d7e0e9; font-size: 9px; cursor: pointer; }
+.proactive-nudge button:focus-visible, .proactive-nudge summary:focus-visible { outline: 2px solid #8abff0; outline-offset: 2px; }
+.proactive-nudge details { margin-top: 8px; color: #8fa0b3; font-size: 9px; }
+.proactive-nudge summary { cursor: pointer; }
+:root[data-theme="light"] .proactive-nudge { background: #f4f8fc; border-color: #8ba6bf; color: #203044; }
 
 .observer-result {
   min-height: 0;
@@ -2056,6 +2068,9 @@ button.tree-row {
 .mandatory-exclusions { display: flex; flex-direction: column; gap: 7px; padding: 12px; background: #191f28; border-radius: 7px; margin-top: 12px; }
 .mandatory-exclusions code { white-space: normal; color: #c3d0df; }
 .settings-message { margin-top: 20px !important; padding: 10px; border: 1px solid #2c6b4b; background: #12291d; border-radius: 6px; color: #b7eccd !important; }
+.proactive-mute-list { display: grid; gap: 6px; }
+.proactive-mute-list > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border: 1px solid #303b49; border-radius: 6px; }
+.proactive-mute-list code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b9c9da; }
 
 :root[data-theme="light"] body, :root[data-theme="light"] .app-shell { background: #f3f5f8; color: #1d2733; }
 :root[data-theme="light"] .top-bar, :root[data-theme="light"] .panel, :root[data-theme="light"] .status-bar { background: #fff; color: #1d2733; border-color: #cdd5df; }

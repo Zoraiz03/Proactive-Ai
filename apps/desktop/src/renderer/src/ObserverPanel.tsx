@@ -9,6 +9,7 @@ import {
   OBSERVER_PROVIDER_LABELS,
 } from "../../shared/observer";
 import { useEffect, useRef } from "react";
+import type { ProactiveAction, ProactiveNudge } from "../../shared/proactive-observer";
 
 export type ObserverStatus = "idle" | "thinking" | "ready" | "error";
 
@@ -32,6 +33,11 @@ interface ObserverPanelProps {
   focusToken: number;
   multiFileDescription: string;
   onMultiFileDescriptionChange: (value: string) => void;
+  proactiveNudge: ProactiveNudge | null;
+  onProactiveAction: (action: ProactiveAction) => void;
+  onProactiveNotNow: () => void;
+  onProactiveMute: (scope: "error" | "file" | "project") => void;
+  onDisableProactiveAssist: () => void;
 }
 
 export default function ObserverPanel({
@@ -54,6 +60,11 @@ export default function ObserverPanel({
   focusToken,
   multiFileDescription,
   onMultiFileDescriptionChange,
+  proactiveNudge,
+  onProactiveAction,
+  onProactiveNotNow,
+  onProactiveMute,
+  onDisableProactiveAssist,
 }: ObserverPanelProps) {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
@@ -111,6 +122,33 @@ export default function ObserverPanel({
         <span className="observer-shortcut">Ctrl/⌘ + Enter</span>
         <button type="button" onClick={onUndo} disabled={!canUndo}>Undo Observer Change</button>
       </div>
+
+      {proactiveNudge && (
+        <article className="proactive-nudge" aria-label="Proactive Observer suggestion">
+          <div className="proactive-nudge-heading">
+            <span>Local proactive signal</span>
+            <button type="button" onClick={onProactiveNotNow} aria-label="Dismiss proactive suggestion" title="Not now (Escape)">×</button>
+          </div>
+          <strong>{proactiveNudge.title}</strong>
+          <p>{proactiveNudge.event.reason}</p>
+          <small>No code or output has been sent. An action opens Context Preview first.</small>
+          <div className="proactive-nudge-actions">
+            <button type="button" onClick={() => onProactiveAction("investigate")}>Investigate</button>
+            <button type="button" onClick={() => onProactiveAction("explain")}>Explain</button>
+            <button type="button" onClick={() => onProactiveAction("suggest_fix")}>Suggest Fix</button>
+            <button type="button" onClick={onProactiveNotNow}>Not Now</button>
+          </div>
+          <details>
+            <summary>Mute options</summary>
+            <div className="proactive-mute-actions">
+              <button type="button" onClick={() => onProactiveMute("error")}>Mute this error</button>
+              <button type="button" onClick={() => onProactiveMute("file")} disabled={!proactiveNudge.event.relativePath}>Mute this file</button>
+              <button type="button" onClick={() => onProactiveMute("project")}>Mute this project</button>
+              <button type="button" onClick={onDisableProactiveAssist}>Disable Assist Mode</button>
+            </div>
+          </details>
+        </article>
+      )}
 
       <div className="observer-result" aria-live="polite">
         {status === "idle" && (

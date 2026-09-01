@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, test } from "node:test";
 import { SettingsApiClient } from "./settings-client.ts";
-import { clearLocalObserverHistory, LocalSettingsStore, WorkspaceTabStore } from "./settings-store.ts";
+import { clearLocalObserverHistory, LocalSettingsStore, parseProactiveFeedback, ProactiveFeedbackStore, WorkspaceTabStore } from "./settings-store.ts";
 import {
   DEFAULT_LOCAL_SETTINGS,
   isExcludedFromAiContext,
@@ -34,6 +34,9 @@ test("uses restrictive defaults and recovers corrupted or old local settings", a
   assert.equal(recovered.multiFileMaximumFiles, 5);
   assert.equal(recovered.multiFileMaximumChangedLines, 500);
   assert.equal(recovered.multiFileMaximumGeneratedBytes, 200_000);
+  assert.equal(recovered.proactiveObserverMode, "manual");
+  assert.equal(recovered.proactivePersistentDiagnostics, true);
+  assert.equal(recovered.proactiveCooldownMinutes, 10);
   assert.equal("unexpected" in recovered, false);
   const bounded = normalizeLocalSettings({ contextMaximumRelatedFiles: 99, contextMaximumFileCharacters: 100 });
   assert.equal(bounded.contextMaximumRelatedFiles, 4);
@@ -61,10 +64,26 @@ test("stores bounded relative tab metadata without file content", async () => {
 
 test("clears local Observer context history idempotently", async () => {
   const path = join(temporaryDirectory, "observer-context-history.json");
+  const feedbackPath = join(temporaryDirectory, "proactive-observer-feedback.json");
   await writeFile(path, "local metadata");
+  await writeFile(feedbackPath, "local metadata");
   await clearLocalObserverHistory(temporaryDirectory);
   await clearLocalObserverHistory(temporaryDirectory);
   await assert.rejects(readFile(path, "utf8"));
+  await assert.rejects(readFile(feedbackPath, "utf8"));
+});
+
+test("proactive feedback accepts only minimal secret-free metadata", async () => {
+  const record = { version: 1 as const, detectorType: "failed_run" as const, severity: "error" as const, workspaceId: "a".repeat(64), signature: "b".repeat(16), timestamp: 123, outcome: "shown" as const, resolved: false };
+  assert.deepEqual(parseProactiveFeedback(record), record);
+  assert.equal(parseProactiveFeedback({ ...record, rawCode: "secret source" }), null);
+  assert.equal(parseProactiveFeedback({ ...record, signature: "raw error message" }), null);
+  const store = new ProactiveFeedbackStore(temporaryDirectory);
+  await store.append(record);
+  const raw = await readFile(store.filePath, "utf8");
+  assert.match(raw, /failed_run/);
+  assert.doesNotMatch(raw, /source|stderr|relativePath|token|apiKey/);
+  await assert.rejects(store.append({ ...record, terminalOutput: "password=hidden" }));
 });
 
 test("keeps local and synced schemas separate", () => {

@@ -1,3 +1,5 @@
+import { parseVerificationTaskCommand } from "../../shared/verification-task.ts";
+
 export type CommandId =
   | "file.openFolder"
   | "file.closeWorkspace"
@@ -213,6 +215,5 @@ export function shouldPreserveTerminalShortcut(target: unknown, command: "save" 
 }
 
 export function safeVerificationCommands(commands: string[]): string[] | null {
-  const allowed = /^(?:npm (?:test|run (?:test|lint|typecheck|check|build)(?: --[^;&|`$\n\r]+)?)|pnpm (?:test|run (?:test|lint|typecheck|check|build))|yarn (?:test|lint|typecheck|build)|pytest(?: [^;&|`$\n\r]+)?|python(?:3)? -m pytest(?: [^;&|`$\n\r]+)?|cargo (?:test|check)|go test(?: [^;&|`$\n\r]+)?|npx tsc --noEmit|mvn test|gradle test)$/;
-  return commands.length > 0 && commands.every((command) => allowed.test(command.trim())) ? commands.map((command) => command.trim()) : null;
+  return commands.length > 0 && commands.every((command) => parseVerificationTaskCommand(command)) ? commands.map((command) => command.trim()) : null;
 }

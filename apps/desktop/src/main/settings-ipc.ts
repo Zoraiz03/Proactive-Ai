@@ -1,7 +1,7 @@
 import { ipcMain, type BrowserWindow } from "electron";
 import { OBSERVER_PROVIDERS, type ObserverProvider } from "../shared/observer.ts";
 import { SETTINGS_CHANNELS, type SaveApiKeyRequest } from "../shared/settings.ts";
-import { clearLocalObserverHistory, LocalSettingsStore, WorkspaceTabStore } from "./settings-store.ts";
+import { clearLocalObserverHistory, LocalSettingsStore, ProactiveFeedbackStore, WorkspaceTabStore } from "./settings-store.ts";
 import { SettingsApiClient } from "./settings-client.ts";
 
 export function registerSettingsIpc(
@@ -12,6 +12,7 @@ export function registerSettingsIpc(
 ) {
   const store = new LocalSettingsStore(userDataPath);
   const tabStore = new WorkspaceTabStore(userDataPath);
+  const feedbackStore = new ProactiveFeedbackStore(userDataPath);
   const client = new SettingsApiClient(apiBaseUrl, getAccessToken);
   const trusted = (event: Electron.IpcMainInvokeEvent) => event.sender === getWindow()?.webContents;
   const local = async <T>(event: Electron.IpcMainInvokeEvent, action: () => Promise<T>) => {
@@ -39,5 +40,6 @@ export function registerSettingsIpc(
     try { await tabStore.set(workspaceId, paths); return { ok: true, value: undefined }; }
     catch { return { ok: false, error: "Could not save open-tab metadata." }; }
   });
+  ipcMain.handle(SETTINGS_CHANNELS.recordProactiveFeedback, (event, value) => local(event, () => feedbackStore.append(value)));
   return { cleanup: () => Object.values(SETTINGS_CHANNELS).forEach((channel) => ipcMain.removeHandler(channel)) };
 }

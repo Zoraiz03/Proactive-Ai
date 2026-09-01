@@ -86,6 +86,6 @@ test("review UI requires whole-set approval and never runs verification automati
   const review = readFileSync(new URL("../renderer/src/MultiFileChangeWorkspace.tsx", import.meta.url), "utf8");
   const app = readFileSync(new URL("../renderer/src/App.tsx", import.meta.url), "utf8");
   assert.match(review, /Approve Plan/); assert.match(review, /Approve Entire Change Set/); assert.match(review, /Reject Entire Set/); assert.match(review, /Regenerate Entire Set/);
-  assert.match(review, /Nothing runs unless you explicitly choose it/); assert.match(app, /window\.confirm\(`Run these commands/); assert.match(app, /safeVerificationCommands/);
+  assert.match(review, /Nothing runs unless you explicitly choose it/); assert.match(app, /window\.confirm\(`Run these controlled verification actions/); assert.match(app, /safeVerificationCommands/); assert.match(app, /verificationTask\.run/);
   assert.doesNotMatch(app, /issueBottomCommand\("run-verification"\s*\)/);
 });

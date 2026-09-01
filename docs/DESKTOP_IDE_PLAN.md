@@ -759,28 +759,56 @@ Required verification:
 - [x] **Complete** — No Supabase migration was required; the existing owner-scoped
   suggestions table stores metadata-only records through authenticated requests.
 
-## Phase 10 — Proactive Observer V1
+## Phase 10 — Proactive Observer
 
 **Goal:** Offer optional, quiet help only for verified technical events while keeping
 the user in control of every AI request and change.
 
-- [ ] **Not Started** — Detect only real errors, failed tests/builds, missing imports,
-  and validated code/document mismatches.
-- [ ] **Not Started** — Keep alerts optional, quiet, deduplicated, explainable, and
-  dismissible; never use cursor movement or repeated typing as a signal.
-- [ ] **Not Started** — Require user permission before an alert sends any context or
-  starts an AI request.
-- [ ] **Not Started** — Reuse Phase 8 context preview and Phase 9 review/rollback
-  boundaries; do not create autonomous loops or execute commands automatically.
-- [ ] **Not Started** — Keep packaging/signing/release readiness deferred to a later
-  separately approved phase.
+### Phase 10A — Optional Proactive Observer V1
+
+- [x] **Complete** — Add Off, Manual, and Assist modes. Manual is the versioned local
+  default for existing and new users; Assist requires explicit privacy-confirmed opt-in.
+- [x] **Complete** — Detect locally only: the same error-level Monaco marker across two
+  save/validation cycles, failed Run Current File, and failed explicitly approved
+  test/build actions. Warnings, transient typing errors, arbitrary terminal text,
+  cursor/typing behavior, emotion inference, document drift, missing-import special
+  cases, and background monitoring are excluded from V1.
+- [x] **Complete** — Normalize events into a typed, secret-free hashed signature with
+  detector/severity, pseudonymous workspace ID, optional relative context reference,
+  occurrence/timing/resolution state, deterministic reason, actions, and cooldown data.
+- [x] **Complete** — Show at most one quiet nonmodal Observer nudge with its local
+  reason and Investigate, Explain, Suggest Fix, Not Now, mute-error/file/project, and
+  Disable Assist actions. Escape dismisses without focus stealing, sound, modal UI, or
+  continuous animation.
+- [x] **Complete** — Detection and nudge actions make zero model calls. Assistance
+  actions prepare Phase 8 Context Preview; only explicit Send may contact the backend,
+  and Phase 9 review/rollback remains required for proposed edits.
+- [x] **Complete** — Enforce a 10-minute global cooldown, three nudges per project/hour,
+  one active nudge, unresolved-dismissal suppression, detector switches, validated
+  thresholds, resolution on diagnostic disappearance/success/file removal, and visible
+  manageable local mutes.
+- [x] **Complete** — Store only bounded owner-only local feedback metadata. Raw code,
+  file content, error text, terminal output, paths, keys, cursor/keystroke history, and
+  screenshots are rejected by the feedback schema.
 
 Required verification:
 
-- [ ] **Not Started** — Event detectors, deduplication, opt-in/opt-out, confirmation,
-  privacy exclusions, and no-request-before-permission pass focused tests.
-- [ ] **Not Started** — Desktop and existing web checks/builds pass with proactive mode
-  disabled by default.
+- [x] **Complete** — 124/124 desktop tests pass across deterministic modes/signals,
+  persistence, exclusions, repetition, deduplication, resolution, cooldown/cap,
+  dismissal/mutes, failure-safe behavior, nonmodal UI, Context Preview, and zero AI
+  calls before explicit Send.
+- [x] **Complete** — Strict desktop TypeScript and Electron production build pass;
+  root backend tests, lint, and Next.js production build pass unchanged.
+- [x] **Complete** — Desktop output contains no credential-shaped provider key,
+  service-role token, encryption secret, or private key. The existing Supabase anon
+  publishable JWT remains intentionally bundled for desktop authentication.
+- [x] **Complete** — No Supabase migration was needed. Proactive preferences and
+  feedback remain local; manual AI continues through the authenticated server backend.
+
+### Phase 10B — Proactive Observer Evaluation and Tuning Dashboard
+
+- [ ] **Not Started** — Add a privacy-preserving local evaluation and tuning surface
+  without expanding signals or enabling automatic AI.
 
 ## Architecture decisions
 
@@ -1084,6 +1112,66 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-01 — Phase 10A optional proactive Observer complete
+
+Architecture and behavior:
+
+- Added a pure typed proactive-event engine driven by deterministic save/run/task
+  streams. Stable signatures hash normalized failures; reasons use local templates.
+- Added Manual-by-default device settings with explicit Assist consent, detector
+  toggles, bounded cooldown/hour limits, visible mutes, reset, and immediate Disable
+  Assist. The existing synced Observer master switch still controls manual Ask Observer.
+- Monaco markers are sampled only after a successful file save and must remain the same
+  error across two cycles. Run detection uses structured runner completion. Test/build
+  detection uses only the new controlled main-process task bridge and strict command
+  allowlist; interactive terminal content is never inspected.
+- Added a quiet Observer-panel nudge. Assistance actions prepare focused context and
+  open Context Preview; they do not call AI. Existing explicit Send, bearer validation,
+  server-side providers, and Phase 9 edit review remain unchanged.
+- Added owner-only local feedback storage with an exact metadata schema and 1,000-record
+  bound. Clearing local Observer history also clears proactive feedback.
+
+Changed files:
+
+- Desktop shared proactive/settings/task contracts; main settings store/IPC and
+  controlled verification runner; preload/global typed allowlists.
+- Renderer App, Observer, Settings, Bottom panel, command validation, and styles for
+  deterministic detection, quiet nudges, Context Preview actions, and mutes.
+- Focused proactive/settings/multi-file tests, desktop test script, and this roadmap.
+  The Next.js application and Supabase schema were not modified.
+
+Security and privacy decisions:
+
+- `contextIsolation: true`, `nodeIntegration: false`, sandboxing, and trusted-window IPC
+  remain intact. Task execution uses controlled argument arrays, validated workspace
+  `cwd`, `shell: false`, bounded output, one active process, and timeout cleanup.
+- Detection is local and inert outside Assist. No cursor, keystroke, arbitrary terminal,
+  external API, model inference, automatic command, or automatic edit is used.
+- Support context exists only ephemerally until review. Persisted feedback contains
+  hashes/categories/timing/outcomes only; mandatory secret exclusions and redaction
+  still apply before preview/send.
+- Current Supabase documentation/changelog was reviewed. Local-only feedback avoids a
+  new table/grants/RLS surface, so no migration was necessary.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 124/124 tests passed.
+- `npm --prefix apps/desktop run typecheck` and `npm --prefix apps/desktop run build`
+  — strict TypeScript and production bundles passed.
+- `npm test`, `npm run lint`, and `npm run build` — backend harnesses, lint, and Next.js
+  production build passed with web behavior unchanged.
+- Desktop production scan found no credential-shaped provider key, service-role token,
+  encryption secret, or private key; the known anon publishable Supabase JWT is allowed.
+
+Known limitations:
+
+- Test/build signals exist only for explicit Phase 9B verification suggestions accepted
+  by the conservative task grammar; there is no general task registry yet.
+- V1 does not detect missing imports separately, documentation drift, arbitrary terminal
+  failures, or cross-file root causes. It does not synchronize mutes or feedback.
+- Investigate currently seeds Explain; Suggest Fix seeds Fix Error. Both require Context
+  Preview and explicit Send.
 
 ### 2026-09-01 — Phase 9B safe multi-file AI change sets complete
 
@@ -2115,7 +2203,6 @@ Verification:
 
 ## Recommended next task
 
-Implement **Phase 10 Proactive Observer V1**. Limit detection to real errors, failed
-tests/builds, missing imports, and validated code/document mismatches. Keep it opt-in
-and quiet, show context before sending, and never start an AI request or execute a
-command without explicit user permission.
+Implement **Phase 10B Proactive Observer Evaluation and Tuning Dashboard**. Keep it
+privacy-preserving and local-first, use metadata only, and do not broaden detection or
+enable automatic AI requests.

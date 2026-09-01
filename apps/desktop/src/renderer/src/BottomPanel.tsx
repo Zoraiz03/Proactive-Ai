@@ -31,7 +31,7 @@ interface BottomPanelProps {
   outputFocusToken: number;
   onDiagnosticClick: (diagnostic: RunDiagnostic) => void;
   onStatus: (message: string, kind?: IdeOutputMessage["kind"]) => void;
-  commandRequest: { token: number; action: "terminal" | "output" | "new-terminal" | "run-verification"; commands?: string[] } | null;
+  commandRequest: { token: number; action: "terminal" | "output" | "new-terminal" } | null;
   onTerminalStateChange: (state: { active: boolean; creating: boolean }) => void;
 }
 
@@ -227,13 +227,6 @@ export default function BottomPanel({
   useEffect(() => {
     if (!commandRequest) return;
     if (commandRequest.action === "new-terminal") void createTerminal();
-    else if (commandRequest.action === "run-verification") void (async () => {
-      setActiveView("terminal");
-      const activeSessionId = await createTerminal();
-      if (!activeSessionId || !commandRequest.commands?.length) return;
-      const result = await window.terminal.sendInput({ sessionId: activeSessionId, data: `${commandRequest.commands.join("\n")}\n` });
-      if (!result.ok) onStatus(result.error, "error");
-    })();
     else if (commandRequest.action === "terminal") {
       setActiveView("terminal");
       requestAnimationFrame(() => terminalRef.current?.focus());

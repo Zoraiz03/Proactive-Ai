@@ -58,6 +58,10 @@ export default function SettingsPanel(props: Props) {
     if (!window.confirm(prompt)) return;
     setMessage(await action() ?? success);
   };
+  const setProactiveMode = (mode: LocalSettings["proactiveObserverMode"]) => {
+    if (mode === "assist" && local.proactiveObserverMode !== "assist" && !window.confirm("Enable Assist Mode? Detection is local and limited to persistent error diagnostics and failed controlled run, test, or build actions. No AI request occurs until you choose an action, review Context Preview, and confirm Send.")) return;
+    setLocal({ ...local, proactiveObserverMode: mode });
+  };
   return <div className="settings-backdrop" role="presentation">
     <section className="settings-center" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header><div><h2 id="settings-title">Settings and Privacy</h2><p>Device preferences, synced Observer choices, and secure provider access.</p></div><button type="button" aria-label="Close settings" onClick={props.onClose}>×</button></header>
@@ -67,7 +71,7 @@ export default function SettingsPanel(props: Props) {
           {visibleSections.map((section) => <button key={section} className={active === section ? "active" : ""} onClick={() => setActive(section)}>{section}</button>)}
         </nav>
         <main>
-          <div className="storage-badge">{["General", "Editor"].includes(active) ? "Stored on this device" : "Stored per account in Supabase, except local exclusions"}</div>
+          <div className="storage-badge">{["General", "Editor"].includes(active) ? "Stored on this device" : active === "Observer" ? "Manual preferences sync; Assist controls and mutes stay on this device" : "Stored per account in Supabase, except local exclusions"}</div>
           {active === "General" && <>
             <h3>General</h3>
             <label className="setting-row"><span>Theme</span><select value={local.theme} onChange={(e) => setLocal({ ...local, theme: e.target.value as LocalSettings["theme"] })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
@@ -106,11 +110,26 @@ export default function SettingsPanel(props: Props) {
           {active === "Observer" && <>
             <h3>Observer</h3>
             <Toggle label="Observer enabled" checked={synced.observerEnabled} onChange={(value) => setSynced({ ...synced, observerEnabled: value })} />
+            <label className="setting-row"><span>Observer mode</span><select value={local.proactiveObserverMode} onChange={(e) => setProactiveMode(e.target.value as LocalSettings["proactiveObserverMode"])}><option value="off">Off</option><option value="manual">Manual (default)</option><option value="assist">Assist — local high-confidence signals</option></select></label>
+            <p>Assist detects only persistent error-level diagnostics and failed controlled run, test, or build actions. Detection is local. It never calls AI automatically.</p>
             <label className="setting-row"><span>Preferred manual action</span><select value={synced.defaultObserverAction} onChange={(e) => setSynced({ ...synced, defaultObserverAction: e.target.value as SyncedSettings["defaultObserverAction"] })}>{(["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const).map((mode) => <option key={mode} value={mode}>{OBSERVER_MODE_LABELS[mode]}</option>)}</select></label>
             <Toggle label="Context Preview required before sending" checked onChange={() => undefined} disabled />
             <Toggle label="Include diagnostics when relevant" checked={synced.includeDiagnostics} onChange={(value) => setSynced({ ...synced, includeDiagnostics: value })} />
             <Toggle label="Include terminal error output when relevant" checked={synced.includeTerminalError} onChange={(value) => setSynced({ ...synced, includeTerminalError: value })} />
-            <Toggle label="Assist Mode — Coming in a later phase" checked={false} onChange={() => undefined} disabled />
+            <h4>Assist detectors</h4>
+            <Toggle label="Persistent error diagnostics after two save cycles" checked={local.proactivePersistentDiagnostics} onChange={(value) => setLocal({ ...local, proactivePersistentDiagnostics: value })} />
+            <Toggle label="Failed Run Current File actions" checked={local.proactiveFailedRuns} onChange={(value) => setLocal({ ...local, proactiveFailedRuns: value })} />
+            <Toggle label="Failed explicit test actions" checked={local.proactiveFailedTests} onChange={(value) => setLocal({ ...local, proactiveFailedTests: value })} />
+            <Toggle label="Failed explicit build actions" checked={local.proactiveFailedBuilds} onChange={(value) => setLocal({ ...local, proactiveFailedBuilds: value })} />
+            <label className="setting-row"><span>Global nudge cooldown (minutes)</span><input type="number" min="1" max="1440" value={local.proactiveCooldownMinutes} onChange={(e) => setLocal({ ...local, proactiveCooldownMinutes: Number(e.target.value) })} /></label>
+            <label className="setting-row"><span>Maximum nudges per project/hour</span><input type="number" min="1" max="10" value={local.proactiveMaximumNudgesPerHour} onChange={(e) => setLocal({ ...local, proactiveMaximumNudgesPerHour: Number(e.target.value) })} /></label>
+            <h4>Muted proactive signals</h4>
+            {!local.proactiveMutedErrors.length && !local.proactiveMutedFiles.length && !local.proactiveMutedProjects.length ? <p>No proactive signals are muted.</p> : <div className="proactive-mute-list">
+              {local.proactiveMutedErrors.map((value) => <div key={`error-${value}`}><code>Error {value}</code><button onClick={() => setLocal({ ...local, proactiveMutedErrors: local.proactiveMutedErrors.filter((item) => item !== value) })}>Unmute</button></div>)}
+              {local.proactiveMutedFiles.map((value) => <div key={`file-${value}`}><code>File {value}</code><button onClick={() => setLocal({ ...local, proactiveMutedFiles: local.proactiveMutedFiles.filter((item) => item !== value) })}>Unmute</button></div>)}
+              {local.proactiveMutedProjects.map((value) => <div key={`project-${value}`}><code>Project {value.slice(0, 12)}…</code><button onClick={() => setLocal({ ...local, proactiveMutedProjects: local.proactiveMutedProjects.filter((item) => item !== value) })}>Unmute</button></div>)}
+            </div>}
+            <div className="settings-actions"><button className="primary" onClick={() => void saveLocal()}>Save Assist settings</button><button onClick={() => setLocal({ ...local, proactiveObserverMode: "manual", proactivePersistentDiagnostics: true, proactiveFailedRuns: true, proactiveFailedTests: true, proactiveFailedBuilds: true, proactiveCooldownMinutes: 10, proactiveMaximumNudgesPerHour: 3, proactiveMutedErrors: [], proactiveMutedFiles: [], proactiveMutedProjects: [] })}>Reset Assist settings</button></div>
             <h4>Multi-file change safety</h4>
             <label className="setting-row"><span>Maximum affected files</span><input type="number" min="1" max="10" value={local.multiFileMaximumFiles} onChange={(e) => setLocal({ ...local, multiFileMaximumFiles: Number(e.target.value) })} /></label>
             <label className="setting-row"><span>Maximum changed lines</span><input type="number" min="25" max="5000" value={local.multiFileMaximumChangedLines} onChange={(e) => setLocal({ ...local, multiFileMaximumChangedLines: Number(e.target.value) })} /></label>
@@ -119,7 +138,7 @@ export default function SettingsPanel(props: Props) {
             <Toggle label="Require complete diff review" checked onChange={() => undefined} disabled />
             <Toggle label="Allow automatic command execution" checked={false} onChange={() => undefined} disabled />
             <p>Multi-file changes are all-or-nothing and always create one local rollback bundle before writing.</p>
-            <button onClick={() => void saveLocal()}>Save multi-file limits</button>
+            <button onClick={() => void saveLocal()}>Save local Observer settings</button>
             <button className="primary" onClick={() => void saveSynced()}>Save Observer settings</button>
           </>}
           {active === "Privacy" && <>
