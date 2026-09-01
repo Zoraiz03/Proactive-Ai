@@ -31,11 +31,15 @@ test("uses restrictive defaults and recovers corrupted or old local settings", a
   assert.equal(recovered.contextMaximumRelatedFiles, 4);
   assert.equal(recovered.contextMaximumFileCharacters, 8_000);
   assert.equal(recovered.checkpointRetentionLimit, 20);
+  assert.equal(recovered.multiFileMaximumFiles, 5);
+  assert.equal(recovered.multiFileMaximumChangedLines, 500);
+  assert.equal(recovered.multiFileMaximumGeneratedBytes, 200_000);
   assert.equal("unexpected" in recovered, false);
   const bounded = normalizeLocalSettings({ contextMaximumRelatedFiles: 99, contextMaximumFileCharacters: 100 });
   assert.equal(bounded.contextMaximumRelatedFiles, 4);
   assert.equal(bounded.contextMaximumFileCharacters, 8_000);
   assert.equal(normalizeLocalSettings({ checkpointRetentionLimit: 500 }).checkpointRetentionLimit, 20);
+  assert.equal(normalizeLocalSettings({ multiFileMaximumFiles: 50 }).multiFileMaximumFiles, 5);
 });
 
 test("stores only typed local preferences in owner-only app data", async () => {

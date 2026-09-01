@@ -17,6 +17,7 @@ export type CommandId =
   | "run.stop"
   | "observer.ask"
   | "observer.undoChange"
+  | "observer.undoMultiFileChange"
   | "markdown.edit"
   | "markdown.preview"
   | "markdown.split"
@@ -33,6 +34,7 @@ export interface CommandState {
   terminalActive: boolean;
   terminalCreating: boolean;
   observerCanAsk: boolean;
+  multiFileUndoAvailable: boolean;
   markdownActive: boolean;
   welcomeOpen: boolean;
 }
@@ -117,6 +119,7 @@ export const IDE_COMMANDS: readonly CommandDefinition[] = defineCommandRegistry(
       : state.observerCanAsk ? null : "Observer is unavailable for the current context",
   },
   { id: "observer.undoChange", name: "Observer: Undo Observer Change", disabledReason: requiresActiveFile },
+  { id: "observer.undoMultiFileChange", name: "Observer: Undo Multi-File Change", disabledReason: (state) => state.multiFileUndoAvailable ? null : "No applied multi-file change set" },
   { id: "markdown.edit", name: "Markdown: Edit Mode", disabledReason: requiresMarkdown },
   { id: "markdown.preview", name: "Markdown: Preview Mode", disabledReason: requiresMarkdown },
   { id: "markdown.split", name: "Markdown: Split Mode", disabledReason: requiresMarkdown },
@@ -207,4 +210,9 @@ export function isTerminalKeyboardTarget(target: unknown): boolean {
 
 export function shouldPreserveTerminalShortcut(target: unknown, command: "save" | "run"): boolean {
   return (command === "save" || command === "run") && isTerminalKeyboardTarget(target);
+}
+
+export function safeVerificationCommands(commands: string[]): string[] | null {
+  const allowed = /^(?:npm (?:test|run (?:test|lint|typecheck|check|build)(?: --[^;&|`$\n\r]+)?)|pnpm (?:test|run (?:test|lint|typecheck|check|build))|yarn (?:test|lint|typecheck|build)|pytest(?: [^;&|`$\n\r]+)?|python(?:3)? -m pytest(?: [^;&|`$\n\r]+)?|cargo (?:test|check)|go test(?: [^;&|`$\n\r]+)?|npx tsc --noEmit|mvn test|gradle test)$/;
+  return commands.length > 0 && commands.every((command) => allowed.test(command.trim())) ? commands.map((command) => command.trim()) : null;
 }

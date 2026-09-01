@@ -31,7 +31,7 @@ interface BottomPanelProps {
   outputFocusToken: number;
   onDiagnosticClick: (diagnostic: RunDiagnostic) => void;
   onStatus: (message: string, kind?: IdeOutputMessage["kind"]) => void;
-  commandRequest: { token: number; action: "terminal" | "output" | "new-terminal" } | null;
+  commandRequest: { token: number; action: "terminal" | "output" | "new-terminal" | "run-verification"; commands?: string[] } | null;
   onTerminalStateChange: (state: { active: boolean; creating: boolean }) => void;
 }
 
@@ -179,8 +179,9 @@ export default function BottomPanel({
     if (outputFocusToken > 0) setActiveView("output");
   }, [outputFocusToken]);
 
-  const createTerminal = async () => {
-    if (!workspaceOpen || sessionIdRef.current || creatingRef.current) return;
+  const createTerminal = async (): Promise<string | null> => {
+    if (!workspaceOpen || creatingRef.current) return null;
+    if (sessionIdRef.current) return sessionIdRef.current;
     setActiveView("terminal");
     setCreating(true);
     creatingRef.current = true;
@@ -197,7 +198,7 @@ export default function BottomPanel({
     if (!result.ok) {
       setTerminalError(result.error);
       onStatus(result.error, "error");
-      return;
+      return null;
     }
     sessionIdRef.current = result.value.sessionId;
     setSessionId(result.value.sessionId);
@@ -206,6 +207,7 @@ export default function BottomPanel({
       fitAndResize();
       terminalRef.current?.focus();
     });
+    return result.value.sessionId;
   };
 
   const closeTerminal = async () => {
@@ -225,6 +227,13 @@ export default function BottomPanel({
   useEffect(() => {
     if (!commandRequest) return;
     if (commandRequest.action === "new-terminal") void createTerminal();
+    else if (commandRequest.action === "run-verification") void (async () => {
+      setActiveView("terminal");
+      const activeSessionId = await createTerminal();
+      if (!activeSessionId || !commandRequest.commands?.length) return;
+      const result = await window.terminal.sendInput({ sessionId: activeSessionId, data: `${commandRequest.commands.join("\n")}\n` });
+      if (!result.ok) onStatus(result.error, "error");
+    })();
     else if (commandRequest.action === "terminal") {
       setActiveView("terminal");
       requestAnimationFrame(() => terminalRef.current?.focus());

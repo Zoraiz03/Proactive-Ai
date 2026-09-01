@@ -9,6 +9,7 @@ export const CODE_OBSERVER_MODES = [
   "continue_code",
   "generate_tests",
   "add_comments",
+  "plan_multi_file",
 ] as const;
 
 export const DOCUMENT_OBSERVER_MODES = [
@@ -47,6 +48,7 @@ export const OBSERVER_MODE_LABELS: Readonly<Record<ObserverMode, string>> = {
   continue_code: "Continue Code",
   generate_tests: "Generate Tests",
   add_comments: "Add Comments/Documentation",
+  plan_multi_file: "Plan Multi-File Change",
   explain_document: "Explain this document",
   improve_writing: "Improve writing",
   summarize: "Summarize",
@@ -298,6 +300,8 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
   if (!OBSERVER_MODES.includes(seed.mode as ObserverMode) || !["code", "doc"].includes(seed.kind ?? "") || typeof seed.activeRelativePath !== "string" || !seed.activeRelativePath || seed.activeRelativePath.length > 4096 || typeof seed.fileName !== "string" || typeof seed.language !== "string" || typeof seed.content !== "string" || seed.content.length > OBSERVER_LIMITS.activeFile) return null;
   if (!isPositiveInteger(seed.cursorLine) || !isPositiveInteger(seed.cursorColumn) || !Array.isArray(seed.exclusions) || seed.exclusions.some((item) => typeof item !== "string")) return null;
   if (!isPositiveInteger(seed.maximumTotalCharacters) || !isPositiveInteger(seed.maximumRelatedFiles) || !isPositiveInteger(seed.maximumCharactersPerFile)) return null;
+  if (seed.userRequest !== undefined && (typeof seed.userRequest !== "string" || !seed.userRequest.trim() || seed.userRequest.length > 500)) return null;
+  if (seed.mode === "plan_multi_file" && !seed.userRequest) return null;
   if (request.model !== undefined && (typeof request.model !== "string" || !request.model || request.model.length > 100)) return null;
   if (request.storeHistory !== undefined && typeof request.storeHistory !== "boolean") return null;
   return request as ObserverPrepareRequest;

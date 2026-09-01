@@ -290,3 +290,35 @@ export async function getSuggestion(
       throw new ProviderError("unknown provider", "Unknown AI provider.");
   }
 }
+
+export async function getProviderStructuredJson(
+  provider: Provider,
+  apiKey: string,
+  prompt: string,
+  requestedModel?: string
+): Promise<unknown> {
+  const allowedModel: Record<Provider, string> = {
+    gemini: "gemini-2.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat",
+    anthropic: "claude-haiku-4-5-20251001", demo: "demo-local",
+  };
+  const model = requestedModel === allowedModel[provider] ? requestedModel : allowedModel[provider];
+  let response: Response;
+  if (provider === "gemini") {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json" } }) });
+    if (!response.ok) throw providerError(response.status, "Gemini", await response.text());
+    const data = await response.json(); return JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
+  }
+  if (provider === "anthropic") {
+    response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: 8192, messages: [{ role: "user", content: prompt }] }) });
+    if (!response.ok) throw providerError(response.status, "Claude", await response.text());
+    const data = await response.json(); return JSON.parse(data.content?.[0]?.text ?? "");
+  }
+  if (provider === "openai" || provider === "deepseek") {
+    const baseUrl = provider === "openai" ? "https://api.openai.com/v1" : "https://api.deepseek.com";
+    const label = provider === "openai" ? "ChatGPT" : "DeepSeek";
+    response = await fetch(`${baseUrl}/chat/completions`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], response_format: { type: "json_object" } }) });
+    if (!response.ok) throw providerError(response.status, label, await response.text());
+    const data = await response.json(); return JSON.parse(data.choices?.[0]?.message?.content ?? "");
+  }
+  throw new ProviderError("demo structured request handled locally", "Demo multi-file requests are handled locally.");
+}

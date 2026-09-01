@@ -37,8 +37,8 @@ implementation and its verification evidence in the changelog.
 | Phase 7E | Complete | Read-only Git status and diff viewer |
 | Phase 8 | Complete | Deterministic, explainable, privacy-safe project context engine |
 | Phase 9A | Complete | Safe single-file AI changes with diff review and local rollback |
-| Phase 9B | Not Started | Multi-file AI Change Sets |
-| Phase 10 | Not Started | Packaging, signing, updates, and release checks |
+| Phase 9B | Complete | Safe, explicit multi-file AI change sets with transactional rollback |
+| Phase 10 | Not Started | Proactive Observer V1 for bounded real technical events |
 
 ## Recommended folder structure
 
@@ -713,37 +713,74 @@ Required verification:
 
 ### Phase 9B — Multi-file AI Change Sets
 
-- [ ] **Not Started** — Define an explicitly bounded multi-file proposal/review model.
-- [ ] **Not Started** — Do not begin until Phase 9A has been manually exercised with a
-  configured non-demo provider and supervisor/product approval confirms the scope.
-
-## Phase 10 — Packaging and release readiness
-
-**Goal:** Produce secure, installable, supportable desktop releases.
-
-- [ ] **Not Started** — Choose supported operating-system and CPU targets.
-- [ ] **Not Started** — Configure application metadata, icons, and packaged resources.
-- [ ] **Not Started** — Package native dependencies such as `node-pty` correctly.
-- [ ] **Not Started** — Add macOS code signing and notarization.
-- [ ] **Not Started** — Add Windows code signing.
-- [ ] **Not Started** — Add Linux packaging targets.
-- [ ] **Not Started** — Define a signed and verified update strategy.
-- [ ] **Not Started** — Add production Content Security Policy and navigation guards.
-- [ ] **Not Started** — Block unexpected new windows, permissions, and external
-  navigation.
-- [ ] **Not Started** — Add crash reporting and privacy controls if approved.
-- [ ] **Not Started** — Create clean-machine installation and upgrade tests.
-- [ ] **Not Started** — Document release, rollback, and support procedures.
+- [x] **Complete** — Add a separate Plan Multi-File Change action that requires a
+  3–500 character user description; no normal Observer mode can escalate itself.
+- [x] **Complete** — Preview focused Phase 8 context before both plan and generation,
+  then require explicit plan approval before the server may generate file content.
+- [x] **Complete** — Validate strict server-assigned plan/change-set IDs, exact schemas,
+  unique workspace-relative paths, operation/base agreement, hashes, byte/count/line
+  limits, and complete membership on the server and desktop.
+- [x] **Complete** — Support only existing supported-text updates and absent supported-
+  text creates. Reject delete/rename/move, binaries, secrets, `.git`, absolute/traversal
+  paths, escaping or target symlinks, and paths outside the selected workspace.
+- [x] **Complete** — Show every affected file in an all-or-nothing Monaco diff review,
+  including empty originals for creates, per-file explanations and line counts,
+  warnings, verification suggestions, Reject, and whole-set Regenerate.
+- [x] **Complete** — Repeat path, dirty-tab, hash, absence, exact-base, and configured-
+  limit preflight immediately before applying. Conflicts apply nothing and remain in
+  review so the user can regenerate or cancel.
+- [x] **Complete** — Create one owner-only checkpoint bundle under Electron application
+  data before staging writes. Commit same-directory staged files atomically; a mid-
+  apply failure restores committed updates and removes only matching new files.
+- [x] **Complete** — Refresh affected editor state, clear stale diagnostics, summarize
+  success, and offer hash-gated whole-set Undo from the result and Command Palette.
+- [x] **Complete** — Show suggested verification commands without running them. The
+  user must confirm a restricted validation-only command list or open the terminal and
+  run unsupported suggestions manually; Git and shell-control commands are rejected.
+- [x] **Complete** — Store configurable local limits (default 5 files, 500 changed
+  lines, 200,000 generated UTF-8 bytes) and reuse checkpoint retention. Plan review
+  and diff review are locked On; automatic command execution is locked Off.
+- [x] **Complete** — Log only provider/model, action/phase/outcome, file-type counts,
+  size/timing, IDs, and safe context metadata. Raw originals, generated code,
+  checkpoint contents, paths beyond necessary basename/metadata, and terminal output
+  are not stored in Supabase analytics.
 
 Required verification:
 
-- [ ] **Not Started** — Signed installers pass platform security checks.
-- [ ] **Not Started** — Clean installations launch on every supported platform.
-- [ ] **Not Started** — Folder access, Monaco, terminal, auth, and Observer smoke tests
-  pass in packaged builds.
-- [ ] **Not Started** — Updates verify signatures and preserve user settings.
-- [ ] **Not Started** — Renderer bundles and packaged resources contain no secrets.
-- [ ] **Not Started** — Existing web release checks still pass.
+- [x] **Complete** — Focused tests cover planning context, strict plan/change-set
+  validation, duplicates, traversal/absolute/secret/binary/symlink targets, limits,
+  bearer/signed-out/malformed API behavior, stale/collision/dirty conflicts,
+  checkpoint failure, successful update/create, simulated mid-apply restoration,
+  safe undo, rollback conflict, review actions, and explicit-only verification.
+- [x] **Complete** — Desktop tests (115/115), strict TypeScript, and Electron production
+  build pass.
+- [x] **Complete** — Root backend tests, lint, and Next.js production build pass.
+- [x] **Complete** — Desktop production output passes the credential/private-key scan.
+- [x] **Complete** — No Supabase migration was required; the existing owner-scoped
+  suggestions table stores metadata-only records through authenticated requests.
+
+## Phase 10 — Proactive Observer V1
+
+**Goal:** Offer optional, quiet help only for verified technical events while keeping
+the user in control of every AI request and change.
+
+- [ ] **Not Started** — Detect only real errors, failed tests/builds, missing imports,
+  and validated code/document mismatches.
+- [ ] **Not Started** — Keep alerts optional, quiet, deduplicated, explainable, and
+  dismissible; never use cursor movement or repeated typing as a signal.
+- [ ] **Not Started** — Require user permission before an alert sends any context or
+  starts an AI request.
+- [ ] **Not Started** — Reuse Phase 8 context preview and Phase 9 review/rollback
+  boundaries; do not create autonomous loops or execute commands automatically.
+- [ ] **Not Started** — Keep packaging/signing/release readiness deferred to a later
+  separately approved phase.
+
+Required verification:
+
+- [ ] **Not Started** — Event detectors, deduplication, opt-in/opt-out, confirmation,
+  privacy exclusions, and no-request-before-permission pass focused tests.
+- [ ] **Not Started** — Desktop and existing web checks/builds pass with proactive mode
+  disabled by default.
 
 ## Architecture decisions
 
@@ -1047,6 +1084,91 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-01 — Phase 9B safe multi-file AI change sets complete
+
+Architecture and workflow:
+
+- Added the separate `Plan Multi-File Change` code action with a required description.
+  Planning and generation each use a newly prepared, user-reviewed Phase 8 context
+  package. Plan approval happens before original file bases are sent for generation.
+- Added strict shared desktop contracts and parallel Zod backend schemas. The backend
+  assigns plan/change-set UUIDs; both layers require exact fields, complete membership,
+  unique safe paths, update/create-only operations, exact original SHA-256/content,
+  expected absence for creates, and configured count/size/line bounds.
+- Added an authenticated `/api/multi-file-change` route. Desktop calls use the existing
+  verified bearer token; web cookie auth remains supported by the shared auth helper.
+  Provider keys and calls remain server-side. No database migration was needed.
+- Added a narrow typed preload allowlist and a main-process workflow controller that
+  binds generation to the exact approved plan/bases and apply to the exact generated
+  change set. The renderer cannot supply arbitrary filesystem or command operations.
+- Added plan review, all-file Monaco diff navigation, update/create labels, line counts,
+  warnings, whole-set approve/reject/regenerate, and a success/verification screen.
+  Partial application is deliberately unavailable because dependency consistency is
+  not reliably provable.
+- Added a main-process transaction service. It revalidates canonical workspace paths,
+  refuses symlinks/secrets/binaries/stale files/create collisions/dirty tabs, writes one
+  owner-only local checkpoint bundle, stages every file beside its destination, and
+  rolls back already committed files on failure.
+- Added hash-gated whole-set rollback with dirty-tab protection and a Command Palette
+  action. Created files are removed only while their current hashes still match the
+  applied set; newer user changes stop rollback.
+- Suggested verification remains inert until the user confirms every displayed command.
+  Only a fixed validation-command grammar can be sent to the existing terminal; shell
+  controls, Git, mutation commands, and arbitrary model commands are rejected.
+
+Changed files:
+
+- `apps/desktop/src/shared/multi-file-change.ts`, `observer.ts`, `project-context.ts`,
+  and `settings.ts` — typed contracts, action/context input, schemas, safe limits, and
+  versioned local preferences.
+- `apps/desktop/src/main/multi-file-client.ts`, `multi-file-ipc.ts`,
+  `multi-file-service.ts`, `project-context.ts`, and `index.ts` — bearer client,
+  workflow authorization, path/preflight enforcement, transactions/checkpoints,
+  focused context, and lifecycle registration.
+- `apps/desktop/src/preload/index.ts` and renderer `global.d.ts` — frozen narrow bridge.
+- Renderer `App.tsx`, `ObserverPanel.tsx`, `MultiFileChangeWorkspace.tsx`,
+  `BottomPanel.tsx`, `SettingsPanel.tsx`, `commands.ts`, and `styles.css` — explicit
+  plan/review/apply/undo/verification UI and safe settings without a visual redesign.
+- `src/app/api/multi-file-change/route.ts`, `src/lib/server/multi-file-change.ts`, and
+  `src/lib/server/providers.ts` — authenticated structured provider workflow and
+  server-side validation/metadata logging.
+- Desktop multi-file/context/settings/command tests, root backend harness, desktop
+  package script, and this roadmap — focused regression/security coverage and records.
+
+Security and privacy decisions:
+
+- The renderer remains sandboxed with `contextIsolation: true`, `nodeIntegration:
+  false`, no filesystem/Node/process access, and no arbitrary IPC/Git/shell command.
+- Default limits are 5 affected files, 500 conservatively counted changed lines, and
+  200,000 generated UTF-8 bytes. Local settings permit only bounded safer values;
+  plan/diff review and automatic-command restrictions cannot be disabled.
+- Checkpoint bundles remain local under Electron application data with owner-only
+  files. Supabase receives metadata only; it never receives raw file bases, generated
+  content, checkpoint code, terminal output, API keys, or provider credentials.
+- Existing file hashes and new-file absence are checked during preparation and again
+  immediately before staged commits. No silent rebasing, automatic save, command run,
+  Git write, or partial apply occurs.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 115/115 tests passed.
+- `npm --prefix apps/desktop run typecheck` and `npm --prefix apps/desktop run build`
+  — strict Electron main/preload/renderer TypeScript and production bundles passed.
+- `npm test`, `npm run lint`, and `npm run build` — backend harnesses, existing web
+  checks, and the Next.js production build passed.
+- Credential/private-key scan of `apps/desktop/out` — passed with no prohibited
+  provider key, service-role, private-key, or bearer-token values.
+
+Known limitations:
+
+- Only supported UTF-8 text/code files are eligible; target parent folders must already
+  exist. Delete, rename, move, binary changes, optional-file exclusion, and nested
+  directory creation are unavailable.
+- Verification execution accepts only a conservative validation-command allowlist;
+  other suggestions must be reviewed and entered manually in the terminal.
+- Rollback deliberately stops on any affected dirty tab or changed-after-apply hash.
+  Bundles are device-local and not synchronized.
 
 ### 2026-08-31 — Phase 9A safe single-file AI changes complete
 
@@ -1987,9 +2109,13 @@ Verification:
 | 2026-08-31 | Phase 9A structured-edit/checkpoint tests | Complete | 105/105 desktop tests passed across schema/range/path/hash/stale/dirty/diff/action/checkpoint/retention and no-auto-execution boundaries. |
 | 2026-08-31 | Phase 9A desktop/security checks | Complete | Strict TypeScript, Electron production build, and desktop output credential scans passed. |
 | 2026-08-31 | Phase 9A web regression | Complete | Backend harnesses, lint, and Next.js production build passed; cookie/bearer auth remained compatible and no migration was needed. |
+| 2026-09-01 | Phase 9B focused workflow/transaction tests | Complete | 115/115 desktop tests passed, including strict plans/sets, context, path/secret/binary/limit checks, update/create, stale/collision/dirty preflight, checkpoint failure, mid-write restoration, undo conflict, bearer auth, review actions, and explicit-only verification. |
+| 2026-09-01 | Phase 9B desktop/security checks | Complete | Strict TypeScript, Electron production build, and desktop output credential/private-key scans passed. |
+| 2026-09-01 | Phase 9B web regression | Complete | Backend schema/privacy harnesses, lint, and Next.js production build passed; authenticated cookie/bearer behavior remains shared and no migration was needed. |
 
 ## Recommended next task
 
-Implement **Phase 9B Multi-file AI Change Sets** only after product/supervisor approval.
-Keep every file explicit, bounded, independently reviewable, and recoverable; do not add
-autonomous agent loops, file creation, automatic saving, or command execution.
+Implement **Phase 10 Proactive Observer V1**. Limit detection to real errors, failed
+tests/builds, missing imports, and validated code/document mismatches. Keep it opt-in
+and quiet, show context before sending, and never start an AI request or execute a
+command without explicit user permission.

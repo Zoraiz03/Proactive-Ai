@@ -4,7 +4,7 @@ import type { ObserverMode, ObserverProvider } from "./observer";
 const CODE_SETTING_MODES = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const;
 const SETTING_PROVIDERS = ["gemini", "openai", "deepseek", "anthropic", "demo"] as const;
 
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
 
 export const SETTINGS_CHANNELS = {
   getLocal: "settings:get-local",
@@ -42,6 +42,9 @@ export interface LocalSettings {
   contextMaximumRelatedFiles: number;
   contextMaximumFileCharacters: number;
   checkpointRetentionLimit: number;
+  multiFileMaximumFiles: number;
+  multiFileMaximumChangedLines: number;
+  multiFileMaximumGeneratedBytes: number;
 }
 
 export interface SyncedSettings {
@@ -90,6 +93,9 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
   contextMaximumRelatedFiles: 4,
   contextMaximumFileCharacters: 8_000,
   checkpointRetentionLimit: 20,
+  multiFileMaximumFiles: 5,
+  multiFileMaximumChangedLines: 500,
+  multiFileMaximumGeneratedBytes: 200_000,
 });
 
 export const DEFAULT_SYNCED_SETTINGS: SyncedSettings = Object.freeze({
@@ -155,6 +161,9 @@ export function normalizeLocalSettings(value: unknown): LocalSettings {
     contextMaximumRelatedFiles: boundedInt(source.contextMaximumRelatedFiles, DEFAULT_LOCAL_SETTINGS.contextMaximumRelatedFiles, 1, 10),
     contextMaximumFileCharacters: boundedInt(source.contextMaximumFileCharacters, DEFAULT_LOCAL_SETTINGS.contextMaximumFileCharacters, 500, 20_000),
     checkpointRetentionLimit: boundedInt(source.checkpointRetentionLimit, DEFAULT_LOCAL_SETTINGS.checkpointRetentionLimit, 1, 100),
+    multiFileMaximumFiles: boundedInt(source.multiFileMaximumFiles, DEFAULT_LOCAL_SETTINGS.multiFileMaximumFiles, 1, 10),
+    multiFileMaximumChangedLines: boundedInt(source.multiFileMaximumChangedLines, DEFAULT_LOCAL_SETTINGS.multiFileMaximumChangedLines, 25, 5_000),
+    multiFileMaximumGeneratedBytes: boundedInt(source.multiFileMaximumGeneratedBytes, DEFAULT_LOCAL_SETTINGS.multiFileMaximumGeneratedBytes, 10_000, 1_000_000),
   };
 }
 

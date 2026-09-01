@@ -8,6 +8,7 @@ import { registerObserverIpc } from "./observer-ipc";
 import { registerSettingsIpc } from "./settings-ipc";
 import { registerGitIpc } from "./git-ipc";
 import { registerCheckpointIpc } from "./checkpoint-ipc";
+import { registerMultiFileIpc } from "./multi-file-ipc";
 
 declare const __DESKTOP_API_BASE_URL__: string;
 
@@ -98,6 +99,7 @@ app.whenReady().then(() => {
   );
   const gitIpc = registerGitIpc(getAuthenticatedWindow);
   const checkpointIpc = registerCheckpointIpc(getAuthenticatedWindow, app.getPath("userData"));
+  const multiFileIpc = registerMultiFileIpc(getAuthenticatedWindow, () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim(), app.getPath("userData"), (webContentsId, context) => observerIpc.controller.authorize(webContentsId, context));
   terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
   runIpc = registerRunIpc(getAuthenticatedWindow);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
@@ -107,6 +109,7 @@ app.whenReady().then(() => {
       gitIpc.controller.setWorkspace(rootPath, webContentsId);
       observerIpc.controller.setWorkspace(rootPath, webContentsId);
       checkpointIpc.controller.setWorkspace(rootPath, webContentsId);
+      multiFileIpc.controller.setWorkspace(rootPath, webContentsId);
     },
     onWorkspaceClosed: (webContentsId) => {
       terminalIpc?.controller.clearWorkspace(webContentsId);
@@ -114,6 +117,7 @@ app.whenReady().then(() => {
       gitIpc.controller.clearWorkspace(webContentsId);
       observerIpc.controller.clearWorkspace(webContentsId);
       checkpointIpc.controller.clearWorkspace(webContentsId);
+      multiFileIpc.controller.clearWorkspace(webContentsId);
     },
     onWorkspaceChanged: () => observerIpc.controller.invalidate(),
   }, app.getPath("userData"));
@@ -122,6 +126,7 @@ app.whenReady().then(() => {
     settingsIpc.cleanup();
     gitIpc.cleanup();
     checkpointIpc.cleanup();
+    multiFileIpc.cleanup();
     authIpc.cleanup();
     runIpc?.cleanup();
     terminalIpc?.cleanup();

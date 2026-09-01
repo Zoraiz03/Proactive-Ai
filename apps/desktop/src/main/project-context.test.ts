@@ -67,6 +67,16 @@ test("documentation actions attach only the active Markdown document and no code
   assert.equal(types(context).includes("related_file"), false);
 });
 
+test("multi-file planning requires an explicit description and builds focused planning context", async () => {
+  const service = engine();
+  await assert.rejects(() => service.build(seed("plan_multi_file")), /Describe the requested multi-file change/);
+  const context = await service.build(seed("plan_multi_file", { userRequest: "Add validation and matching tests" }));
+  assert.equal(context.intent.instruction, "Plan Multi-File Change: Add validation and matching tests");
+  assert.ok(types(context).includes("current_symbol"));
+  assert.ok(context.items.some((item) => item.source.provenance === "nearby_test"));
+  assert.equal(context.items.some((item) => item.source.relativePath === ".env"), false);
+});
+
 test("orders context by the documented priorities and trims lower-priority items deterministically", async () => {
   const context = await engine().build(seed("fix_error", { selectedCode: "helper(value)", diagnostic: { fileName: "calculate.ts", line: 4, column: 1, message: "failure" }, runError: "failure", maximumTotalCharacters: 1_000, maximumCharactersPerFile: 500 }));
   assert.deepEqual(context.items.map((item) => item.priority), [...context.items.map((item) => item.priority)].sort((a, b) => a - b));

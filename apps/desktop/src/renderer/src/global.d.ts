@@ -7,6 +7,7 @@ import type { WorkspaceSearchBridge } from "../../shared/search";
 import type { SettingsBridge } from "../../shared/settings";
 import type { GitBridge } from "../../shared/git";
 import type { CheckpointBridge } from "../../shared/checkpoints";
+import type { MultiFileBridge } from "../../shared/multi-file-change";
 
 declare global {
   interface Window {
@@ -18,6 +19,7 @@ declare global {
     settings: SettingsBridge;
     git: GitBridge;
     checkpoints: CheckpointBridge;
+    multiFileObserver: MultiFileBridge;
     workspaceSearch: WorkspaceSearchBridge;
   }
 }

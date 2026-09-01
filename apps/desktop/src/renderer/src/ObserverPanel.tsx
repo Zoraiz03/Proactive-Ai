@@ -30,6 +30,8 @@ interface ObserverPanelProps {
   onUndo: () => void;
   canUndo: boolean;
   focusToken: number;
+  multiFileDescription: string;
+  onMultiFileDescriptionChange: (value: string) => void;
 }
 
 export default function ObserverPanel({
@@ -50,6 +52,8 @@ export default function ObserverPanel({
   onUndo,
   canUndo,
   focusToken,
+  multiFileDescription,
+  onMultiFileDescriptionChange,
 }: ObserverPanelProps) {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
@@ -72,6 +76,11 @@ export default function ObserverPanel({
             ))}
           </select>
         </label>
+        {mode === "plan_multi_file" && <label className="observer-multi-file-request">
+          <span>Describe the change</span>
+          <textarea value={multiFileDescription} maxLength={500} rows={5} disabled={status === "thinking"} onChange={(event) => onMultiFileDescriptionChange(event.target.value)} placeholder="Describe the outcome that may require coordinated changes across files." />
+          <small>{multiFileDescription.length}/500 · planning changes no files</small>
+        </label>}
         <label>
           <span>Provider</span>
           <select

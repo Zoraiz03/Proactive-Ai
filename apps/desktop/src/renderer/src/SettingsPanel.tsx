@@ -111,6 +111,15 @@ export default function SettingsPanel(props: Props) {
             <Toggle label="Include diagnostics when relevant" checked={synced.includeDiagnostics} onChange={(value) => setSynced({ ...synced, includeDiagnostics: value })} />
             <Toggle label="Include terminal error output when relevant" checked={synced.includeTerminalError} onChange={(value) => setSynced({ ...synced, includeTerminalError: value })} />
             <Toggle label="Assist Mode — Coming in a later phase" checked={false} onChange={() => undefined} disabled />
+            <h4>Multi-file change safety</h4>
+            <label className="setting-row"><span>Maximum affected files</span><input type="number" min="1" max="10" value={local.multiFileMaximumFiles} onChange={(e) => setLocal({ ...local, multiFileMaximumFiles: Number(e.target.value) })} /></label>
+            <label className="setting-row"><span>Maximum changed lines</span><input type="number" min="25" max="5000" value={local.multiFileMaximumChangedLines} onChange={(e) => setLocal({ ...local, multiFileMaximumChangedLines: Number(e.target.value) })} /></label>
+            <label className="setting-row"><span>Maximum generated size (bytes)</span><input type="number" min="10000" max="1000000" value={local.multiFileMaximumGeneratedBytes} onChange={(e) => setLocal({ ...local, multiFileMaximumGeneratedBytes: Number(e.target.value) })} /></label>
+            <Toggle label="Require plan review" checked onChange={() => undefined} disabled />
+            <Toggle label="Require complete diff review" checked onChange={() => undefined} disabled />
+            <Toggle label="Allow automatic command execution" checked={false} onChange={() => undefined} disabled />
+            <p>Multi-file changes are all-or-nothing and always create one local rollback bundle before writing.</p>
+            <button onClick={() => void saveLocal()}>Save multi-file limits</button>
             <button className="primary" onClick={() => void saveSynced()}>Save Observer settings</button>
           </>}
           {active === "Privacy" && <>

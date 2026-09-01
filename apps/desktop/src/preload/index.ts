@@ -53,6 +53,7 @@ import {
 } from "../shared/settings";
 import { GIT_CHANNELS, type GitBridge, type GitDiffRequest } from "../shared/git";
 import { CHECKPOINT_CHANNELS, type CheckpointBridge, type CreateCheckpointRequest, type RestoreCheckpointRequest } from "../shared/checkpoints";
+import { MULTI_FILE_CHANNELS, type MultiFileApplyRequest, type MultiFileBridge, type MultiFileGenerateRequest, type MultiFileLimits, type MultiFileOutcomeRequest, type MultiFilePlan, type MultiFilePlanRequest } from "../shared/multi-file-change";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -188,3 +189,13 @@ const checkpointBridge: CheckpointBridge = Object.freeze({
   clear: () => ipcRenderer.invoke(CHECKPOINT_CHANNELS.clear),
 });
 contextBridge.exposeInMainWorld("checkpoints", checkpointBridge);
+
+const multiFileBridge: MultiFileBridge = Object.freeze({
+  plan: (request: MultiFilePlanRequest) => ipcRenderer.invoke(MULTI_FILE_CHANNELS.plan, request),
+  prepare: (plan: MultiFilePlan, limits: MultiFileLimits) => ipcRenderer.invoke(MULTI_FILE_CHANNELS.prepare, plan, limits),
+  generate: (request: MultiFileGenerateRequest) => ipcRenderer.invoke(MULTI_FILE_CHANNELS.generate, request),
+  apply: (request: MultiFileApplyRequest) => ipcRenderer.invoke(MULTI_FILE_CHANNELS.apply, request),
+  undo: (request: Parameters<MultiFileBridge["undo"]>[0]) => ipcRenderer.invoke(MULTI_FILE_CHANNELS.undo, request),
+  outcome: (request: MultiFileOutcomeRequest) => ipcRenderer.invoke(MULTI_FILE_CHANNELS.outcome, request),
+});
+contextBridge.exposeInMainWorld("multiFileObserver", multiFileBridge);

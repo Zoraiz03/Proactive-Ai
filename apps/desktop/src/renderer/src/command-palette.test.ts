@@ -8,6 +8,7 @@ import {
   shouldOpenCommandPalette,
   shouldOpenSettings,
   shouldOpenSourceControl,
+  safeVerificationCommands,
   shouldPreserveTerminalShortcut,
   type CommandDefinition,
   type CommandHandlers,
@@ -30,6 +31,7 @@ const enabledState: CommandState = {
   terminalActive: false,
   terminalCreating: false,
   observerCanAsk: true,
+  multiFileUndoAvailable: false,
   markdownActive: true,
   welcomeOpen: false,
 };
@@ -41,8 +43,8 @@ function handlers(onExecute: (id: string) => void = () => undefined): CommandHan
 }
 
 test("opens and closes the command palette with reset search state", () => {
-  assert.equal(IDE_COMMANDS.length, 23);
-  assert.equal(new Set(IDE_COMMANDS.map((command) => command.id)).size, 23);
+  assert.equal(IDE_COMMANDS.length, 24);
+  assert.equal(new Set(IDE_COMMANDS.map((command) => command.id)).size, 24);
   assert.equal(IDE_COMMANDS.find((command) => command.id === "preferences.openSettings")?.shortcut, "Mod+,");
   const opened = commandPaletteReducer(CLOSED_COMMAND_PALETTE, { type: "open" });
   assert.deepEqual(opened, { open: true, query: "", selectedIndex: 0 });
@@ -141,4 +143,11 @@ test("Source Control uses the standard non-conflicting Ctrl/Cmd+Shift+G shortcut
   assert.equal(shouldOpenSourceControl(event), true);
   assert.equal(shouldOpenSourceControl({ ...event, ctrlKey: false, metaKey: true }), true);
   assert.equal(shouldOpenSourceControl({ ...event, shiftKey: false }), false);
+});
+
+test("verification commands are explicit and restricted to non-Git validation commands", () => {
+  assert.deepEqual(safeVerificationCommands(["npm test", "npx tsc --noEmit"]), ["npm test", "npx tsc --noEmit"]);
+  assert.equal(safeVerificationCommands(["git reset --hard"]), null);
+  assert.equal(safeVerificationCommands(["npm test && rm -rf build"]), null);
+  assert.equal(safeVerificationCommands([]), null);
 });

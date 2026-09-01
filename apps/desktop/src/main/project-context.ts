@@ -114,6 +114,7 @@ function validateSeed(value: ProjectContextSeed): ProjectContextSeed {
     maximumRelatedFiles: Math.max(0, Math.min(10, Math.trunc(value.maximumRelatedFiles))),
     maximumCharactersPerFile: Math.max(500, Math.min(20_000, Math.trunc(value.maximumCharactersPerFile))),
     exclusions: value.exclusions.slice(0, 100),
+    ...(value.userRequest ? { userRequest: value.userRequest.trim().slice(0, 500) } : {}),
   };
 }
 
@@ -132,6 +133,7 @@ export class ProjectContextEngine {
     if (!this.rootPath) throw new Error("Open a workspace before building Observer context.");
     const seed = validateSeed(rawSeed);
     if (seed.mode === "fix_error" && !seed.diagnostic) throw new Error("Fix Error requires a selected diagnostic.");
+    if (seed.mode === "plan_multi_file" && !seed.userRequest) throw new Error("Describe the requested multi-file change before continuing.");
     const gitignore = await this.gitignorePatterns();
     if (isIgnored(seed.activeRelativePath, seed.exclusions, gitignore)) throw new Error("The active file is excluded from AI context.");
     await resolveWorkspacePath(this.rootPath, seed.activeRelativePath);
@@ -146,11 +148,12 @@ export class ProjectContextEngine {
       items.push({ id: `ctx-${++sequence}`, type, priority, content: bounded, source: { provenance, ...details }, reason, ...cost, optional, completeFile: completeFile && bounded.length === content.length, truncated: bounded.length < safe.content.length, redacted: safe.redacted, ...(relevanceScore === undefined ? {} : { relevanceScore }) });
     };
 
-    add("user_instruction", 1, OBSERVER_MODE_LABELS[seed.mode], "user", "The explicitly selected Observer action.");
+    const instruction = seed.mode === "plan_multi_file" ? `${OBSERVER_MODE_LABELS[seed.mode]}: ${seed.userRequest}` : OBSERVER_MODE_LABELS[seed.mode];
+    add("user_instruction", 1, instruction, "user", "The explicitly selected Observer action.");
     if (seed.selectedCode) add("selected_code", 2, seed.selectedCode, "editor_selection", "The user explicitly selected this content.", { relativePath: seed.activeRelativePath, ...(seed.selectedLineStart ? { lineStart: seed.selectedLineStart } : {}), ...(seed.selectedLineEnd ? { lineEnd: seed.selectedLineEnd } : {}) });
     if (seed.mode === "fix_error" && seed.diagnostic) add("diagnostic", 3, `${seed.diagnostic.fileName}:${seed.diagnostic.line}:${seed.diagnostic.column}\n${seed.diagnostic.message}`, "diagnostics", "The selected error is required to diagnose Fix Error.", { relativePath: seed.activeRelativePath, lineStart: seed.diagnostic.line, lineEnd: seed.diagnostic.line });
     const symbol = detectCurrentSymbol(seed.content, seed.cursorLine);
-    const wantsSymbol = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments"].includes(seed.mode);
+    const wantsSymbol = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments", "plan_multi_file"].includes(seed.mode);
     if (seed.mode === "add_comments" && !seed.selectedCode) throw new Error("Select code before asking Observer to add comments or documentation.");
     if (wantsSymbol && symbol) add("current_symbol", 4, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
     if (!seed.selectedCode || seed.mode === "fix_error" || seed.mode === "continue_code") add("nearby_code", 5, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
@@ -183,7 +186,7 @@ export class ProjectContextEngine {
     }
     return {
       version: PROJECT_CONTEXT_VERSION,
-      intent: { mode: seed.mode, instruction: OBSERVER_MODE_LABELS[seed.mode] },
+      intent: { mode: seed.mode, instruction },
       activeFile: { relativePath: seed.activeRelativePath, fileName: seed.fileName, language: seed.language, kind: seed.kind },
       cursor: { line: seed.cursorLine, column: seed.cursorColumn },
       items: selected,
@@ -202,11 +205,11 @@ export class ProjectContextEngine {
     const candidates = new Map<string, Candidate>();
     const offer = (candidate: Candidate) => { if (candidate.relativePath !== seed.activeRelativePath && !isIgnored(candidate.relativePath, seed.exclusions, gitignore) && (!candidates.has(candidate.relativePath) || candidates.get(candidate.relativePath)!.score < candidate.score)) candidates.set(candidate.relativePath, candidate); };
     for (const specifier of importSpecifiers(seed.content)) for (const relativePath of candidatePathsForImport(seed.activeRelativePath, specifier)) offer({ relativePath, score: 100, reason: `Direct local import “${specifier}” from the active file.`, provenance: "local_import", type: "related_file" });
-    if (seed.mode === "generate_tests") {
+    if (["generate_tests", "plan_multi_file"].includes(seed.mode)) {
       for (const relativePath of testNameCandidates(seed.activeRelativePath)) offer({ relativePath, score: 90, reason: "Nearby test naming pattern for the active implementation.", provenance: "nearby_test", type: "related_file" });
       for (const relativePath of CONFIG_FILES) offer({ relativePath, score: 70, reason: "Project configuration may identify the test framework or language conventions.", provenance: "project_configuration", type: "related_file" });
     }
-    if (["improve_code", "continue_code", "generate_tests"].includes(seed.mode)) for (const relativePath of RULE_FILES) offer({ relativePath, score: relativePath === "AGENTS.md" ? 85 : 60, reason: "Workspace-scoped project instructions or conventions.", provenance: "project_instruction", type: "project_rule" });
+    if (["improve_code", "continue_code", "generate_tests", "plan_multi_file"].includes(seed.mode)) for (const relativePath of RULE_FILES) offer({ relativePath, score: relativePath === "AGENTS.md" ? 85 : 60, reason: "Workspace-scoped project instructions or conventions.", provenance: "project_instruction", type: "project_rule" });
     const result = Array.from(candidates.values()).sort((a, b) => b.score - a.score || a.relativePath.localeCompare(b.relativePath)).slice(0, this.options.maximumCandidates ?? 100);
     this.cache.set(cacheKey, { generation: this.generation, candidates: result }); return result;
   }

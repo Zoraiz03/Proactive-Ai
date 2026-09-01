@@ -52,9 +52,11 @@ import SourceControlPanel from "./SourceControlPanel";
 import GitDiffViewer from "./GitDiffViewer";
 import ContextPreview from "./ContextPreview";
 import ObserverEditReview, { type ObserverEditReviewState } from "./ObserverEditReview";
+import { MultiFileAppliedSummary, MultiFileChangeReview, MultiFilePlanReview } from "./MultiFileChangeWorkspace";
 import { sha256Text, validateAndBuildProposedEdit } from "../../shared/ai-edit";
 import { requiresCompleteFileConfirmation } from "../../shared/project-context";
 import type { GitChangedFile, GitDiffSnapshot } from "../../shared/git";
+import type { MultiFileApplyResult, MultiFileBase, MultiFileChangeSet, MultiFileLimits, MultiFilePlan } from "../../shared/multi-file-change";
 import {
   DEFAULT_LOCAL_SETTINGS,
   DEFAULT_SYNCED_SETTINGS,
@@ -70,6 +72,7 @@ import {
   shouldOpenSettings,
   shouldOpenSourceControl,
   shouldPreserveTerminalShortcut,
+  safeVerificationCommands,
   type CommandHandlers,
   type CommandState,
 } from "./commands";
@@ -207,6 +210,7 @@ function EditorWorkspace({
     editorDisposablesRef.current.forEach((disposable) => disposable.dispose());
     editorDisposablesRef.current = [];
   }, []);
+
 
   useEffect(() => {
     if (!focusLocation || focusLocation.relativePath !== activePath || !editorRef.current) return;
@@ -514,7 +518,8 @@ export default function App({ user, onSignOut }: AppProps) {
   } | null>(null);
   const [bottomCommandRequest, setBottomCommandRequest] = useState<{
     token: number;
-    action: "terminal" | "output" | "new-terminal";
+    action: "terminal" | "output" | "new-terminal" | "run-verification";
+    commands?: string[];
   } | null>(null);
   const [terminalState, setTerminalState] = useState({ active: false, creating: false });
   const [observerFocusToken, setObserverFocusToken] = useState(0);
@@ -528,6 +533,15 @@ export default function App({ user, onSignOut }: AppProps) {
   const [gitDiff, setGitDiff] = useState<{ status: "loading"; file: GitChangedFile } | { status: "error"; file: GitChangedFile; message: string } | { status: "ready"; value: GitDiffSnapshot } | null>(null);
   const [explorerRevealRequest, setExplorerRevealRequest] = useState<{ relativePath: string; token: number } | null>(null);
   const [contextPreviewRequest, setContextPreviewRequest] = useState<ObserverRequest | null>(null);
+  const [multiFileDescription, setMultiFileDescription] = useState("");
+  const [multiFilePlan, setMultiFilePlan] = useState<MultiFilePlan | null>(null);
+  const [multiFileBases, setMultiFileBases] = useState<MultiFileBase[] | null>(null);
+  const [multiFileChangeSet, setMultiFileChangeSet] = useState<MultiFileChangeSet | null>(null);
+  const [multiFileApplied, setMultiFileApplied] = useState<{ changeSet: MultiFileChangeSet; result: MultiFileApplyResult } | null>(null);
+  const [multiFileBusy, setMultiFileBusy] = useState(false);
+  const [multiFileError, setMultiFileError] = useState<string | null>(null);
+  const [multiFileActiveIndex, setMultiFileActiveIndex] = useState(0);
+  const [multiFilePreviewPhase, setMultiFilePreviewPhase] = useState<"plan" | "generate" | null>(null);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -590,6 +604,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const activeObserverMode: ObserverMode = observerModes.some((mode) => mode === observerMode)
     ? observerMode
     : activeIsMarkdown ? "explain_document" : "explain";
+  const multiFileLimits = useMemo<MultiFileLimits>(() => ({ maximumFiles: localSettings.multiFileMaximumFiles, maximumChangedLines: localSettings.multiFileMaximumChangedLines, maximumGeneratedBytes: localSettings.multiFileMaximumGeneratedBytes }), [localSettings.multiFileMaximumChangedLines, localSettings.multiFileMaximumFiles, localSettings.multiFileMaximumGeneratedBytes]);
 
   const observerRequest = useMemo<ObserverPrepareRequest | null>(() => {
     if (!syncedSettings.observerEnabled || !activeTab || activeTab.availability !== "available" || activeTab.externalConflict || isExcludedFromAiContext(activeTab.file.relativePath, localSettings.aiContextExclusions)) return null;
@@ -623,9 +638,10 @@ export default function App({ user, onSignOut }: AppProps) {
         maximumTotalCharacters: syncedSettings.maximumContextChars,
         maximumRelatedFiles: localSettings.contextMaximumRelatedFiles,
         maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
+        ...(activeObserverMode === "plan_multi_file" ? { userRequest: multiFileDescription.trim() } : {}),
       },
     };
-  }, [activeIsMarkdown, activeObserverMode, activeTab, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+  }, [activeIsMarkdown, activeObserverMode, activeTab, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
   const currentContextSummary = observerRequest ? "A focused project context package will be previewed before sending." : null;
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
@@ -815,6 +831,12 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverSnapshot(null);
     setObserverSuggestion(null);
     setObserverError(null);
+    setMultiFilePlan(null);
+    setMultiFileBases(null);
+    setMultiFileChangeSet(null);
+    setMultiFileApplied(null);
+    setMultiFileError(null);
+    setMultiFilePreviewPhase(null);
     setObserverStatus("idle");
     setObserverRequestPath(null);
     setSentContextSummary(null);
@@ -1184,6 +1206,74 @@ export default function App({ user, onSignOut }: AppProps) {
     return () => window.removeEventListener("keydown", handleGlobalSearchShortcut, { capture: true });
   }, []);
 
+  const recordMultiFileOutcome = useCallback((request: Parameters<typeof window.multiFileObserver.outcome>[0]) => {
+    void window.multiFileObserver.outcome(request).then((result) => {
+      if (!result.ok) appendOutput(`Multi-file metadata logging: ${result.error}`, "error");
+    });
+  }, [appendOutput]);
+
+  const requestMultiFilePlan = useCallback(async (context: ObserverRequest) => {
+    const description = multiFileDescription.trim();
+    if (context.mode !== "plan_multi_file" || description.length < 3) return;
+    setContextPreviewRequest(null); setMultiFilePreviewPhase(null); setMultiFileBusy(true); setMultiFileError(null); setObserverStatus("thinking");
+    const result = await window.multiFileObserver.plan({ provider: observerProvider, ...(observerProvider === syncedSettings.preferredProvider ? { model: syncedSettings.preferredModel } : {}), storeHistory: syncedSettings.storeSuggestionHistory, userRequest: description, context, limits: multiFileLimits });
+    setMultiFileBusy(false); setObserverStatus("idle");
+    if (!result.ok) { setMultiFileError(result.error); setObserverError(result.error); setObserverStatus("error"); appendOutput(`Multi-file plan: ${result.error}`, "error"); return; }
+    setMultiFilePlan(result.value.plan); setMultiFileBases(null); setMultiFileChangeSet(null); setMultiFileApplied(null);
+    appendOutput("Observer created a multi-file implementation plan. No files were changed.", "success");
+  }, [appendOutput, multiFileDescription, multiFileLimits, observerProvider, recordMultiFileOutcome, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+
+  const approveMultiFilePlan = useCallback(async () => {
+    if (!multiFilePlan || !observerRequest || multiFileBusy) return;
+    setMultiFileBusy(true); setMultiFileError(null);
+    const bases = await window.multiFileObserver.prepare(multiFilePlan, multiFileLimits);
+    if (!bases.ok) { setMultiFileBusy(false); setMultiFileError(bases.error); appendOutput(`Plan approval: ${bases.error}`, "error"); return; }
+    recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "plan", outcome: "approved", provider: observerProvider, planId: multiFilePlan.planId, fileCount: multiFilePlan.files.length, updateCount: multiFilePlan.files.filter((item) => item.operation === "update").length, createCount: multiFilePlan.files.filter((item) => item.operation === "create").length, changedLines: 0, durationMs: 0 });
+    const context = await window.observer.prepare(observerRequest);
+    setMultiFileBusy(false);
+    if (!context.ok) { setMultiFileError(context.error); appendOutput(`Generation context: ${context.error}`, "error"); return; }
+    setMultiFileBases(bases.value); setMultiFilePreviewPhase("generate"); setContextPreviewRequest(context.value);
+  }, [appendOutput, multiFileBusy, multiFileLimits, multiFilePlan, observerProvider, observerRequest, recordMultiFileOutcome, syncedSettings.storeSuggestionHistory]);
+
+  const generateMultiFileChangeSet = useCallback(async (context: ObserverRequest) => {
+    if (!multiFilePlan || !multiFileBases || context.mode !== "plan_multi_file") return;
+    setContextPreviewRequest(null); setMultiFilePreviewPhase(null); setMultiFileBusy(true); setMultiFileError(null); setObserverStatus("thinking");
+    const result = await window.multiFileObserver.generate({ provider: observerProvider, ...(observerProvider === syncedSettings.preferredProvider ? { model: syncedSettings.preferredModel } : {}), storeHistory: syncedSettings.storeSuggestionHistory, userRequest: multiFileDescription.trim(), context, limits: multiFileLimits, plan: multiFilePlan, fileBases: multiFileBases });
+    setMultiFileBusy(false); setObserverStatus("idle");
+    if (!result.ok) { setMultiFileError(result.error); appendOutput(`Change-set generation: ${result.error}`, "error"); return; }
+    setMultiFileChangeSet(result.value.changeSet); setMultiFileActiveIndex(0);
+    appendOutput("The complete multi-file change set is ready for explicit diff review.", "success");
+  }, [appendOutput, multiFileBases, multiFileDescription, multiFileLimits, multiFilePlan, observerProvider, recordMultiFileOutcome, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+
+  const applyMultiFileChangeSet = useCallback(async () => {
+    if (!openedWorkspace || !multiFilePlan || !multiFileChangeSet || multiFileBusy) return;
+    setMultiFileBusy(true); setMultiFileError(null); const started = Date.now();
+    recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "change_set", outcome: "approved", provider: observerProvider, planId: multiFilePlan.planId, changeSetId: multiFileChangeSet.changeSetId, fileCount: multiFileChangeSet.changes.length, updateCount: multiFileChangeSet.changes.filter((item) => item.operation === "update").length, createCount: multiFileChangeSet.changes.filter((item) => item.operation === "create").length, changedLines: 0, durationMs: 0 });
+    const result = await window.multiFileObserver.apply({ workspaceId: openedWorkspace.workspaceId, plan: multiFilePlan, changeSet: multiFileChangeSet, dirtyPaths: tabsRef.current.filter(isDirty).map((tab) => tab.file.relativePath), limits: multiFileLimits, checkpointRetentionLimit: localSettings.checkpointRetentionLimit });
+    setMultiFileBusy(false);
+    if (!result.ok) { setMultiFileError(result.error); appendOutput(`Multi-file apply: ${result.error}`, "error"); recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "apply", outcome: "failed", provider: observerProvider, planId: multiFilePlan.planId, changeSetId: multiFileChangeSet.changeSetId, fileCount: multiFileChangeSet.changes.length, updateCount: multiFileChangeSet.changes.filter((item) => item.operation === "update").length, createCount: multiFileChangeSet.changes.filter((item) => item.operation === "create").length, changedLines: 0, durationMs: Date.now() - started }); return; }
+    const snapshots = new Map(result.value.files.map((file) => [file.relativePath, file]));
+    setTabs((current) => current.map((tab) => { const file = snapshots.get(tab.file.relativePath); return file ? { ...tab, file: { ...tab.file, content: file.content, modifiedAtMs: file.modifiedAtMs }, draft: file.content, saveStatus: null, externalConflict: null, externalNotice: null } : tab; }));
+    const first = result.value.files[0];
+    if (first) await selectFile({ name: first.relativePath.split("/").at(-1) ?? first.relativePath, relativePath: first.relativePath, kind: "file", isSymbolicLink: false });
+    setRunOutput(null); setGitRefreshToken((value) => value + 1); setMultiFileApplied({ changeSet: multiFileChangeSet, result: result.value }); setMultiFileChangeSet(null);
+    recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "apply", outcome: "accepted", provider: observerProvider, planId: multiFilePlan.planId, changeSetId: multiFileChangeSet.changeSetId, fileCount: multiFileChangeSet.changes.length, updateCount: multiFileChangeSet.changes.filter((item) => item.operation === "update").length, createCount: multiFileChangeSet.changes.filter((item) => item.operation === "create").length, changedLines: result.value.addedLines + result.value.deletedLines, durationMs: Date.now() - started });
+    appendOutput(`Applied ${result.value.files.length} files atomically. Verification was not run.`, "success");
+  }, [appendOutput, localSettings.checkpointRetentionLimit, multiFileBusy, multiFileChangeSet, multiFileLimits, multiFilePlan, observerProvider, openedWorkspace, recordMultiFileOutcome, selectFile, syncedSettings.storeSuggestionHistory]);
+
+  const undoMultiFileChange = useCallback(async () => {
+    if (!openedWorkspace || multiFileBusy) return;
+    setMultiFileBusy(true); setMultiFileError(null); const started = Date.now();
+    const result = await window.multiFileObserver.undo({ workspaceId: openedWorkspace.workspaceId, dirtyPaths: tabsRef.current.filter(isDirty).map((tab) => tab.file.relativePath) }); setMultiFileBusy(false);
+    if (!result.ok) { setMultiFileError(result.error); appendOutput(`Multi-file rollback: ${result.error}`, "error"); return; }
+    const restored = new Map(result.value.restoredFiles.map((file) => [file.relativePath, file])); const removed = new Set(result.value.removedPaths);
+    setTabs((current) => current.filter((tab) => !removed.has(tab.file.relativePath)).map((tab) => { const file = restored.get(tab.file.relativePath); return file ? { ...tab, file: { ...tab.file, content: file.content, modifiedAtMs: file.modifiedAtMs }, draft: file.content, saveStatus: null, externalConflict: null, externalNotice: null } : tab; }));
+    if (activePath && removed.has(activePath)) setActivePath(null);
+    setMultiFileApplied(null); setMultiFilePlan(null); setMultiFileBases(null); setRunOutput(null); setGitRefreshToken((value) => value + 1);
+    recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "rollback", outcome: "rolled_back", provider: observerProvider, changeSetId: result.value.changeSetId, fileCount: result.value.restoredFiles.length + result.value.removedPaths.length, updateCount: result.value.restoredFiles.length, createCount: result.value.removedPaths.length, changedLines: 0, durationMs: Date.now() - started });
+    appendOutput("The complete multi-file change set was rolled back.", "success");
+  }, [activePath, appendOutput, multiFileBusy, observerProvider, openedWorkspace, recordMultiFileOutcome, syncedSettings.storeSuggestionHistory]);
+
   const sendObserverRequest = useCallback(async (request: ObserverRequest) => {
     if (!activeTab || observerRequestInFlight.current || observerSuggestion || observerEditReview) return;
     if (request.contextPackage && requiresCompleteFileConfirmation(request.contextPackage, syncedSettings.confirmCompleteFile) &&
@@ -1238,7 +1328,9 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverStatus("thinking"); setObserverError(null);
     const prepared = await window.observer.prepare(observerRequest);
     if (!prepared.ok) { setObserverStatus("error"); setObserverError(prepared.error); appendOutput(`Observer: ${prepared.error}`, "error"); return; }
-    setObserverStatus("idle"); setContextPreviewRequest(prepared.value);
+    setObserverStatus("idle");
+    setMultiFilePreviewPhase(prepared.value.mode === "plan_multi_file" ? "plan" : null);
+    setContextPreviewRequest(prepared.value);
   }, [activeTab, appendOutput, observerEditReview, observerRequest, observerSuggestion]);
 
   const rejectObserverEdit = useCallback(() => {
@@ -1429,6 +1521,13 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverRequestPath(null);
     setSentContextSummary(null);
     setObserverEditReview(null);
+    setMultiFilePlan(null);
+    setMultiFileBases(null);
+    setMultiFileChangeSet(null);
+    setMultiFileApplied(null);
+    setMultiFileError(null);
+    setMultiFilePreviewPhase(null);
+    setContextPreviewRequest(null);
     setMarkdownViewModes({});
     setSidebarView("explorer");
     appendOutput("Workspace closed. Welcome screen opened.");
@@ -1489,8 +1588,8 @@ export default function App({ user, onSignOut }: AppProps) {
     setExplorerCommandRequest({ token: Date.now() + Math.random(), action });
   }, []);
 
-  const issueBottomCommand = useCallback((action: "terminal" | "output" | "new-terminal") => {
-    setBottomCommandRequest({ token: Date.now() + Math.random(), action });
+  const issueBottomCommand = useCallback((action: "terminal" | "output" | "new-terminal" | "run-verification", commands?: string[]) => {
+    setBottomCommandRequest({ token: Date.now() + Math.random(), action, ...(commands ? { commands } : {}) });
   }, []);
 
   const commandState = useMemo<CommandState>(() => ({
@@ -1505,6 +1604,7 @@ export default function App({ user, onSignOut }: AppProps) {
     terminalActive: terminalState.active,
     terminalCreating: terminalState.creating,
     observerCanAsk: Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest,
+    multiFileUndoAvailable: Boolean(multiFileApplied),
     markdownActive: activeIsMarkdown,
     welcomeOpen: !workspaceOpen,
   }), [
@@ -1515,6 +1615,7 @@ export default function App({ user, onSignOut }: AppProps) {
     observerStatus,
     observerSuggestion,
     observerEditReview,
+    multiFileApplied,
     runOutput?.status,
     tabs,
     terminalState,
@@ -1546,6 +1647,7 @@ export default function App({ user, onSignOut }: AppProps) {
     "run.stop": () => void stopCurrentRun(),
     "observer.ask": () => void askObserver(),
     "observer.undoChange": () => void undoObserverChange(),
+    "observer.undoMultiFileChange": () => void undoMultiFileChange(),
     "markdown.edit": () => {
       if (activePath) setMarkdownViewModes((current) => ({ ...current, [activePath]: "edit" }));
     },
@@ -1568,6 +1670,7 @@ export default function App({ user, onSignOut }: AppProps) {
     saveTab,
     stopCurrentRun,
     undoObserverChange,
+    undoMultiFileChange,
   ]);
 
   const resolvedCommands = useMemo(
@@ -1723,6 +1826,42 @@ export default function App({ user, onSignOut }: AppProps) {
               onWorkspaceOpened={clearWorkspaceTabs}
               refreshToken={recentRefreshToken}
             />
+          ) : multiFileApplied ? (
+            <MultiFileAppliedSummary
+              changeSet={multiFileApplied.changeSet}
+              result={multiFileApplied.result}
+              undoing={multiFileBusy}
+              onUndo={() => void undoMultiFileChange()}
+              onOpenTerminal={() => issueBottomCommand("terminal")}
+              onSkip={() => { setMultiFileApplied(null); setMultiFilePlan(null); setMultiFileBases(null); }}
+              onRunVerification={() => {
+                const commands = safeVerificationCommands(multiFileApplied.changeSet.verificationSuggestions);
+                if (!commands) { appendOutput("Suggested verification contains an unsupported or unsafe command. Review and run it manually in the terminal.", "error"); issueBottomCommand("terminal"); return; }
+                if (window.confirm(`Run these commands in the workspace terminal?\n\n${commands.join("\n")}`)) issueBottomCommand("run-verification", commands);
+              }}
+            />
+          ) : multiFileChangeSet ? (
+            <MultiFileChangeReview
+              changeSet={multiFileChangeSet}
+              activeIndex={multiFileActiveIndex}
+              settings={localSettings.editor}
+              theme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+              applying={multiFileBusy}
+              conflict={multiFileError}
+              onSelect={setMultiFileActiveIndex}
+              onApprove={() => void applyMultiFileChangeSet()}
+              onReject={() => { recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "change_set", outcome: "rejected", provider: observerProvider, planId: multiFilePlan?.planId, changeSetId: multiFileChangeSet.changeSetId, fileCount: multiFileChangeSet.changes.length, updateCount: multiFileChangeSet.changes.filter((item) => item.operation === "update").length, createCount: multiFileChangeSet.changes.filter((item) => item.operation === "create").length, changedLines: 0, durationMs: 0 }); setMultiFileChangeSet(null); setMultiFilePlan(null); setMultiFileBases(null); setMultiFileError(null); }}
+              onRegenerate={() => { setMultiFileChangeSet(null); void approveMultiFilePlan(); }}
+            />
+          ) : multiFilePlan ? (
+            <MultiFilePlanReview
+              plan={multiFilePlan}
+              busy={multiFileBusy}
+              error={multiFileError}
+              onApprove={() => void approveMultiFilePlan()}
+              onEdit={() => { setMultiFilePlan(null); setMultiFileBases(null); setObserverFocusToken((value) => value + 1); }}
+              onCancel={() => { recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "plan", outcome: "rejected", provider: observerProvider, planId: multiFilePlan.planId, fileCount: multiFilePlan.files.length, updateCount: multiFilePlan.files.filter((item) => item.operation === "update").length, createCount: multiFilePlan.files.filter((item) => item.operation === "create").length, changedLines: 0, durationMs: 0 }); setMultiFilePlan(null); setMultiFileBases(null); setMultiFileError(null); }}
+            />
           ) : observerEditReview ? (
             <ObserverEditReview
               review={observerEditReview}
@@ -1806,6 +1945,8 @@ export default function App({ user, onSignOut }: AppProps) {
             onUndo={() => void undoObserverChange()}
             canUndo={Boolean(activeTab && openedWorkspace)}
             focusToken={observerFocusToken}
+            multiFileDescription={multiFileDescription}
+            onMultiFileDescriptionChange={setMultiFileDescription}
           />
         </aside>
 
@@ -1825,7 +1966,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 8 Context Engine</span>
+        <span>Phase 9B Safe Change Sets</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
@@ -1870,8 +2011,12 @@ export default function App({ user, onSignOut }: AppProps) {
       {contextPreviewRequest && <ContextPreview
         request={contextPreviewRequest}
         onChange={setContextPreviewRequest}
-        onCancel={() => setContextPreviewRequest(null)}
-        onSend={() => void sendObserverRequest(contextPreviewRequest)}
+        onCancel={() => { setContextPreviewRequest(null); setMultiFilePreviewPhase(null); }}
+        onSend={() => {
+          if (multiFilePreviewPhase === "plan") void requestMultiFilePlan(contextPreviewRequest);
+          else if (multiFilePreviewPhase === "generate") void generateMultiFileChangeSet(contextPreviewRequest);
+          else void sendObserverRequest(contextPreviewRequest);
+        }}
       />}
     </div>
   );
