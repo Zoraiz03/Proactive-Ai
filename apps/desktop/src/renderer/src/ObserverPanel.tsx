@@ -10,6 +10,7 @@ import {
 } from "../../shared/observer";
 import { useEffect, useRef } from "react";
 import type { ProactiveAction, ProactiveNudge } from "../../shared/proactive-observer";
+import type { UsefulnessFeedback } from "../../shared/proactive-insights";
 
 export type ObserverStatus = "idle" | "thinking" | "ready" | "error";
 
@@ -38,6 +39,8 @@ interface ObserverPanelProps {
   onProactiveNotNow: () => void;
   onProactiveMute: (scope: "error" | "file" | "project") => void;
   onDisableProactiveAssist: () => void;
+  usefulnessPrompt: { eventId: string; title: string } | null;
+  onUsefulness: (feedback: UsefulnessFeedback) => void;
 }
 
 export default function ObserverPanel({
@@ -65,6 +68,8 @@ export default function ObserverPanel({
   onProactiveNotNow,
   onProactiveMute,
   onDisableProactiveAssist,
+  usefulnessPrompt,
+  onUsefulness,
 }: ObserverPanelProps) {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
@@ -148,6 +153,14 @@ export default function ObserverPanel({
             </div>
           </details>
         </article>
+      )}
+
+      {usefulnessPrompt && (
+        <section className="observer-usefulness" aria-label="Optional Observer usefulness feedback">
+          <strong>Was this Observer nudge useful?</strong>
+          <span>{usefulnessPrompt.title} · optional local feedback</span>
+          <div><button type="button" onClick={() => onUsefulness("yes")}>Yes</button><button type="button" onClick={() => onUsefulness("no")}>No</button><button type="button" onClick={() => onUsefulness("skip")}>Skip</button></div>
+        </section>
       )}
 
       <div className="observer-result" aria-live="polite">

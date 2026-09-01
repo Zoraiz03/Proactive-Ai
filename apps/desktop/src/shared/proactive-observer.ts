@@ -43,6 +43,10 @@ export interface ProactiveSettingsSnapshot {
   failedBuilds: boolean;
   cooldownMinutes: number;
   maximumNudgesPerHour: number;
+  diagnosticCycles?: number;
+  failedRunOccurrences?: number;
+  detectorCooldownMinutes?: Record<ProactiveDetectorType, number>;
+  detectorMaximumPerHour?: Record<ProactiveDetectorType, number>;
   mutedErrors: string[];
   mutedFiles: string[];
   mutedProjects: string[];
@@ -65,20 +69,9 @@ export interface ObjectiveFailureSignal {
   succeeded: boolean;
 }
 
-export interface ProactiveFeedbackRecord {
-  version: 1;
-  detectorType: ProactiveDetectorType;
-  severity: ProactiveSeverity;
-  workspaceId: string;
-  signature: string;
-  timestamp: number;
-  outcome: ProactiveOutcome;
-  resolved: boolean;
-  timeToResolutionMs?: number;
-}
-
 export interface ProactiveObservation {
   nudge: ProactiveNudge | null;
+  eligible: ProactiveEvent[];
   resolved: ProactiveEvent[];
   failedSafely: boolean;
 }
@@ -88,7 +81,7 @@ export interface ProactiveEngineOptions {
   diagnosticCycles?: number;
 }
 
-const EMPTY: ProactiveObservation = { nudge: null, resolved: [], failedSafely: false };
+const EMPTY: ProactiveObservation = { nudge: null, eligible: [], resolved: [], failedSafely: false };
 const basename = (path: string | undefined) => path?.split("/").at(-1) ?? "the current file";
 
 function stableHash(value: string): string {
@@ -132,7 +125,7 @@ export class ProactiveObserverEngine {
 
   resolveFile(workspaceId: string, relativePath: string): ProactiveObservation {
     try {
-      return { nudge: null, resolved: this.resolveMatching((event) => event.workspaceId === workspaceId && event.relativePath === relativePath), failedSafely: false };
+      return { nudge: null, eligible: [], resolved: this.resolveMatching((event) => event.workspaceId === workspaceId && event.relativePath === relativePath), failedSafely: false };
     } catch { return { ...EMPTY, failedSafely: true }; }
   }
 
@@ -143,12 +136,14 @@ export class ProactiveObserverEngine {
       const present = new Set(errors.map((item) => normalizedFailureSignature("persistent_diagnostic", workspaceId, relativePath, item.line, item.message)));
       const resolved = this.resolveMatching((event) => event.detectorType === "persistent_diagnostic" && event.workspaceId === workspaceId && event.relativePath === relativePath && !present.has(event.normalizedSignature));
       let nudge: ProactiveNudge | null = null;
+      const eligible: ProactiveEvent[] = [];
       for (const error of errors) {
         const signature = normalizedFailureSignature("persistent_diagnostic", workspaceId, relativePath, error.line, error.message);
-        const event = this.upsert(signature, "persistent_diagnostic", workspaceId, relativePath, error.line, error.column, `An error-level diagnostic persisted after ${this.diagnosticCycles} save/validation cycles.`, [{ kind: "diagnostic", relativePath, line: error.line, column: error.column }]);
-        if (!nudge && event.occurrenceCount >= this.diagnosticCycles) nudge = this.eligible(event, settings);
+        const cycles = settings.diagnosticCycles ?? this.diagnosticCycles;
+        const event = this.upsert(signature, "persistent_diagnostic", workspaceId, relativePath, error.line, error.column, `An error-level diagnostic persisted after ${cycles} save/validation cycles.`, [{ kind: "diagnostic", relativePath, line: error.line, column: error.column }]);
+        if (event.occurrenceCount >= cycles) { eligible.push(event); if (!nudge) nudge = this.eligible(event, settings); }
       }
-      return { nudge, resolved, failedSafely: false };
+      return { nudge, eligible, resolved, failedSafely: false };
     } catch { return { ...EMPTY, failedSafely: true }; }
   }
 
@@ -156,14 +151,15 @@ export class ProactiveObserverEngine {
     try {
       const detector = detectorFor(signal.kind);
       if (!enabled(settings, detector)) return EMPTY;
-      if (signal.succeeded) return { nudge: null, resolved: this.resolveMatching((event) => event.detectorType === detector && event.workspaceId === signal.workspaceId && (!signal.relativePath || event.relativePath === signal.relativePath)), failedSafely: false };
+      if (signal.succeeded) return { nudge: null, eligible: [], resolved: this.resolveMatching((event) => event.detectorType === detector && event.workspaceId === signal.workspaceId && (!signal.relativePath || event.relativePath === signal.relativePath)), failedSafely: false };
       const signature = normalizedFailureSignature(detector, signal.workspaceId, signal.relativePath, signal.line, signal.message);
       const repeated = this.events.has(signature);
       const label = signal.kind === "run" ? "controlled run" : `${signal.kind} action`;
       const reason = repeated ? `The same ${label} failure occurred again without a successful result.` : `An explicit ${label} returned a non-zero result.`;
       const referenceKind = signal.kind === "run" ? "run" : signal.kind;
       const event = this.upsert(signature, detector, signal.workspaceId, signal.relativePath, signal.line, signal.column, reason, [{ kind: referenceKind, ...(signal.relativePath ? { relativePath: signal.relativePath } : {}), ...(signal.line ? { line: signal.line } : {}), ...(signal.column ? { column: signal.column } : {}) }]);
-      return { nudge: this.eligible(event, settings), resolved: [], failedSafely: false };
+      const threshold = detector === "failed_run" ? settings.failedRunOccurrences ?? 1 : 1;
+      return { nudge: event.occurrenceCount >= threshold ? this.eligible(event, settings) : null, eligible: event.occurrenceCount >= threshold ? [event] : [], resolved: [], failedSafely: false };
     } catch { return { ...EMPTY, failedSafely: true }; }
   }
 
@@ -183,11 +179,11 @@ export class ProactiveObserverEngine {
   }
 
   private eligible(event: ProactiveEvent, settings: ProactiveSettingsSnapshot): ProactiveNudge | null {
-    const now = this.now(); const cooldownMs = settings.cooldownMinutes * 60_000;
+    const now = this.now(); const cooldownMs = Math.max(settings.cooldownMinutes, settings.detectorCooldownMinutes?.[event.detectorType] ?? settings.cooldownMinutes) * 60_000;
     if (this.active || this.dismissed.has(event.normalizedSignature) || settings.mutedErrors.includes(event.normalizedSignature) || (event.relativePath && settings.mutedFiles.includes(event.relativePath)) || settings.mutedProjects.includes(event.workspaceId) || now - this.lastShownAt < cooldownMs) return null;
-    const recent = (this.shownByWorkspace.get(event.workspaceId) ?? []).filter((timestamp) => now - timestamp < 3_600_000);
-    if (recent.length >= settings.maximumNudgesPerHour) { this.shownByWorkspace.set(event.workspaceId, recent); return null; }
-    recent.push(now); this.shownByWorkspace.set(event.workspaceId, recent); this.lastShownAt = now;
+    const capKey = `${event.workspaceId}:${event.detectorType}`; const detectorRecent = (this.shownByWorkspace.get(capKey) ?? []).filter((timestamp) => now - timestamp < 3_600_000); const globalRecent = (this.shownByWorkspace.get(event.workspaceId) ?? []).filter((timestamp) => now - timestamp < 3_600_000);
+    if (globalRecent.length >= settings.maximumNudgesPerHour || detectorRecent.length >= (settings.detectorMaximumPerHour?.[event.detectorType] ?? settings.maximumNudgesPerHour)) { this.shownByWorkspace.set(capKey, detectorRecent); this.shownByWorkspace.set(event.workspaceId, globalRecent); return null; }
+    detectorRecent.push(now); globalRecent.push(now); this.shownByWorkspace.set(capKey, detectorRecent); this.shownByWorkspace.set(event.workspaceId, globalRecent); this.lastShownAt = now;
     const subject = basename(event.relativePath); const repeated = event.occurrenceCount > 1 ? " again" : "";
     const title = event.detectorType === "failed_test" ? `A test failed${repeated}${event.relativePath ? ` in ${subject}` : ""}.` : event.detectorType === "failed_build" ? `Your build failed${repeated}.` : event.detectorType === "failed_run" ? `The controlled run failed${repeated}${event.relativePath ? ` in ${subject}` : ""}.` : `An error persists in ${subject}.`;
     this.active = { event: { ...event, cooldownUntil: now + cooldownMs }, title }; return this.active;
@@ -202,8 +198,4 @@ export class ProactiveObserverEngine {
     }
     return resolved;
   }
-}
-
-export function proactiveFeedback(event: ProactiveEvent, outcome: ProactiveOutcome, timestamp = Date.now()): ProactiveFeedbackRecord {
-  return { version: 1, detectorType: event.detectorType, severity: event.severity, workspaceId: event.workspaceId, signature: event.normalizedSignature, timestamp, outcome, resolved: outcome === "resolved" || event.resolved, ...(outcome === "resolved" ? { timeToResolutionMs: Math.max(0, timestamp - event.firstSeenAt) } : {}) };
 }

@@ -807,8 +807,43 @@ Required verification:
 
 ### Phase 10B — Proactive Observer Evaluation and Tuning Dashboard
 
-- [ ] **Not Started** — Add a privacy-preserving local evaluation and tuning surface
-  without expanding signals or enabling automatic AI.
+- [x] **Complete** — Add Observer Insights in Settings with truthful local aggregate
+  metrics, detector breakdowns, time-to-action/resolution measures, mute counts, and
+  optional Yes/No/Skip usefulness feedback. Skip is reported separately and excluded
+  from the usefulness-rate denominator; resolution is not presented as AI causation.
+- [x] **Complete** — Add Low, Balanced, and High safe presets plus bounded advanced
+  per-detector enabled, threshold, cooldown, hourly-cap, mute-count, and clear controls.
+  Presets change deterministic local eligibility only and never send an AI request.
+- [x] **Complete** — Generate conservative local recommendations only from sufficient
+  observed history. Every recommendation names the evidence and exact proposed change,
+  requires Apply, supports permanent dismissal, and can only reduce interruptions.
+- [x] **Complete** — Store a versioned, bounded, owner-only local event schema containing
+  random IDs, detector/category/severity, lifecycle timestamps, actions, usefulness,
+  resolution, and preset only. Exact-key validation rejects code, messages, output,
+  paths, names, prompts, model text, API keys, cursor activity, and unknown fields.
+- [x] **Complete** — Add explicit retention, collection, feedback-prompt, clear-history,
+  JSON export, and CSV summary controls. Exports are generated only after a user action,
+  contain the same privacy-safe schema, and are never uploaded automatically.
+- [x] **Complete** — Add an opt-in FYP Evaluation Mode with clear consent, a user-editable
+  pseudonymous participant ID, explicit session start/stop, exact-data preview, and
+  local export. It does not collect identity, project contents, or hidden telemetry.
+- [x] **Complete** — Preserve Phase 10A's signal and execution boundaries: no cursor or
+  typing inference, background AI, automatic file change, new detector input, cloud
+  analytics, Supabase schema, or web-application behavior was added.
+
+Required verification:
+
+- [x] **Complete** — 132/132 desktop tests pass, including calculations, detector
+  breakdowns, presets/ranges, recommendations, strict schema rejection, lifecycle,
+  retention/clearing, evaluation sessions, sanitized exports, corruption recovery,
+  and optional nonmodal feedback UI.
+- [x] **Complete** — Strict desktop TypeScript and Electron production build pass;
+  root backend tests, lint, and Next.js production build pass unchanged.
+- [x] **Complete** — A generated JSON/CSV evaluation fixture and desktop production
+  output passed privacy/credential scans. No prohibited context field or secret-shaped
+  provider/service/private-key value was found.
+- [x] **Complete** — Current Supabase guidance/changelog was reviewed. All Phase 10B
+  data remains device-local, so no database migration, grants, or RLS change was needed.
 
 ## Architecture decisions
 
@@ -1112,6 +1147,69 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-01 — Phase 10B proactive evaluation and tuning complete
+
+Architecture and behavior:
+
+- Added a typed version-2 proactive-insights contract and main-process store. Events are
+  recorded through a narrow authenticated-window IPC bridge, serialized to avoid lost
+  lifecycle updates, bounded to 5,000 events/200 sessions, filtered by configurable
+  7–365 day retention, and written atomically with owner-only permissions.
+- Added eligible/shown/action/usefulness/resolution lifecycle recording for Phase 10A
+  events and the repeated-objective-failure evaluation category. The renderer maps
+  ephemeral detector IDs to random event UUIDs and never persists workspace signatures.
+- Added Observer Insights to Settings with aggregate and detector metrics, optional
+  usefulness prompts, Low/Balanced/High presets, advanced detector tuning, local mutes,
+  conservative recommendations, retention controls, and destructive-action confirms.
+- Added opt-in FYP Evaluation Mode with pseudonymous sessions, preview, and explicit
+  JSON/CSV exports. There is no automatic upload, telemetry endpoint, or cloud sync.
+
+Changed files:
+
+- Added shared proactive-insights contracts/calculation/export logic, main-process
+  storage/IPC, focused tests, and the Observer Insights Settings component.
+- Updated desktop main registration, preload/global allowlists, renderer App/Observer/
+  Settings integration and styles, proactive detector settings, versioned local settings,
+  settings cleanup behavior, the desktop test script, and this roadmap.
+- The Next.js application, Supabase schema, and existing official FYP documents were
+  not modified.
+
+Security, privacy, and measurement decisions:
+
+- Persisted events accept an exact metadata-only schema. They cannot contain source or
+  selected code, filenames/paths, raw diagnostics, terminal output, prompts/responses,
+  model/provider details, keys/tokens, keystrokes, cursor activity, or user identity.
+- Metrics count unique normalized lifecycle records. Action/dismiss rates use shown
+  nudges; usefulness uses Yes/No only with Skip separate; timing uses valid monotonic
+  lifecycle pairs; resolution is reported as subsequent state, not claimed causation.
+- Low, Balanced, and High adjust only bounded deterministic thresholds, cooldowns, and
+  per-detector hourly caps. Recommendations require sufficient evidence, never increase
+  intervention, never apply automatically, and can be permanently dismissed.
+- `contextIsolation: true`, `nodeIntegration: false`, renderer sandboxing, trusted-window
+  IPC, and server-side AI credentials remain unchanged. Phase 10B makes no AI request.
+- Current Supabase documentation/changelog was reviewed; local-only evaluation avoids a
+  database/RLS/grants surface, so no migration was created.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 132/132 tests passed.
+- `npm --prefix apps/desktop run typecheck` and `npm --prefix apps/desktop run build`
+  — strict TypeScript and Electron production bundles passed.
+- `npm test`, `npm run lint`, and `npm run build` — root backend harnesses, lint, and
+  Next.js production build passed with web behavior unchanged.
+- Generated evaluation JSON/CSV fixtures and desktop output were scanned for paths,
+  filenames, raw errors/output, prompts/model text, credential files, provider keys,
+  service-role/encryption secrets, and private keys; no prohibited value was found.
+
+Known limitations:
+
+- Insights are intentionally device-local and are not synchronized between computers.
+- Resolution timing shows correlation after a nudge, not proof that Observer caused it.
+- Repeated objective failure is an evaluation category derived from repeated controlled
+  failures; Phase 10B adds no new background signal or project-wide inference.
+- CSV is an aggregate summary for analysis; JSON contains the complete sanitized local
+  report. Users must explicitly save and share either file themselves.
 
 ### 2026-09-01 — Phase 10A optional proactive Observer complete
 
@@ -2200,9 +2298,12 @@ Verification:
 | 2026-09-01 | Phase 9B focused workflow/transaction tests | Complete | 115/115 desktop tests passed, including strict plans/sets, context, path/secret/binary/limit checks, update/create, stale/collision/dirty preflight, checkpoint failure, mid-write restoration, undo conflict, bearer auth, review actions, and explicit-only verification. |
 | 2026-09-01 | Phase 9B desktop/security checks | Complete | Strict TypeScript, Electron production build, and desktop output credential/private-key scans passed. |
 | 2026-09-01 | Phase 9B web regression | Complete | Backend schema/privacy harnesses, lint, and Next.js production build passed; authenticated cookie/bearer behavior remains shared and no migration was needed. |
+| 2026-09-01 | Phase 10B focused insights tests | Complete | 132/132 desktop tests passed across metrics, presets, recommendations, strict privacy schema, lifecycle, sessions, exports, corruption recovery, and UI boundaries. |
+| 2026-09-01 | Phase 10B desktop/privacy checks | Complete | Strict TypeScript, Electron production build, generated JSON/CSV privacy scan, and desktop credential/private-key scan passed. |
+| 2026-09-01 | Phase 10B web regression | Complete | Root tests, lint, and Next.js production build passed; no web source or Supabase schema change was required. |
 
 ## Recommended next task
 
-Implement **Phase 10B Proactive Observer Evaluation and Tuning Dashboard**. Keep it
-privacy-preserving and local-first, use metadata only, and do not broaden detection or
-enable automatic AI requests.
+Implement **Phase 11A Context Tray**. Keep context explicit and user-controlled, preserve
+the existing preview/privacy exclusions, and do not introduce project-wide automatic
+uploading or background AI requests.

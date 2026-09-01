@@ -78,7 +78,6 @@ import {
 } from "./commands";
 import {
   ProactiveObserverEngine,
-  proactiveFeedback,
   type DiagnosticSignal,
   type ProactiveAction,
   type ProactiveEvent,
@@ -87,6 +86,7 @@ import {
   type ProactiveOutcome,
   type ProactiveSettingsSnapshot,
 } from "../../shared/proactive-observer";
+import type { AssistPreset, InsightAction, InsightDetectorType, UsefulnessFeedback } from "../../shared/proactive-insights";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -561,6 +561,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [multiFileActiveIndex, setMultiFileActiveIndex] = useState(0);
   const [multiFilePreviewPhase, setMultiFilePreviewPhase] = useState<"plan" | "generate" | null>(null);
   const [proactiveNudge, setProactiveNudge] = useState<ProactiveNudge | null>(null);
+  const [usefulnessPrompt, setUsefulnessPrompt] = useState<{ eventId: string; title: string } | null>(null);
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -571,6 +572,8 @@ export default function App({ user, onSignOut }: AppProps) {
   const proactiveDiagnosticsRef = useRef(new Map<string, DiagnosticSignal[]>());
   const proactiveEvidenceRef = useRef(new Map<string, { message: string; runError?: string }>());
   const proactiveFailureReportedRef = useRef(false);
+  const proactiveInsightIdsRef = useRef(new Map<string, string>());
+  const pendingProactiveFeedbackRef = useRef<ProactiveEvent | null>(null);
 
   useEffect(() => {
     void Promise.all([window.settings.getLocal(), window.settings.getSynced(), window.settings.providerStatus()]).then(([local, synced, providers]) => {
@@ -609,14 +612,26 @@ export default function App({ user, onSignOut }: AppProps) {
     []
   );
 
-  const recordProactiveOutcome = useCallback((event: ProactiveEvent, outcome: ProactiveOutcome) => {
-    void window.settings.recordProactiveFeedback(proactiveFeedback(event, outcome)).then((result) => {
+  const insightIdFor = useCallback((event: ProactiveEvent) => {
+    const existing = proactiveInsightIdsRef.current.get(event.eventId); if (existing) return existing;
+    const id = crypto.randomUUID(); proactiveInsightIdsRef.current.set(event.eventId, id); return id;
+  }, []);
+
+  const mutateInsight = useCallback((event: ProactiveEvent, kind: "eligible" | "shown" | "action" | "resolved", outcome?: ProactiveOutcome) => {
+    const detectorType: InsightDetectorType = event.occurrenceCount > 1 && event.detectorType !== "persistent_diagnostic" ? "repeated_objective_failure" : event.detectorType;
+    const action = outcome && !["shown", "resolved"].includes(outcome) ? outcome as InsightAction : undefined;
+    void window.observerInsights.mutate({ kind, eventId: insightIdFor(event), detectorType, severity: "error", timestamp: Date.now(), preset: localSettings.proactivePreset, collectionEnabled: localSettings.proactiveMetricsCollection, ...(action ? { action } : {}) }, localSettings.proactiveRetentionDays).then((result) => {
       if (!result.ok && !proactiveFailureReportedRef.current) {
         proactiveFailureReportedRef.current = true;
-        appendOutput("Proactive Observer local feedback could not be recorded. Detection continues safely.", "error");
+        appendOutput("Proactive Observer local insights could not be recorded. Detection continues safely.", "error");
       }
     });
-  }, [appendOutput]);
+  }, [appendOutput, insightIdFor, localSettings.proactiveMetricsCollection, localSettings.proactivePreset, localSettings.proactiveRetentionDays]);
+
+  const queueUsefulnessPrompt = useCallback((event: ProactiveEvent) => {
+    if (!localSettings.proactiveFeedbackPrompts || !localSettings.proactiveMetricsCollection) return;
+    setUsefulnessPrompt({ eventId: insightIdFor(event), title: event.detectorType === "failed_run" ? "Failed run nudge" : event.detectorType === "failed_test" ? "Failed test nudge" : event.detectorType === "failed_build" ? "Failed build nudge" : "Persistent diagnostic nudge" });
+  }, [insightIdFor, localSettings.proactiveFeedbackPrompts, localSettings.proactiveMetricsCollection]);
 
   const consumeProactiveObservation = useCallback((observation: ProactiveObservation, evidence?: { message: string; runError?: string }) => {
     if (observation.failedSafely) {
@@ -626,18 +641,19 @@ export default function App({ user, onSignOut }: AppProps) {
       }
       return;
     }
+    for (const event of observation.eligible) mutateInsight(event, "eligible");
     for (const event of observation.resolved) {
       proactiveEvidenceRef.current.delete(event.normalizedSignature);
-      recordProactiveOutcome(event, "resolved");
+      mutateInsight(event, "resolved", "resolved");
     }
     if (observation.nudge) {
       if (evidence) proactiveEvidenceRef.current.set(observation.nudge.event.normalizedSignature, evidence);
       setProactiveNudge(observation.nudge);
-      recordProactiveOutcome(observation.nudge.event, "shown");
+      mutateInsight(observation.nudge.event, "shown", "shown");
     } else if (!proactiveEngineRef.current.currentNudge()) {
       setProactiveNudge(null);
     }
-  }, [appendOutput, recordProactiveOutcome]);
+  }, [appendOutput, mutateInsight]);
 
   useEffect(() => {
     tabsRef.current = tabs;
@@ -666,6 +682,10 @@ export default function App({ user, onSignOut }: AppProps) {
     failedBuilds: localSettings.proactiveFailedBuilds,
     cooldownMinutes: localSettings.proactiveCooldownMinutes,
     maximumNudgesPerHour: localSettings.proactiveMaximumNudgesPerHour,
+    diagnosticCycles: localSettings.proactiveDiagnosticCycles,
+    failedRunOccurrences: localSettings.proactiveFailedRunOccurrences,
+    detectorCooldownMinutes: localSettings.proactiveDetectorCooldownMinutes,
+    detectorMaximumPerHour: localSettings.proactiveDetectorMaximumPerHour,
     mutedErrors: localSettings.proactiveMutedErrors,
     mutedFiles: localSettings.proactiveMutedFiles,
     mutedProjects: localSettings.proactiveMutedProjects,
@@ -894,6 +914,9 @@ export default function App({ user, onSignOut }: AppProps) {
     proactiveEngineRef.current = new ProactiveObserverEngine();
     proactiveDiagnosticsRef.current.clear();
     proactiveEvidenceRef.current.clear();
+    proactiveInsightIdsRef.current.clear();
+    pendingProactiveFeedbackRef.current = null;
+    setUsefulnessPrompt(null);
     setProactiveNudge(null);
     setTabs([]);
     setActivePath(null);
@@ -1403,6 +1426,8 @@ export default function App({ user, onSignOut }: AppProps) {
     setSentContextSummary(summary);
     const result = await window.observer.ask(request);
     observerRequestInFlight.current = false;
+    const completedProactive = pendingProactiveFeedbackRef.current;
+    if (completedProactive) { pendingProactiveFeedbackRef.current = null; queueUsefulnessPrompt(completedProactive); }
     if (!result.ok) {
       setObserverError(result.error);
       setObserverStatus("error");
@@ -1433,7 +1458,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverSuggestion(result.value.suggestion);
     setObserverStatus("ready");
     appendOutput(`Observer returned a ${OBSERVER_MODE_LABELS[request.mode].toLowerCase()} suggestion.`, "success");
-  }, [activeTab, appendOutput, observerEditReview, observerSuggestion, syncedSettings.confirmCompleteFile]);
+  }, [activeTab, appendOutput, observerEditReview, observerSuggestion, queueUsefulnessPrompt, syncedSettings.confirmCompleteFile]);
 
   const askObserver = useCallback(async () => {
     if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion || observerEditReview) return;
@@ -1448,9 +1473,9 @@ export default function App({ user, onSignOut }: AppProps) {
   const finishProactiveNudge = useCallback((outcome: Exclude<ProactiveOutcome, "shown" | "resolved">) => {
     const event = proactiveEngineRef.current.dismiss(outcome);
     setProactiveNudge(null);
-    if (event) recordProactiveOutcome(event, outcome);
+    if (event) mutateInsight(event, "action", outcome);
     return event;
-  }, [recordProactiveOutcome]);
+  }, [mutateInsight]);
 
   const updateProactiveLocal = useCallback(async (update: (current: LocalSettings) => LocalSettings) => {
     const result = await window.settings.updateLocal(update(localSettings));
@@ -1503,33 +1528,42 @@ export default function App({ user, onSignOut }: AppProps) {
         maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
       },
     };
+    pendingProactiveFeedbackRef.current = event;
     finishProactiveNudge(action);
     setObserverMode(mode);
     setObserverStatus("thinking");
     const prepared = await window.observer.prepare(prepare);
     setObserverStatus("idle");
     if (!prepared.ok) {
+      pendingProactiveFeedbackRef.current = null;
+      queueUsefulnessPrompt(event);
       setObserverError(prepared.error);
       setObserverStatus("error");
       return;
     }
     setContextPreviewRequest(prepared.value);
-  }, [activePath, appendOutput, finishProactiveNudge, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, observerProvider, proactiveNudge, selectFile, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+  }, [activePath, appendOutput, finishProactiveNudge, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, observerProvider, proactiveNudge, queueUsefulnessPrompt, selectFile, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
 
   const muteProactiveNudge = useCallback((scope: "error" | "file" | "project") => {
     const event = finishProactiveNudge(scope === "error" ? "mute_error" : scope === "file" ? "mute_file" : "mute_project");
     if (!event) return;
+    queueUsefulnessPrompt(event);
     void updateProactiveLocal((current) => scope === "error"
       ? { ...current, proactiveMutedErrors: Array.from(new Set([...current.proactiveMutedErrors, event.normalizedSignature])) }
       : scope === "file" && event.relativePath
         ? { ...current, proactiveMutedFiles: Array.from(new Set([...current.proactiveMutedFiles, event.relativePath])) }
         : { ...current, proactiveMutedProjects: Array.from(new Set([...current.proactiveMutedProjects, event.workspaceId])) });
-  }, [finishProactiveNudge, updateProactiveLocal]);
+  }, [finishProactiveNudge, queueUsefulnessPrompt, updateProactiveLocal]);
 
   const disableProactiveAssist = useCallback(() => {
-    finishProactiveNudge("disable_assist");
+    const event = finishProactiveNudge("disable_assist"); if (event) queueUsefulnessPrompt(event);
     void updateProactiveLocal((current) => ({ ...current, proactiveObserverMode: "manual" }));
-  }, [finishProactiveNudge, updateProactiveLocal]);
+  }, [finishProactiveNudge, queueUsefulnessPrompt, updateProactiveLocal]);
+
+  const answerUsefulness = useCallback((usefulness: UsefulnessFeedback) => {
+    const prompt = usefulnessPrompt; setUsefulnessPrompt(null); if (!prompt) return;
+    void window.observerInsights.mutate({ kind: "feedback", eventId: prompt.eventId, timestamp: Date.now(), usefulness, collectionEnabled: localSettings.proactiveMetricsCollection }, localSettings.proactiveRetentionDays);
+  }, [localSettings.proactiveMetricsCollection, localSettings.proactiveRetentionDays, usefulnessPrompt]);
 
   const rejectObserverEdit = useCallback(() => {
     const suggestionId = observerEditReview?.suggestion.id;
@@ -1660,11 +1694,11 @@ export default function App({ user, onSignOut }: AppProps) {
     const dismissNudge = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      finishProactiveNudge("not_now");
+      const dismissed = finishProactiveNudge("not_now"); if (dismissed) queueUsefulnessPrompt(dismissed);
     };
     window.addEventListener("keydown", dismissNudge, { capture: true });
     return () => window.removeEventListener("keydown", dismissNudge, { capture: true });
-  }, [contextPreviewRequest, finishProactiveNudge, observerEditReview, proactiveNudge, settingsOpen]);
+  }, [contextPreviewRequest, finishProactiveNudge, observerEditReview, proactiveNudge, queueUsefulnessPrompt, settingsOpen]);
 
   useEffect(() => {
     if (observerStatus !== "ready" || !observerSuggestion) return;
@@ -1716,6 +1750,9 @@ export default function App({ user, onSignOut }: AppProps) {
     proactiveEngineRef.current = new ProactiveObserverEngine();
     proactiveDiagnosticsRef.current.clear();
     proactiveEvidenceRef.current.clear();
+    proactiveInsightIdsRef.current.clear();
+    pendingProactiveFeedbackRef.current = null;
+    setUsefulnessPrompt(null);
     setProactiveNudge(null);
     setTabs([]);
     setActivePath(null);
@@ -2194,9 +2231,11 @@ export default function App({ user, onSignOut }: AppProps) {
             onMultiFileDescriptionChange={setMultiFileDescription}
             proactiveNudge={proactiveNudge}
             onProactiveAction={(action) => void handleProactiveAction(action)}
-            onProactiveNotNow={() => finishProactiveNudge("not_now")}
+            onProactiveNotNow={() => { const event = finishProactiveNudge("not_now"); if (event) queueUsefulnessPrompt(event); }}
             onProactiveMute={muteProactiveNudge}
             onDisableProactiveAssist={disableProactiveAssist}
+            usefulnessPrompt={usefulnessPrompt}
+            onUsefulness={answerUsefulness}
           />
         </aside>
 
@@ -2261,7 +2300,7 @@ export default function App({ user, onSignOut }: AppProps) {
       {contextPreviewRequest && <ContextPreview
         request={contextPreviewRequest}
         onChange={setContextPreviewRequest}
-        onCancel={() => { setContextPreviewRequest(null); setMultiFilePreviewPhase(null); }}
+        onCancel={() => { const event = pendingProactiveFeedbackRef.current; pendingProactiveFeedbackRef.current = null; if (event) queueUsefulnessPrompt(event); setContextPreviewRequest(null); setMultiFilePreviewPhase(null); }}
         onSend={() => {
           if (multiFilePreviewPhase === "plan") void requestMultiFilePlan(contextPreviewRequest);
           else if (multiFilePreviewPhase === "generate") void generateMultiFileChangeSet(contextPreviewRequest);

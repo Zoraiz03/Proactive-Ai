@@ -1194,6 +1194,9 @@ button.tree-row {
 .proactive-nudge details { margin-top: 8px; color: #8fa0b3; font-size: 9px; }
 .proactive-nudge summary { cursor: pointer; }
 :root[data-theme="light"] .proactive-nudge { background: #f4f8fc; border-color: #8ba6bf; color: #203044; }
+.observer-usefulness { margin: 0 9px 9px; padding: 9px; border: 1px solid #46586d; border-radius: 7px; display: grid; gap: 5px; background: #171f2a; }
+.observer-usefulness strong { font-size: 10px; }.observer-usefulness span { color: #8fa0b3; font-size: 8px; }.observer-usefulness div { display: flex; gap: 5px; }
+.observer-usefulness button { border: 1px solid #46586d; border-radius: 5px; padding: 5px 9px; background: #222e3d; color: #d7e0e9; cursor: pointer; }
 
 .observer-result {
   min-height: 0;
@@ -2071,6 +2074,13 @@ button.tree-row {
 .proactive-mute-list { display: grid; gap: 6px; }
 .proactive-mute-list > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border: 1px solid #303b49; border-radius: 6px; }
 .proactive-mute-list code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b9c9da; }
+.observer-insights-settings { display: grid; gap: 12px; }.observer-insights-settings h4 { margin: 10px 0 0; }.observer-insights-settings p { margin: 0; color: #9daabd; line-height: 1.5; }
+.insight-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }.insight-presets button { display: grid; gap: 5px; text-align: left; padding: 10px; border: 1px solid #394556; border-radius: 7px; background: #171e27; color: inherit; }.insight-presets button.active { border-color: #558fc8; background: #192d41; }.insight-presets span { color: #9daabd; font-size: 9px; line-height: 1.4; }
+.detector-controls { display: grid; gap: 8px; margin-top: 10px; }.detector-controls section { display: grid; grid-template-columns: minmax(140px, 1fr) repeat(5, auto); align-items: center; gap: 8px; padding: 9px; border: 1px solid #303b49; border-radius: 6px; font-size: 9px; }.detector-controls label { display: flex; align-items: center; gap: 5px; }.detector-controls input[type="number"] { width: 64px; }
+.insight-metrics { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 7px; }.insight-metrics span { display: grid; gap: 3px; padding: 9px; border: 1px solid #303b49; border-radius: 6px; color: #9daabd; font-size: 9px; }.insight-metrics strong { color: #e4eaf2; font-size: 13px; }
+.insight-breakdown { display: grid; gap: 6px; }.insight-breakdown > div { display: grid; grid-template-columns: minmax(150px, 1fr) 1fr 1.4fr; gap: 8px; padding: 8px; border-bottom: 1px solid #303b49; font-size: 9px; }.insight-breakdown span { color: #9daabd; }
+.insight-recommendation, .evaluation-active, .evaluation-consent { display: grid; gap: 8px; padding: 11px; border: 1px solid #52677f; border-radius: 7px; background: #172331; }.insight-recommendation > div { display: flex; gap: 7px; }.observer-insights-settings details > pre { max-height: 280px; overflow: auto; white-space: pre-wrap; font-size: 9px; background: #0d1219; padding: 10px; border-radius: 6px; }
+@media (max-width: 900px) { .insight-presets, .insight-metrics { grid-template-columns: 1fr; }.detector-controls section, .insight-breakdown > div { grid-template-columns: 1fr; } }
 
 :root[data-theme="light"] body, :root[data-theme="light"] .app-shell { background: #f3f5f8; color: #1d2733; }
 :root[data-theme="light"] .top-bar, :root[data-theme="light"] .panel, :root[data-theme="light"] .status-bar { background: #fff; color: #1d2733; border-color: #cdd5df; }

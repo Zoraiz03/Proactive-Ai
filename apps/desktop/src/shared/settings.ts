@@ -1,12 +1,12 @@
 import type { IpcResult } from "./workspace";
 import type { ObserverMode, ObserverProvider } from "./observer";
 import type { ProactiveObserverMode } from "./proactive-observer.ts";
-import type { ProactiveFeedbackRecord } from "./proactive-observer.ts";
+import type { AssistPreset } from "./proactive-insights.ts";
 
 const CODE_SETTING_MODES = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const;
 const SETTING_PROVIDERS = ["gemini", "openai", "deepseek", "anthropic", "demo"] as const;
 
-export const SETTINGS_VERSION = 5;
+export const SETTINGS_VERSION = 6;
 
 export const SETTINGS_CHANNELS = {
   getLocal: "settings:get-local",
@@ -20,7 +20,6 @@ export const SETTINGS_CHANNELS = {
   clearObserverHistory: "settings:clear-observer-history",
   getWorkspaceTabs: "settings:get-workspace-tabs",
   saveWorkspaceTabs: "settings:save-workspace-tabs",
-  recordProactiveFeedback: "settings:record-proactive-feedback",
 } as const;
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -55,6 +54,15 @@ export interface LocalSettings {
   proactiveFailedBuilds: boolean;
   proactiveCooldownMinutes: number;
   proactiveMaximumNudgesPerHour: number;
+  proactivePreset: AssistPreset;
+  proactiveDiagnosticCycles: number;
+  proactiveFailedRunOccurrences: number;
+  proactiveDetectorCooldownMinutes: { persistent_diagnostic: number; failed_run: number; failed_test: number; failed_build: number };
+  proactiveDetectorMaximumPerHour: { persistent_diagnostic: number; failed_run: number; failed_test: number; failed_build: number };
+  proactiveMetricsCollection: boolean;
+  proactiveFeedbackPrompts: boolean;
+  proactiveRetentionDays: number;
+  proactiveDismissedRecommendations: string[];
   proactiveMutedErrors: string[];
   proactiveMutedFiles: string[];
   proactiveMutedProjects: string[];
@@ -116,6 +124,15 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
   proactiveFailedBuilds: true,
   proactiveCooldownMinutes: 10,
   proactiveMaximumNudgesPerHour: 3,
+  proactivePreset: "balanced",
+  proactiveDiagnosticCycles: 2,
+  proactiveFailedRunOccurrences: 1,
+  proactiveDetectorCooldownMinutes: Object.freeze({ persistent_diagnostic: 10, failed_run: 10, failed_test: 10, failed_build: 10 }),
+  proactiveDetectorMaximumPerHour: Object.freeze({ persistent_diagnostic: 3, failed_run: 3, failed_test: 3, failed_build: 3 }),
+  proactiveMetricsCollection: true,
+  proactiveFeedbackPrompts: true,
+  proactiveRetentionDays: 30,
+  proactiveDismissedRecommendations: Object.freeze([]) as unknown as string[],
   proactiveMutedErrors: Object.freeze([]) as unknown as string[],
   proactiveMutedFiles: Object.freeze([]) as unknown as string[],
   proactiveMutedProjects: Object.freeze([]) as unknown as string[],
@@ -165,6 +182,8 @@ const cleanIdentifiers = (value: unknown, pattern: RegExp, maximum = 200): strin
 export function normalizeLocalSettings(value: unknown): LocalSettings {
   const source = plainObject(value) ? value : {};
   const editor = plainObject(source.editor) ? source.editor : {};
+  const detectorCooldown = plainObject(source.proactiveDetectorCooldownMinutes) ? source.proactiveDetectorCooldownMinutes : {};
+  const detectorMaximum = plainObject(source.proactiveDetectorMaximumPerHour) ? source.proactiveDetectorMaximumPerHour : {};
   return {
     version: SETTINGS_VERSION,
     theme: ["system", "light", "dark"].includes(String(source.theme))
@@ -196,6 +215,25 @@ export function normalizeLocalSettings(value: unknown): LocalSettings {
     proactiveFailedBuilds: bool(source.proactiveFailedBuilds, DEFAULT_LOCAL_SETTINGS.proactiveFailedBuilds),
     proactiveCooldownMinutes: boundedInt(source.proactiveCooldownMinutes, DEFAULT_LOCAL_SETTINGS.proactiveCooldownMinutes, 1, 1_440),
     proactiveMaximumNudgesPerHour: boundedInt(source.proactiveMaximumNudgesPerHour, DEFAULT_LOCAL_SETTINGS.proactiveMaximumNudgesPerHour, 1, 10),
+    proactivePreset: ["low", "balanced", "high"].includes(String(source.proactivePreset)) ? source.proactivePreset as AssistPreset : DEFAULT_LOCAL_SETTINGS.proactivePreset,
+    proactiveDiagnosticCycles: boundedInt(source.proactiveDiagnosticCycles, DEFAULT_LOCAL_SETTINGS.proactiveDiagnosticCycles, 2, 5),
+    proactiveFailedRunOccurrences: boundedInt(source.proactiveFailedRunOccurrences, DEFAULT_LOCAL_SETTINGS.proactiveFailedRunOccurrences, 1, 3),
+    proactiveDetectorCooldownMinutes: {
+      persistent_diagnostic: boundedInt(detectorCooldown.persistent_diagnostic, DEFAULT_LOCAL_SETTINGS.proactiveDetectorCooldownMinutes.persistent_diagnostic, 5, 1_440),
+      failed_run: boundedInt(detectorCooldown.failed_run, DEFAULT_LOCAL_SETTINGS.proactiveDetectorCooldownMinutes.failed_run, 5, 1_440),
+      failed_test: boundedInt(detectorCooldown.failed_test, DEFAULT_LOCAL_SETTINGS.proactiveDetectorCooldownMinutes.failed_test, 5, 1_440),
+      failed_build: boundedInt(detectorCooldown.failed_build, DEFAULT_LOCAL_SETTINGS.proactiveDetectorCooldownMinutes.failed_build, 5, 1_440),
+    },
+    proactiveDetectorMaximumPerHour: {
+      persistent_diagnostic: boundedInt(detectorMaximum.persistent_diagnostic, DEFAULT_LOCAL_SETTINGS.proactiveDetectorMaximumPerHour.persistent_diagnostic, 1, 10),
+      failed_run: boundedInt(detectorMaximum.failed_run, DEFAULT_LOCAL_SETTINGS.proactiveDetectorMaximumPerHour.failed_run, 1, 10),
+      failed_test: boundedInt(detectorMaximum.failed_test, DEFAULT_LOCAL_SETTINGS.proactiveDetectorMaximumPerHour.failed_test, 1, 10),
+      failed_build: boundedInt(detectorMaximum.failed_build, DEFAULT_LOCAL_SETTINGS.proactiveDetectorMaximumPerHour.failed_build, 1, 10),
+    },
+    proactiveMetricsCollection: bool(source.proactiveMetricsCollection, DEFAULT_LOCAL_SETTINGS.proactiveMetricsCollection),
+    proactiveFeedbackPrompts: bool(source.proactiveFeedbackPrompts, DEFAULT_LOCAL_SETTINGS.proactiveFeedbackPrompts),
+    proactiveRetentionDays: boundedInt(source.proactiveRetentionDays, DEFAULT_LOCAL_SETTINGS.proactiveRetentionDays, 7, 365),
+    proactiveDismissedRecommendations: cleanIdentifiers(source.proactiveDismissedRecommendations, /^[a-z0-9-]{3,100}$/, 50),
     proactiveMutedErrors: cleanIdentifiers(source.proactiveMutedErrors, /^[a-f0-9]{16}$/),
     proactiveMutedFiles: cleanIdentifiers(source.proactiveMutedFiles, /^(?!\/)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))[^\0]{1,4096}$/),
     proactiveMutedProjects: cleanIdentifiers(source.proactiveMutedProjects, /^[a-f0-9]{64}$/),
@@ -262,5 +300,4 @@ export interface SettingsBridge {
   clearObserverHistory: () => Promise<IpcResult<void>>;
   getWorkspaceTabs: (workspaceId: string) => Promise<IpcResult<string[]>>;
   saveWorkspaceTabs: (workspaceId: string, paths: string[]) => Promise<IpcResult<void>>;
-  recordProactiveFeedback: (record: ProactiveFeedbackRecord) => Promise<IpcResult<void>>;
 }

@@ -8,8 +8,9 @@ import {
   type ProviderStatus,
   type SyncedSettings,
 } from "../../shared/settings";
+import ObserverInsightsSettings from "./ObserverInsightsSettings";
 
-const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Privacy", "Data and History"] as const;
+const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Observer Insights", "Privacy", "Data and History"] as const;
 type Section = typeof sections[number];
 
 interface Props {
@@ -71,7 +72,7 @@ export default function SettingsPanel(props: Props) {
           {visibleSections.map((section) => <button key={section} className={active === section ? "active" : ""} onClick={() => setActive(section)}>{section}</button>)}
         </nav>
         <main>
-          <div className="storage-badge">{["General", "Editor"].includes(active) ? "Stored on this device" : active === "Observer" ? "Manual preferences sync; Assist controls and mutes stay on this device" : "Stored per account in Supabase, except local exclusions"}</div>
+          <div className="storage-badge">{["General", "Editor", "Observer Insights"].includes(active) ? "Stored on this device" : active === "Observer" ? "Manual preferences sync; Assist controls and mutes stay on this device" : "Stored per account in Supabase, except local exclusions"}</div>
           {active === "General" && <>
             <h3>General</h3>
             <label className="setting-row"><span>Theme</span><select value={local.theme} onChange={(e) => setLocal({ ...local, theme: e.target.value as LocalSettings["theme"] })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
@@ -141,6 +142,7 @@ export default function SettingsPanel(props: Props) {
             <button onClick={() => void saveLocal()}>Save local Observer settings</button>
             <button className="primary" onClick={() => void saveSynced()}>Save Observer settings</button>
           </>}
+          {active === "Observer Insights" && <ObserverInsightsSettings local={local} onChange={setLocal} onSave={props.onSaveLocal} />}
           {active === "Privacy" && <>
             <h3>Privacy</h3><p>Local project files are never uploaded automatically. Observer sends focused context only after you ask.</p>
             <Toggle label="Never send .env files" checked disabled onChange={() => undefined} />

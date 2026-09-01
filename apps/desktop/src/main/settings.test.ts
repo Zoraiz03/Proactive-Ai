@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, test } from "node:test";
 import { SettingsApiClient } from "./settings-client.ts";
-import { clearLocalObserverHistory, LocalSettingsStore, parseProactiveFeedback, ProactiveFeedbackStore, WorkspaceTabStore } from "./settings-store.ts";
+import { clearLocalObserverHistory, LocalSettingsStore, WorkspaceTabStore } from "./settings-store.ts";
 import {
   DEFAULT_LOCAL_SETTINGS,
   isExcludedFromAiContext,
@@ -37,12 +37,20 @@ test("uses restrictive defaults and recovers corrupted or old local settings", a
   assert.equal(recovered.proactiveObserverMode, "manual");
   assert.equal(recovered.proactivePersistentDiagnostics, true);
   assert.equal(recovered.proactiveCooldownMinutes, 10);
+  assert.equal(recovered.proactivePreset, "balanced");
+  assert.equal(recovered.proactiveMetricsCollection, true);
+  assert.equal(recovered.proactiveFeedbackPrompts, true);
+  assert.equal(recovered.proactiveRetentionDays, 30);
   assert.equal("unexpected" in recovered, false);
   const bounded = normalizeLocalSettings({ contextMaximumRelatedFiles: 99, contextMaximumFileCharacters: 100 });
   assert.equal(bounded.contextMaximumRelatedFiles, 4);
   assert.equal(bounded.contextMaximumFileCharacters, 8_000);
   assert.equal(normalizeLocalSettings({ checkpointRetentionLimit: 500 }).checkpointRetentionLimit, 20);
   assert.equal(normalizeLocalSettings({ multiFileMaximumFiles: 50 }).multiFileMaximumFiles, 5);
+  assert.equal(normalizeLocalSettings({ proactiveDiagnosticCycles: 1 }).proactiveDiagnosticCycles, 2);
+  assert.equal(normalizeLocalSettings({ proactiveRetentionDays: 1 }).proactiveRetentionDays, 30);
+  assert.equal(normalizeLocalSettings({ proactiveDetectorCooldownMinutes: { failed_run: 1 } }).proactiveDetectorCooldownMinutes.failed_run, 10);
+  assert.equal(normalizeLocalSettings({ proactiveDetectorMaximumPerHour: { failed_test: 99 } }).proactiveDetectorMaximumPerHour.failed_test, 3);
 });
 
 test("stores only typed local preferences in owner-only app data", async () => {
@@ -65,25 +73,15 @@ test("stores bounded relative tab metadata without file content", async () => {
 test("clears local Observer context history idempotently", async () => {
   const path = join(temporaryDirectory, "observer-context-history.json");
   const feedbackPath = join(temporaryDirectory, "proactive-observer-feedback.json");
+  const insightsPath = join(temporaryDirectory, "proactive-observer-insights-v2.json");
   await writeFile(path, "local metadata");
   await writeFile(feedbackPath, "local metadata");
+  await writeFile(insightsPath, "local metadata");
   await clearLocalObserverHistory(temporaryDirectory);
   await clearLocalObserverHistory(temporaryDirectory);
   await assert.rejects(readFile(path, "utf8"));
   await assert.rejects(readFile(feedbackPath, "utf8"));
-});
-
-test("proactive feedback accepts only minimal secret-free metadata", async () => {
-  const record = { version: 1 as const, detectorType: "failed_run" as const, severity: "error" as const, workspaceId: "a".repeat(64), signature: "b".repeat(16), timestamp: 123, outcome: "shown" as const, resolved: false };
-  assert.deepEqual(parseProactiveFeedback(record), record);
-  assert.equal(parseProactiveFeedback({ ...record, rawCode: "secret source" }), null);
-  assert.equal(parseProactiveFeedback({ ...record, signature: "raw error message" }), null);
-  const store = new ProactiveFeedbackStore(temporaryDirectory);
-  await store.append(record);
-  const raw = await readFile(store.filePath, "utf8");
-  assert.match(raw, /failed_run/);
-  assert.doesNotMatch(raw, /source|stderr|relativePath|token|apiKey/);
-  await assert.rejects(store.append({ ...record, terminalOutput: "password=hidden" }));
+  await assert.rejects(readFile(insightsPath, "utf8"));
 });
 
 test("keeps local and synced schemas separate", () => {

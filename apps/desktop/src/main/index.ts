@@ -10,6 +10,7 @@ import { registerGitIpc } from "./git-ipc";
 import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { registerMultiFileIpc } from "./multi-file-ipc";
 import { registerVerificationTaskIpc } from "./verification-task-ipc";
+import { registerProactiveInsightsIpc } from "./proactive-insights-ipc";
 
 declare const __DESKTOP_API_BASE_URL__: string;
 
@@ -102,6 +103,7 @@ app.whenReady().then(() => {
   const checkpointIpc = registerCheckpointIpc(getAuthenticatedWindow, app.getPath("userData"));
   const multiFileIpc = registerMultiFileIpc(getAuthenticatedWindow, () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim(), app.getPath("userData"), (webContentsId, context) => observerIpc.controller.authorize(webContentsId, context));
   const verificationTaskIpc = registerVerificationTaskIpc(getAuthenticatedWindow);
+  const proactiveInsightsIpc = registerProactiveInsightsIpc(getAuthenticatedWindow, app.getPath("userData"));
   terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
   runIpc = registerRunIpc(getAuthenticatedWindow);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
@@ -132,6 +134,7 @@ app.whenReady().then(() => {
     checkpointIpc.cleanup();
     multiFileIpc.cleanup();
     verificationTaskIpc.cleanup();
+    proactiveInsightsIpc.cleanup();
     authIpc.cleanup();
     runIpc?.cleanup();
     terminalIpc?.cleanup();

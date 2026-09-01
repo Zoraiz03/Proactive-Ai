@@ -9,6 +9,7 @@ import type { GitBridge } from "../../shared/git";
 import type { CheckpointBridge } from "../../shared/checkpoints";
 import type { MultiFileBridge } from "../../shared/multi-file-change";
 import type { VerificationTaskBridge } from "../../shared/verification-task";
+import type { InsightsBridge } from "../../shared/proactive-insights";
 
 declare global {
   interface Window {
@@ -22,6 +23,7 @@ declare global {
     checkpoints: CheckpointBridge;
     multiFileObserver: MultiFileBridge;
     verificationTask: VerificationTaskBridge;
+    observerInsights: InsightsBridge;
     workspaceSearch: WorkspaceSearchBridge;
   }
 }
