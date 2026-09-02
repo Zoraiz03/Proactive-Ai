@@ -11,6 +11,8 @@ import {
 import { useEffect, useRef } from "react";
 import type { ProactiveAction, ProactiveNudge } from "../../shared/proactive-observer";
 import type { UsefulnessFeedback } from "../../shared/proactive-insights";
+import type { ContextTrayItem } from "../../shared/context-tray";
+import ContextTray from "./ContextTray";
 
 export type ObserverStatus = "idle" | "thinking" | "ready" | "error";
 
@@ -41,6 +43,14 @@ interface ObserverPanelProps {
   onDisableProactiveAssist: () => void;
   usefulnessPrompt: { eventId: string; title: string } | null;
   onUsefulness: (feedback: UsefulnessFeedback) => void;
+  contextTrayItems: readonly ContextTrayItem[];
+  maximumContextCharacters: number;
+  onRemoveContextItem: (id: string) => void;
+  onClearContext: () => void;
+  onMoveContextItem: (id: string, direction: -1 | 1) => void;
+  onRefreshContextItem: (id: string) => void;
+  onKeepOriginalContextItem: (id: string) => void;
+  onTruncateContextItem: (id: string) => void;
 }
 
 export default function ObserverPanel({
@@ -70,6 +80,14 @@ export default function ObserverPanel({
   onDisableProactiveAssist,
   usefulnessPrompt,
   onUsefulness,
+  contextTrayItems,
+  maximumContextCharacters,
+  onRemoveContextItem,
+  onClearContext,
+  onMoveContextItem,
+  onRefreshContextItem,
+  onKeepOriginalContextItem,
+  onTruncateContextItem,
 }: ObserverPanelProps) {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
@@ -126,6 +144,16 @@ export default function ObserverPanel({
         </button>
         <span className="observer-shortcut">Ctrl/⌘ + Enter</span>
         <button type="button" onClick={onUndo} disabled={!canUndo}>Undo Observer Change</button>
+        <ContextTray
+          items={contextTrayItems}
+          maximumCharacters={maximumContextCharacters}
+          onRemove={onRemoveContextItem}
+          onClear={onClearContext}
+          onMove={onMoveContextItem}
+          onRefresh={onRefreshContextItem}
+          onKeepOriginal={onKeepOriginalContextItem}
+          onTruncate={onTruncateContextItem}
+        />
       </div>
 
       {proactiveNudge && (

@@ -20,6 +20,14 @@ export type CommandId =
   | "observer.ask"
   | "observer.undoChange"
   | "observer.undoMultiFileChange"
+  | "observer.context.addSelection"
+  | "observer.context.addCurrentSymbol"
+  | "observer.context.addFileExcerpt"
+  | "observer.context.addDiagnostic"
+  | "observer.context.addRunFailure"
+  | "observer.context.addTaskFailure"
+  | "observer.context.addMarkdownSection"
+  | "observer.context.clear"
   | "markdown.edit"
   | "markdown.preview"
   | "markdown.split"
@@ -39,6 +47,11 @@ export interface CommandState {
   multiFileUndoAvailable: boolean;
   markdownActive: boolean;
   welcomeOpen: boolean;
+  hasSelection: boolean;
+  hasDiagnostic: boolean;
+  hasRunFailure: boolean;
+  hasTaskFailure: boolean;
+  contextTrayCount: number;
 }
 
 export type CommandHandlers = Record<CommandId, () => void | Promise<void>>;
@@ -122,6 +135,14 @@ export const IDE_COMMANDS: readonly CommandDefinition[] = defineCommandRegistry(
   },
   { id: "observer.undoChange", name: "Observer: Undo Observer Change", disabledReason: requiresActiveFile },
   { id: "observer.undoMultiFileChange", name: "Observer: Undo Multi-File Change", disabledReason: (state) => state.multiFileUndoAvailable ? null : "No applied multi-file change set" },
+  { id: "observer.context.addSelection", name: "Observer Context: Add Selection", disabledReason: (state) => state.hasSelection ? null : "No editor selection" },
+  { id: "observer.context.addCurrentSymbol", name: "Observer Context: Add Current Symbol", disabledReason: (state) => !state.activeFile ? "No active file" : state.markdownActive ? "Active file is Markdown" : null },
+  { id: "observer.context.addFileExcerpt", name: "Observer Context: Add Current File Excerpt", disabledReason: requiresActiveFile },
+  { id: "observer.context.addDiagnostic", name: "Observer Context: Add Current Diagnostic", disabledReason: (state) => state.hasDiagnostic ? null : "No current diagnostic" },
+  { id: "observer.context.addRunFailure", name: "Observer Context: Add Latest Run Failure", disabledReason: (state) => state.hasRunFailure ? null : "No failed run" },
+  { id: "observer.context.addTaskFailure", name: "Observer Context: Add Failed Test/Build", disabledReason: (state) => state.hasTaskFailure ? null : "No failed test or build" },
+  { id: "observer.context.addMarkdownSection", name: "Observer Context: Add Current Markdown Section", disabledReason: requiresMarkdown },
+  { id: "observer.context.clear", name: "Observer Context: Clear Tray", disabledReason: (state) => state.contextTrayCount > 0 ? null : "Context Tray is empty" },
   { id: "markdown.edit", name: "Markdown: Edit Mode", disabledReason: requiresMarkdown },
   { id: "markdown.preview", name: "Markdown: Preview Mode", disabledReason: requiresMarkdown },
   { id: "markdown.split", name: "Markdown: Split Mode", disabledReason: requiresMarkdown },

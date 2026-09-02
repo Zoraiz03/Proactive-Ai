@@ -34,6 +34,11 @@ const enabledState: CommandState = {
   multiFileUndoAvailable: false,
   markdownActive: true,
   welcomeOpen: false,
+  hasSelection: true,
+  hasDiagnostic: true,
+  hasRunFailure: true,
+  hasTaskFailure: true,
+  contextTrayCount: 1,
 };
 
 function handlers(onExecute: (id: string) => void = () => undefined): CommandHandlers {
@@ -43,8 +48,8 @@ function handlers(onExecute: (id: string) => void = () => undefined): CommandHan
 }
 
 test("opens and closes the command palette with reset search state", () => {
-  assert.equal(IDE_COMMANDS.length, 24);
-  assert.equal(new Set(IDE_COMMANDS.map((command) => command.id)).size, 24);
+  assert.equal(IDE_COMMANDS.length, 32);
+  assert.equal(new Set(IDE_COMMANDS.map((command) => command.id)).size, 32);
   assert.equal(IDE_COMMANDS.find((command) => command.id === "preferences.openSettings")?.shortcut, "Mod+,");
   const opened = commandPaletteReducer(CLOSED_COMMAND_PALETTE, { type: "open" });
   assert.deepEqual(opened, { open: true, query: "", selectedIndex: 0 });

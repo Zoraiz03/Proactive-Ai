@@ -38,6 +38,15 @@ assert.equal(ProjectContextSchema.safeParse({ ...fixture, items: [fixture.items[
 const metadata = safeProjectContextMetadata(parsed.data);
 assert.equal("content" in metadata, false);
 assert.doesNotMatch(JSON.stringify(metadata), /export function safe/);
+const attachedContent = "const attached = true;";
+const attachedItem = { id: "tray-00000000-0000-4000-8000-000000000001", type: "selected_code", priority: 2, content: attachedContent, source: { provenance: "user_attached", relativePath: "src/safe.ts", lineStart: 2, lineEnd: 2 }, reason: "Explicit user attachment.", estimatedCharacters: attachedContent.length, estimatedTokens: Math.ceil(attachedContent.length / 4), optional: true, completeFile: false, truncated: false, redacted: false, title: "Selected code", contentHash: createHash("sha256").update(attachedContent).digest("hex"), createdAt: Date.now(), attachmentProvenance: "user_attached", staleState: "fresh" } as const;
+const attachedFixture = { ...fixture, items: [fixture.items[0], attachedItem], totalCharacters: 7 + attachedContent.length, estimatedTokens: Math.ceil((7 + attachedContent.length) / 4) };
+const attachedParsed = ProjectContextSchema.safeParse(attachedFixture); assert.equal(attachedParsed.success, true, "user-attached context should pass strict server validation");
+if (!attachedParsed.success) throw attachedParsed.error;
+const attachedMetadata = safeProjectContextMetadata(attachedParsed.data);
+assert.equal(attachedMetadata.userAttachedCount, 1); assert.deepEqual(attachedMetadata.itemSizes[1], { type: "selected_code", characters: attachedContent.length, provenance: "user_attached" });
+assert.doesNotMatch(JSON.stringify(attachedMetadata), /const attached|src\/safe/);
+assert.equal(ProjectContextSchema.safeParse({ ...attachedFixture, items: [fixture.items[0], { ...attachedItem, staleState: "stale" }] }).success, false, "unresolved stale context should be rejected server-side");
 const editBase = { targetRelativePath: "src/safe.ts", originalContentHash: "a".repeat(64), contentLength: content.length, basedOnUnsavedContent: true };
 assert.equal(EditBaseSchema.safeParse(editBase).success, true);
 const edit = { targetRelativePath: "src/safe.ts", originalContentHash: "a".repeat(64), editType: "replace", range: { start: { line: 2, column: 1 }, end: { line: 2, column: 7 } }, expectedOriginalText: "export", replacementText: "export" };

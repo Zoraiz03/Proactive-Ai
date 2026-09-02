@@ -845,6 +845,53 @@ Required verification:
 - [x] **Complete** — Current Supabase guidance/changelog was reviewed. All Phase 10B
   data remains device-local, so no database migration, grants, or RLS change was needed.
 
+## Phase 11 — User-controlled Observer Context
+
+### Phase 11A — Privacy-safe Observer Context Tray
+
+- [x] **Complete** — Add a collapsible Context Tray inside Observer with item count,
+  safe title/type/source/range, bounded preview, size/token estimate, redacted/truncated/
+  stale/unavailable flags, reordering, individual removal, clear-all, and empty state.
+- [x] **Complete** — Support explicit selected code, current symbol, file excerpt,
+  confirmed complete text file, diagnostic, controlled run error, failed test/build
+  summary, selected terminal/output, selected Markdown, current Markdown section, and
+  project-rule attachments. Reserve `web_research` in the typed model but reject it
+  until Phase 11B provides an approved integration.
+- [x] **Complete** — Add visible Monaco/Markdown, Explorer, diagnostics, Output/terminal,
+  controlled-failure, and Command Palette attachment actions. Attachment changes local
+  tray state only and contains no AI, backend, command, or file-write side effect.
+- [x] **Complete** — Merge user attachments into the Phase 8 package below explicit
+  intent/action and above automatic symbol/related/document context. Preserve tray order,
+  deduplicate exact selections, warn on overlap, and refuse over-budget user items rather
+  than silently dropping them.
+- [x] **Complete** — Reapply mandatory secret-file, exclusion, canonical workspace,
+  symlink, binary/text, content-redaction, item-size, total-size, integrity-hash, and
+  server maximum checks in the main process and again during server validation.
+- [x] **Complete** — Hash file-backed sources and mark their original snapshot stale or
+  unavailable when editor/disk/workspace changes occur. Offer Refresh, Keep Original,
+  and Remove; unresolved items block final sending and are never silently replaced.
+- [x] **Complete** — Keep tray contents session-local. Opening or closing a workspace
+  clears raw context; no references or content are written to localStorage, app data,
+  the repository, Supabase, analytics, or cloud sync in Phase 11A.
+- [x] **Complete** — Extend manual, proactive, and approved-change workflows through the
+  existing authorized Context Preview. Preview distinguishes manually attached from
+  automatic items; backend prompt framing keeps all content untrusted; logging contains
+  item category, character count, and provenance only.
+
+Required verification:
+
+- [x] **Complete** — 140/140 desktop tests pass, including every implemented source,
+  selection/diagnostic/output/Markdown actions, confirmation, budgets/priorities,
+  duplicates/overlap, secrets/redaction, symlinks, stale choices, clearing, preview,
+  prompt-injection boundaries, and zero AI calls while attaching.
+- [x] **Complete** — Strict desktop TypeScript and Electron production build pass;
+  root backend harnesses, lint, and Next.js production build pass.
+- [x] **Complete** — Desktop production credential/private-key scan found no matching
+  secret-shaped value. Source persistence scan found no Context Tray localStorage,
+  app-data, Supabase, analytics, or repository write path.
+- [x] **Complete** — Current Supabase changelog/security guidance was reviewed. Phase
+  11A adds no table or cloud persistence, so no migration, grants, or RLS change exists.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1147,6 +1194,74 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-02 — Phase 11A privacy-safe Observer Context Tray complete
+
+Architecture and behavior:
+
+- Added a strict versioned Context Tray item contract with random local IDs, implemented
+  and reserved types, safe display metadata, relative source/range, sanitized snapshot,
+  SHA-256 content/source hashes, timestamps, cost estimates, flags, provenance, and reason.
+- Added a collapsible Observer tray and explicit attachment controls in Monaco/Markdown,
+  Explorer, run diagnostics, Output, terminal selection, controlled failures, and the
+  centralized Command Palette. Complete files show a preview/cost confirmation first.
+- Added exact duplicate suppression, explicit overlap confirmation, reordering, removal,
+  clearing, truncation, budget refusal, and stale Refresh/Keep Original/Remove actions.
+- Extended the existing main-process Project Context Engine instead of adding a new IPC
+  or upload path. User items are main-validated, ordered ahead of automatic retrieval,
+  never silently dropped, and authorization-bound to the exact final Context Preview.
+- Manual Ask, proactive Investigate/Explain/Suggest Fix, and approved AI change planning
+  use the same tray-aware preparation. Adding an item cannot call AI or execute a command.
+
+Changed files:
+
+- Added desktop shared `context-tray` model/helpers, focused tests, and renderer Context
+  Tray UI. Updated App, Observer, editor/Explorer/Output actions, preview, commands, styles,
+  and the desktop test script.
+- Updated the main Observer authorization and Project Context Engine/tests plus shared
+  context/Observer contracts for attachment validation, priority, integrity, and staleness.
+- Extended only the Next.js server Project Context schema/metadata formatter and backend
+  harness. Existing web UI, cookie authentication, providers, and routes remain compatible.
+
+Security, privacy, persistence, and priority decisions:
+
+- Priority is explicit request/action, selected/error tray items, other tray items,
+  automatic current symbol/nearby code, deterministic related files, then optional docs.
+  Tray order is stable within its priority. If tray data exceeds the safe budget, preview
+  preparation names the offending item and requires remove/truncate/settings action.
+- `.env` variants, credential/token/cloud-secret files, private keys/certificates,
+  binaries, exclusions, traversal, external symlinks, and unavailable paths remain blocked.
+  Keys, tokens, passwords, private-key blocks, connection strings, and session secrets are
+  redacted on attachment and checked again before send and on the server.
+- File snapshots retain hashes and are never silently refreshed. Editor, watcher, rename,
+  deletion, and pre-preview checks mark stale/unavailable state. Unresolved state cannot send.
+- Contents are React session state only and clear on workspace replacement/close. Phase 11A
+  deliberately does not implement optional reference restoration, cloud sync, or export.
+- Supabase suggestion metadata receives item type, character count, automatic/manual
+  provenance, totals, and flags only—never item content, relative paths, hashes, titles,
+  raw diagnostics/output, or prompts. No migration or schema change was needed.
+
+Verification:
+
+- `npm --prefix apps/desktop test` — 140/140 tests passed.
+- `npm --prefix apps/desktop run typecheck` and `npm --prefix apps/desktop run build`
+  — strict TypeScript and Electron production bundles passed.
+- `npm test`, `npm run lint`, and `npm run build` — backend privacy/schema harnesses,
+  lint, and Next.js production build passed.
+- Desktop output scan found no credential-shaped provider key, cloud key, or private-key
+  block. Context Tray source scan found no localStorage, app-data, repository, Supabase,
+  analytics, or cloud persistence path.
+
+Known limitations:
+
+- Tray contents intentionally do not survive workspace close or application restart;
+  optional safe-reference restoration is deferred.
+- Symbol and Markdown-section extraction is deterministic and language-bounded rather
+  than a full language-server symbol graph.
+- Failed test/build attachment is available for the existing controlled verification
+  workflow only; arbitrary terminal history is never captured.
+- `web_research` is reserved in types but cannot be created, previewed, or sent until
+  Phase 11B defines the Chrome Research Context Extension trust boundary.
 
 ### 2026-09-01 — Phase 10B proactive evaluation and tuning complete
 
@@ -2301,9 +2416,12 @@ Verification:
 | 2026-09-01 | Phase 10B focused insights tests | Complete | 132/132 desktop tests passed across metrics, presets, recommendations, strict privacy schema, lifecycle, sessions, exports, corruption recovery, and UI boundaries. |
 | 2026-09-01 | Phase 10B desktop/privacy checks | Complete | Strict TypeScript, Electron production build, generated JSON/CSV privacy scan, and desktop credential/private-key scan passed. |
 | 2026-09-01 | Phase 10B web regression | Complete | Root tests, lint, and Next.js production build passed; no web source or Supabase schema change was required. |
+| 2026-09-02 | Phase 11A focused context tests | Complete | 140/140 desktop tests passed across sources/actions, confirmation, priorities/budgets, duplicates, secrets/redaction, symlinks, stale choices, session clearing, preview, and zero-auto-AI boundaries. |
+| 2026-09-02 | Phase 11A desktop/privacy checks | Complete | Strict TypeScript, Electron production build, credential scan, and no-persistence source scan passed. |
+| 2026-09-02 | Phase 11A web/backend regression | Complete | Structured attachment validation and metadata-only logging harnesses, lint, and Next.js production build passed; no Supabase migration was required. |
 
 ## Recommended next task
 
-Implement **Phase 11A Context Tray**. Keep context explicit and user-controlled, preserve
-the existing preview/privacy exclusions, and do not introduce project-wide automatic
-uploading or background AI requests.
+Implement **Phase 11B Chrome Research Context Extension**. Keep browser research an
+explicit user attachment with a narrow authenticated trust boundary; do not add automatic
+page capture, browsing surveillance, cloud context sync, or background AI requests.

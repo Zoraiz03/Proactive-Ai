@@ -113,7 +113,7 @@ export class ObserverContextController {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId || !this.prepared) return false;
     if (candidate.version !== this.prepared.version || candidate.activeFile.relativePath !== this.prepared.activeFile.relativePath || candidate.intent.mode !== this.prepared.intent.mode) return false;
     const prepared = new Map(this.prepared.items.map((item) => [item.id, item]));
-    if (candidate.items.some((item) => JSON.stringify(prepared.get(item.id)) !== JSON.stringify(item) || redactProjectSecrets(item.content).redacted)) return false;
+    if (candidate.items.some((item) => JSON.stringify(prepared.get(item.id)) !== JSON.stringify(item) || redactProjectSecrets(item.content).redacted || item.staleState === "stale" || item.staleState === "unavailable")) return false;
     const mandatoryIds = this.prepared.items.filter((item) => !item.optional).map((item) => item.id);
     return mandatoryIds.every((id) => candidate.items.some((item) => item.id === id));
   }

@@ -33,6 +33,11 @@ interface BottomPanelProps {
   onStatus: (message: string, kind?: IdeOutputMessage["kind"]) => void;
   commandRequest: { token: number; action: "terminal" | "output" | "new-terminal" } | null;
   onTerminalStateChange: (state: { active: boolean; creating: boolean }) => void;
+  onAddDiagnostic: (diagnostic: RunDiagnostic) => void;
+  onAddSelectedOutput: (content: string, source: "terminal" | "output") => void;
+  onAddRunFailure: () => void;
+  onAddTaskFailure: () => void;
+  hasTaskFailure: boolean;
 }
 
 function exitDescription(reason: string, exitCode: number | null): string {
@@ -52,6 +57,11 @@ export default function BottomPanel({
   onStatus,
   commandRequest,
   onTerminalStateChange,
+  onAddDiagnostic,
+  onAddSelectedOutput,
+  onAddRunFailure,
+  onAddTaskFailure,
+  hasTaskFailure,
 }: BottomPanelProps) {
   const [activeView, setActiveView] = useState<"terminal" | "output">("terminal");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -220,6 +230,19 @@ export default function BottomPanel({
     }
   };
 
+  const addSelectedOutput = () => {
+    const selection = window.getSelection();
+    const content = selection?.toString().trim() ?? "";
+    if (!content || !selection?.anchorNode || !outputHostRef.current?.contains(selection.anchorNode)) { onStatus("Select visible Output text before adding it to Context.", "error"); return; }
+    onAddSelectedOutput(content, "output");
+  };
+
+  const addSelectedTerminal = () => {
+    const content = terminalRef.current?.getSelection().trim() ?? "";
+    if (!content) { onStatus("Select visible terminal text before adding it to Context.", "error"); return; }
+    onAddSelectedOutput(content, "terminal");
+  };
+
   useEffect(() => {
     onTerminalStateChange({ active: Boolean(sessionId), creating });
   }, [creating, onTerminalStateChange, sessionId]);
@@ -259,9 +282,7 @@ export default function BottomPanel({
         </button>
         <div className="bottom-actions">
           {sessionId ? (
-            <button type="button" onClick={() => void closeTerminal()} title="Close terminal">
-              Close Terminal
-            </button>
+            <><button type="button" onClick={addSelectedTerminal}>Add Selected Terminal to Context</button><button type="button" onClick={() => void closeTerminal()} title="Close terminal">Close Terminal</button></>
           ) : (
             <button
               type="button"
@@ -293,6 +314,7 @@ export default function BottomPanel({
         tabIndex={-1}
         aria-label="IDE output"
       >
+        <div className="output-context-actions"><button type="button" onClick={addSelectedOutput}>Add Selected Output to Context</button><button type="button" onClick={onAddRunFailure} disabled={run?.status !== "failed"}>Add Latest Run Failure</button><button type="button" onClick={onAddTaskFailure} disabled={!hasTaskFailure}>Add Failed Test/Build</button></div>
         {!run && messages.length === 0 ? (
           <div className="output-empty">IDE status messages will appear here.</div>
         ) : (
@@ -317,14 +339,12 @@ export default function BottomPanel({
                   <div className="run-diagnostics">
                     <h3>Diagnostics</h3>
                     {run.diagnostics.map((diagnostic, index) => (
-                      <button
-                        type="button"
+                      <div
                         key={`${diagnostic.relativePath}:${diagnostic.line}:${diagnostic.column}:${index}`}
-                        onClick={() => onDiagnosticClick(diagnostic)}
                       >
-                        <span>{diagnostic.relativePath}:{diagnostic.line}:{diagnostic.column}</span>
-                        <small>{diagnostic.message}</small>
-                      </button>
+                        <button type="button" onClick={() => onDiagnosticClick(diagnostic)}><span>{diagnostic.relativePath}:{diagnostic.line}:{diagnostic.column}</span><small>{diagnostic.message}</small></button>
+                        <button type="button" onClick={() => onAddDiagnostic(diagnostic)}>Add Diagnostic to Context</button>
+                      </div>
                     ))}
                   </div>
                 )}

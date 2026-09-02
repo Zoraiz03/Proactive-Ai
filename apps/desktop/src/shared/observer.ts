@@ -1,6 +1,7 @@
 import type { IpcResult } from "./workspace";
 import { validateProjectContextPackage, type ProjectContextPackage, type ProjectContextSeed } from "./project-context.ts";
 import type { ObserverEditBase, StructuredObserverEdit } from "./ai-edit.ts";
+import { CONTEXT_TRAY_MAX_ITEMS, validateContextTrayItem } from "./context-tray.ts";
 
 export const CODE_OBSERVER_MODES = [
   "explain",
@@ -301,6 +302,7 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
   if (!isPositiveInteger(seed.cursorLine) || !isPositiveInteger(seed.cursorColumn) || !Array.isArray(seed.exclusions) || seed.exclusions.some((item) => typeof item !== "string")) return null;
   if (!isPositiveInteger(seed.maximumTotalCharacters) || !isPositiveInteger(seed.maximumRelatedFiles) || !isPositiveInteger(seed.maximumCharactersPerFile)) return null;
   if (seed.userRequest !== undefined && (typeof seed.userRequest !== "string" || !seed.userRequest.trim() || seed.userRequest.length > 500)) return null;
+  if (seed.trayItems !== undefined && (!Array.isArray(seed.trayItems) || seed.trayItems.length > CONTEXT_TRAY_MAX_ITEMS || seed.trayItems.some((item) => !validateContextTrayItem(item)))) return null;
   if (seed.mode === "plan_multi_file" && !seed.userRequest) return null;
   if (request.model !== undefined && (typeof request.model !== "string" || !request.model || request.model.length > 100)) return null;
   if (request.storeHistory !== undefined && typeof request.storeHistory !== "boolean") return null;

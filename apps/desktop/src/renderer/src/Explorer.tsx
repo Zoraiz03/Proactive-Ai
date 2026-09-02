@@ -169,6 +169,7 @@ interface ExplorerProps {
   commandRequest: { token: number; action: "open-folder" | "new-file" | "new-folder" } | null;
   confirmBeforeDelete: boolean;
   revealRequest?: { relativePath: string; token: number } | null;
+  onAddFileToContext: (entry: WorkspaceEntry) => void;
 }
 
 function parentPath(relativePath: string): string {
@@ -190,6 +191,7 @@ export default function Explorer({
   commandRequest,
   confirmBeforeDelete,
   revealRequest,
+  onAddFileToContext,
 }: ExplorerProps) {
   const [workspace, setWorkspace] = useState<OpenWorkspace | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -426,6 +428,7 @@ export default function Explorer({
           <button type="button" onClick={() => startCreate("create-file")} title="New file">+ File</button>
           <button type="button" onClick={() => startCreate("create-directory")} title="New folder">+ Folder</button>
           <button type="button" onClick={startRename} disabled={!selectedEntry || selectedEntry.isSymbolicLink}>Rename</button>
+          <button type="button" onClick={() => selectedEntry && onAddFileToContext(selectedEntry)} disabled={!selectedEntry || selectedEntry.kind !== "file" || selectedEntry.isSymbolicLink}>Add to Context</button>
           <button type="button" className="danger" onClick={startDelete} disabled={!selectedEntry || selectedEntry.isSymbolicLink}>Delete</button>
         </div>
       )}

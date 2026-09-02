@@ -1,4 +1,5 @@
 import type { ObserverKind, ObserverMode } from "./observer";
+import type { ContextTrayItem, ContextTrayStaleState } from "./context-tray";
 
 export const PROJECT_CONTEXT_VERSION = 1 as const;
 
@@ -11,7 +12,14 @@ export type ProjectContextItemType =
   | "related_file"
   | "project_rule"
   | "attached_markdown"
-  | "terminal_error";
+  | "terminal_error"
+  | "file_excerpt"
+  | "complete_file"
+  | "controlled_run_error"
+  | "task_failure"
+  | "selected_output"
+  | "selected_markdown"
+  | "markdown_section";
 
 export type ProjectContextProvenance =
   | "user"
@@ -22,7 +30,8 @@ export type ProjectContextProvenance =
   | "local_import"
   | "nearby_test"
   | "project_configuration"
-  | "project_instruction";
+  | "project_instruction"
+  | "user_attached";
 
 export interface ProjectContextItem {
   id: string;
@@ -42,6 +51,11 @@ export interface ProjectContextItem {
   completeFile: boolean;
   truncated: boolean;
   redacted: boolean;
+  title?: string;
+  contentHash?: string;
+  createdAt?: number;
+  attachmentProvenance?: "automatic" | "user_attached";
+  staleState?: ContextTrayStaleState;
   relevanceScore?: number;
 }
 
@@ -85,6 +99,7 @@ export interface ProjectContextSeed {
   maximumCharactersPerFile: number;
   activeContentDirty?: boolean;
   userRequest?: string;
+  trayItems?: ContextTrayItem[];
 }
 
 export const projectContextCost = (content: string) => ({
@@ -126,6 +141,11 @@ export function validateProjectContextPackage(value: unknown): ProjectContextPac
     if (!Number.isInteger(item.priority) || item.priority < 1 || item.priority > 8 || typeof item.reason !== "string" || item.reason.length > 500) return null;
     if (item.estimatedCharacters !== item.content.length || item.estimatedTokens !== Math.ceil(item.content.length / 4)) return null;
     if (item.source.relativePath?.startsWith("/") || item.source.relativePath?.split(/[\\/]/).includes("..")) return null;
+    if (item.attachmentProvenance !== undefined && !["automatic", "user_attached"].includes(item.attachmentProvenance)) return null;
+    if (item.staleState !== undefined && !["fresh", "stale", "keep_original", "unavailable"].includes(item.staleState)) return null;
+    if (item.title !== undefined && (typeof item.title !== "string" || !item.title || item.title.length > 160)) return null;
+    if (item.contentHash !== undefined && !/^[a-f0-9]{64}$/.test(item.contentHash)) return null;
+    if (item.createdAt !== undefined && (!Number.isInteger(item.createdAt) || item.createdAt < 0)) return null;
     ids.add(item.id); total += item.content.length;
   }
   if (total !== context.totalCharacters || context.totalCharacters > context.limits.maximumTotalCharacters || context.estimatedTokens !== Math.ceil(total / 4) || context.containsCompleteFile !== context.items.some((item) => item.completeFile)) return null;

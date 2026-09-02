@@ -6,6 +6,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { ProjectContextEngine, redactProjectSecrets } from "./project-context.ts";
 import { removeOptionalContextItem, requiresCompleteFileConfirmation, validateProjectContextPackage, type ProjectContextSeed } from "../shared/project-context.ts";
 import type { ObserverMode } from "../shared/observer.ts";
+import { createContextTrayItem } from "../shared/context-tray.ts";
 
 let root = "";
 const activeContent = `import { helper } from "./helper";
@@ -129,4 +130,35 @@ test("preview removal permits optional items only and complete-file confirmation
   const required = context.items.find((item) => !item.optional)!; assert.equal(removeOptionalContextItem(context, required.id), context);
   assert.equal(requiresCompleteFileConfirmation(context, true), context.containsCompleteFile);
   assert.equal(requiresCompleteFileConfirmation(context, false), false);
+});
+
+test("user-attached tray context has priority, structured provenance, and is never silently dropped", async () => {
+  const attached = await createContextTrayItem({ type: "selected_code", title: "Chosen calculation", content: "return doubled + 1;", relativePath: "src/calculate.ts", lineStart: 5, lineEnd: 5, sourceContent: activeContent, reason: "User explicitly attached this selection." });
+  const context = await engine().build(seed("explain", { trayItems: [attached] }));
+  const tray = context.items.find((item) => item.id === `tray-${attached.id}`);
+  assert.equal(tray?.priority, 2); assert.equal(tray?.source.provenance, "user_attached"); assert.equal(tray?.attachmentProvenance, "user_attached");
+  assert.equal(context.items.filter((item) => item.content === attached.content).length, 1);
+  const oversized = await createContextTrayItem({ type: "file_excerpt", title: "Oversized user excerpt", content: "x".repeat(1_100), relativePath: "src/calculate.ts", sourceContent: activeContent, reason: "User attached it." });
+  await assert.rejects(() => engine().build(seed("explain", { trayItems: [oversized], maximumTotalCharacters: 1_000 })), /exceeds the configured context budget/);
+});
+
+test("file-backed tray items become stale without replacement and unsafe symlinks are blocked", async () => {
+  const original = "export const helper = (value: number) => value * 2;\n";
+  const attached = await createContextTrayItem({ type: "file_excerpt", title: "Helper excerpt", content: original, relativePath: "src/helper.ts", lineStart: 1, lineEnd: 1, sourceContent: original, reason: "User attached helper context." });
+  await writeFile(join(root, "src", "helper.ts"), "export const helper = () => 99;\n");
+  const context = await engine().build(seed("explain", { trayItems: [attached] }));
+  const tray = context.items.find((item) => item.id === `tray-${attached.id}`)!;
+  assert.equal(tray.staleState, "stale"); assert.equal(tray.content, original);
+
+  const outside = join(tmpdir(), `outside-tray-${Date.now()}.ts`); await writeFile(outside, "outside\n"); await symlink(outside, join(root, "src", "linked.ts"));
+  const linked = await createContextTrayItem({ type: "complete_file", title: "Linked file", content: "outside\n", relativePath: "src/linked.ts", sourceContent: "outside\n", reason: "Explicit file attachment.", completeFile: true });
+  await assert.rejects(() => engine().build(seed("explain", { trayItems: [linked] })), /unavailable, excluded, or unsafe/);
+  await rm(outside, { force: true });
+});
+
+test("mandatory secret files and tampered tray contents are rejected before preview", async () => {
+  const secret = await createContextTrayItem({ type: "complete_file", title: "Environment", content: "SAFE=redacted", relativePath: ".env", sourceContent: "SAFE=redacted", reason: "Attempted attachment.", completeFile: true });
+  await assert.rejects(() => engine().build(seed("explain", { trayItems: [secret] })), /excluded from AI context/);
+  const valid = await createContextTrayItem({ type: "selected_code", title: "Selection", content: "safe", relativePath: "src/calculate.ts", sourceContent: activeContent, reason: "Explicit selection." });
+  await assert.rejects(() => engine().build(seed("explain", { trayItems: [{ ...valid, content: "changed" }] })), /invalid|changed after it was attached/);
 });

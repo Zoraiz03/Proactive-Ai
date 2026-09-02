@@ -15,6 +15,7 @@ import {
   type ProjectContextProvenance,
   type ProjectContextSeed,
 } from "../shared/project-context.ts";
+import { redactContextSecrets, validateContextTrayItem, type ContextTrayItem } from "../shared/context-tray.ts";
 import { isExcludedFromAiContext, isMandatorySecretFile } from "../shared/settings.ts";
 import { normalizeWorkspaceRelativePath, readWorkspaceTextFile, resolveWorkspacePath } from "./workspace-files.ts";
 
@@ -30,17 +31,7 @@ interface Candidate { relativePath: string; score: number; reason: string; prove
 const lineNumberAt = (content: string, index: number) => content.slice(0, index).split("\n").length;
 
 export function redactProjectSecrets(content: string): { content: string; redacted: boolean } {
-  let redacted = false;
-  const replace = (pattern: RegExp, replacer: string | ((...values: string[]) => string)) => {
-    content = content.replace(pattern, (...values) => { redacted = true; return typeof replacer === "string" ? replacer : replacer(...values); });
-  };
-  replace(/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g, "[REDACTED PRIVATE KEY]");
-  replace(/\b(AKIA|ASIA)[A-Z0-9]{16}\b/g, "[REDACTED AWS KEY]");
-  replace(/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED GITHUB TOKEN]");
-  replace(/\bsk-[A-Za-z0-9_-]{16,}\b/g, "[REDACTED API TOKEN]");
-  replace(/\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|authorization)\b(\s*[:=]\s*["']?)([^\s"']{8,})/gi,
-    (_match, name, separator) => `${name}${separator}[REDACTED]`);
-  return { content, redacted };
+  return redactContextSecrets(content);
 }
 
 export function detectCurrentSymbol(content: string, cursorLine: number): { content: string; lineStart: number; lineEnd: number; name: string } | null {
@@ -115,8 +106,12 @@ function validateSeed(value: ProjectContextSeed): ProjectContextSeed {
     maximumCharactersPerFile: Math.max(500, Math.min(20_000, Math.trunc(value.maximumCharactersPerFile))),
     exclusions: value.exclusions.slice(0, 100),
     ...(value.userRequest ? { userRequest: value.userRequest.trim().slice(0, 500) } : {}),
+    ...(value.trayItems ? { trayItems: value.trayItems.slice(0, 20) } : {}),
   };
 }
+
+const fileBackedTrayType = (item: ContextTrayItem) => Boolean(item.source?.relativePath);
+const highPriorityTrayType = (item: ContextTrayItem) => ["selected_code", "diagnostic", "controlled_run_error", "task_failure", "selected_output", "selected_markdown"].includes(item.type);
 
 export class ProjectContextEngine {
   private rootPath: string | null = null;
@@ -145,17 +140,66 @@ export class ProjectContextEngine {
       const safe = redactProjectSecrets(content);
       const bounded = safe.content.slice(0, type === "related_file" || type === "project_rule" ? seed.maximumCharactersPerFile : 20_000);
       const cost = projectContextCost(bounded);
-      items.push({ id: `ctx-${++sequence}`, type, priority, content: bounded, source: { provenance, ...details }, reason, ...cost, optional, completeFile: completeFile && bounded.length === content.length, truncated: bounded.length < safe.content.length, redacted: safe.redacted, ...(relevanceScore === undefined ? {} : { relevanceScore }) });
+      items.push({ id: `ctx-${++sequence}`, type, priority, content: bounded, source: { provenance, ...details }, reason, ...cost, optional, completeFile: completeFile && bounded.length === content.length, truncated: bounded.length < safe.content.length, redacted: safe.redacted, attachmentProvenance: "automatic", staleState: "fresh", ...(relevanceScore === undefined ? {} : { relevanceScore }) });
     };
 
     const instruction = seed.mode === "plan_multi_file" ? `${OBSERVER_MODE_LABELS[seed.mode]}: ${seed.userRequest}` : OBSERVER_MODE_LABELS[seed.mode];
     add("user_instruction", 1, instruction, "user", "The explicitly selected Observer action.");
-    if (seed.selectedCode) add("selected_code", 2, seed.selectedCode, "editor_selection", "The user explicitly selected this content.", { relativePath: seed.activeRelativePath, ...(seed.selectedLineStart ? { lineStart: seed.selectedLineStart } : {}), ...(seed.selectedLineEnd ? { lineEnd: seed.selectedLineEnd } : {}) });
+    const trayItems: ContextTrayItem[] = [];
+    for (const raw of seed.trayItems ?? []) {
+      const item = validateContextTrayItem(raw);
+      if (!item) throw new Error("A Context Tray item is invalid or contains unsafe content.");
+      if (isMandatorySecretFile(item.source?.relativePath ?? "") || isExcludedFromAiContext(item.source?.relativePath ?? "", seed.exclusions) || (item.source?.relativePath && isIgnored(item.source.relativePath, seed.exclusions, gitignore))) throw new Error(`${item.title} is excluded from AI context.`);
+      if (createHash("sha256").update(item.content).digest("hex") !== item.contentHash) throw new Error(`${item.title} changed after it was attached.`);
+      let staleState = item.staleState;
+      if (fileBackedTrayType(item)) {
+        const current = item.source!.relativePath === seed.activeRelativePath
+          ? { content: seed.content }
+          : await this.safeRead(item.source!.relativePath!, seed.exclusions, gitignore);
+        if (!current) {
+          if (item.staleState === "unavailable") staleState = "unavailable";
+          else throw new Error(`${item.title} is unavailable, excluded, or unsafe.`);
+        }
+        else if (item.sourceContentHash && createHash("sha256").update(current.content).digest("hex") !== item.sourceContentHash && staleState === "fresh") staleState = "stale";
+      }
+      trayItems.push({ ...item, staleState });
+    }
+    const trayCharacters = trayItems.reduce((sum, item) => sum + item.estimatedCharacters, 0);
+    const instructionCharacters = items[0]?.estimatedCharacters ?? 0;
+    if (trayCharacters + instructionCharacters > seed.maximumTotalCharacters) {
+      const overflowing = trayItems.find((_, index) => trayItems.slice(0, index + 1).reduce((sum, item) => sum + item.estimatedCharacters, instructionCharacters) > seed.maximumTotalCharacters);
+      throw new Error(`${overflowing?.title ?? "A user-attached item"} exceeds the configured context budget. Remove or truncate it, or increase the safe context limit.`);
+    }
+    for (let trayIndex = 0; trayIndex < trayItems.length; trayIndex += 1) {
+      const tray = trayItems[trayIndex];
+      const cost = projectContextCost(tray.content);
+      items.push({
+        id: `tray-${tray.id}`,
+        type: tray.type as ProjectContextItemType,
+        priority: highPriorityTrayType(tray) ? 2 : 3,
+        content: tray.content,
+        source: { provenance: "user_attached", ...(tray.source ?? {}) },
+        reason: tray.reason,
+        ...cost,
+        optional: true,
+        completeFile: tray.completeFile,
+        truncated: tray.truncated,
+        redacted: tray.redacted,
+        title: tray.title,
+        contentHash: tray.contentHash,
+        createdAt: tray.createdAt,
+        attachmentProvenance: "user_attached",
+        staleState: tray.staleState,
+        relevanceScore: Math.max(0, 100 - trayIndex),
+      });
+    }
+    const trayContains = (content: string | undefined) => Boolean(content && trayItems.some((item) => item.content === content));
+    if (seed.selectedCode && !trayContains(seed.selectedCode)) add("selected_code", 2, seed.selectedCode, "editor_selection", "The user explicitly selected this content.", { relativePath: seed.activeRelativePath, ...(seed.selectedLineStart ? { lineStart: seed.selectedLineStart } : {}), ...(seed.selectedLineEnd ? { lineEnd: seed.selectedLineEnd } : {}) });
     if (seed.mode === "fix_error" && seed.diagnostic) add("diagnostic", 3, `${seed.diagnostic.fileName}:${seed.diagnostic.line}:${seed.diagnostic.column}\n${seed.diagnostic.message}`, "diagnostics", "The selected error is required to diagnose Fix Error.", { relativePath: seed.activeRelativePath, lineStart: seed.diagnostic.line, lineEnd: seed.diagnostic.line });
     const symbol = detectCurrentSymbol(seed.content, seed.cursorLine);
     const wantsSymbol = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments", "plan_multi_file"].includes(seed.mode);
     if (seed.mode === "add_comments" && !seed.selectedCode) throw new Error("Select code before asking Observer to add comments or documentation.");
-    if (wantsSymbol && symbol) add("current_symbol", 4, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
+    if (wantsSymbol && symbol && !trayContains(symbol.content)) add("current_symbol", 4, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
     if (!seed.selectedCode || seed.mode === "fix_error" || seed.mode === "continue_code") add("nearby_code", 5, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
 
     if (seed.kind === "code") {

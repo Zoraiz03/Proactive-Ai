@@ -61,6 +61,7 @@ import {
   DEFAULT_LOCAL_SETTINGS,
   DEFAULT_SYNCED_SETTINGS,
   isExcludedFromAiContext,
+  isMandatorySecretFile,
   monacoOptionsFromSettings,
   type LocalSettings,
   type ProviderStatus,
@@ -87,6 +88,18 @@ import {
   type ProactiveSettingsSnapshot,
 } from "../../shared/proactive-observer";
 import type { AssistPreset, InsightAction, InsightDetectorType, UsefulnessFeedback } from "../../shared/proactive-insights";
+import {
+  contextTrayTotal,
+  createContextTrayItem,
+  findContextTrayDuplicate,
+  keepOriginalContextTrayItem,
+  markContextTrayPathStale,
+  refreshContextTrayItem,
+  reorderContextTray,
+  truncateContextTrayItem,
+  type ContextTrayItem,
+  type CreateContextTrayItemInput,
+} from "../../shared/context-tray";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -140,6 +153,28 @@ interface EditorObserverSnapshot {
   nearbyCode: string;
 }
 
+function currentSymbolContext(content: string, cursorLine: number): { content: string; lineStart: number; lineEnd: number; name: string } | null {
+  const lines = content.split(/\r?\n/);
+  const pattern = /^\s*(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|def)\s+([A-Za-z_$][\w$]*)|^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(?[^=]*=>/;
+  let start = -1; let name = "";
+  for (let index = Math.min(lines.length, Math.max(1, cursorLine)) - 1; index >= 0; index -= 1) {
+    const match = pattern.exec(lines[index]);
+    if (match) { start = index; name = match[1] ?? match[2]; break; }
+  }
+  if (start < 0) return null;
+  let end = Math.min(lines.length, start + 80);
+  for (let index = start + 1; index < end; index += 1) if (pattern.test(lines[index]) && /^\S/.test(lines[index])) { end = index; break; }
+  return { content: lines.slice(start, end).join("\n"), lineStart: start + 1, lineEnd: end, name };
+}
+
+function currentMarkdownSection(content: string, cursorLine: number): { content: string; lineStart: number; lineEnd: number; title: string } {
+  const lines = content.split(/\r?\n/); let start = 0;
+  for (let index = Math.min(lines.length, Math.max(1, cursorLine)) - 1; index >= 0; index -= 1) if (/^#{1,6}\s+/.test(lines[index])) { start = index; break; }
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) if (/^#{1,6}\s+/.test(lines[index])) { end = index; break; }
+  return { content: lines.slice(start, end).join("\n"), lineStart: start + 1, lineEnd: end, title: lines[start].replace(/^#{1,6}\s+/, "") || "Document section" };
+}
+
 function runSupport(fileName: string): "supported" | "typescript" | "unsupported" {
   const extension = fileName.slice(fileName.lastIndexOf(".")).toLowerCase();
   if ([".py", ".js", ".mjs"].includes(extension)) return "supported";
@@ -179,6 +214,7 @@ interface EditorWorkspaceProps {
   onKeepLocal: (relativePath: string) => void;
   onObserverContextChange: (snapshot: EditorObserverSnapshot) => void;
   onDiagnosticsChange: (relativePath: string, diagnostics: DiagnosticSignal[]) => void;
+  onAddContext: (action: "selection" | "symbol" | "excerpt" | "markdown_section") => void;
   markdownViewMode: MarkdownViewMode;
   onMarkdownViewModeChange: (mode: MarkdownViewMode) => void;
   editorSettings: LocalSettings["editor"];
@@ -201,6 +237,7 @@ function EditorWorkspace({
   onKeepLocal,
   onObserverContextChange,
   onDiagnosticsChange,
+  onAddContext,
   markdownViewMode,
   onMarkdownViewModeChange,
   editorSettings,
@@ -332,6 +369,15 @@ function EditorWorkspace({
                 ))}
               </div>
             )}
+            <details className="editor-context-actions">
+              <summary>Add to Context</summary>
+              <div>
+                <button type="button" onClick={() => onAddContext("selection")}>Add Selection</button>
+                {markdownActive
+                  ? <button type="button" onClick={() => onAddContext("markdown_section")}>Add Current Section</button>
+                  : <><button type="button" onClick={() => onAddContext("symbol")}>Add Current Symbol</button><button type="button" onClick={() => onAddContext("excerpt")}>Add File Excerpt</button></>}
+              </div>
+            </details>
             {!markdownActive && runHint && <span className="run-hint">{runHint}</span>}
             {activeTab.saveStatus && (
               <span className={`save-status ${activeTab.saveStatus.kind}`} role="status">
@@ -551,6 +597,8 @@ export default function App({ user, onSignOut }: AppProps) {
   const [gitDiff, setGitDiff] = useState<{ status: "loading"; file: GitChangedFile } | { status: "error"; file: GitChangedFile; message: string } | { status: "ready"; value: GitDiffSnapshot } | null>(null);
   const [explorerRevealRequest, setExplorerRevealRequest] = useState<{ relativePath: string; token: number } | null>(null);
   const [contextPreviewRequest, setContextPreviewRequest] = useState<ObserverRequest | null>(null);
+  const [contextTrayItems, setContextTrayItems] = useState<ContextTrayItem[]>([]);
+  const [latestTaskFailure, setLatestTaskFailure] = useState<{ kind: "test" | "build"; command: string; summary: string } | null>(null);
   const [multiFileDescription, setMultiFileDescription] = useState("");
   const [multiFilePlan, setMultiFilePlan] = useState<MultiFilePlan | null>(null);
   const [multiFileBases, setMultiFileBases] = useState<MultiFileBase[] | null>(null);
@@ -724,10 +772,95 @@ export default function App({ user, onSignOut }: AppProps) {
         maximumRelatedFiles: localSettings.contextMaximumRelatedFiles,
         maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
         ...(activeObserverMode === "plan_multi_file" ? { userRequest: multiFileDescription.trim() } : {}),
+        ...(contextTrayItems.length ? { trayItems: contextTrayItems } : {}),
       },
     };
-  }, [activeIsMarkdown, activeObserverMode, activeTab, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+  }, [activeIsMarkdown, activeObserverMode, activeTab, contextTrayItems, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
   const currentContextSummary = observerRequest ? "A focused project context package will be previewed before sending." : null;
+
+  const attachTrayItem = useCallback(async (input: CreateContextTrayItemInput) => {
+    try {
+      const item = await createContextTrayItem(input);
+      const duplicate = findContextTrayDuplicate(contextTrayItems, item);
+      if (duplicate === "exact") { appendOutput("That exact context is already attached."); return; }
+      if (duplicate === "overlap" && !window.confirm("This overlaps context already in the tray. Attach it as a separate item anyway?")) return;
+      const total = contextTrayTotal([...contextTrayItems, item]);
+      if (total.characters > syncedSettings.maximumContextChars) {
+        appendOutput(`${item.title} would exceed the ${syncedSettings.maximumContextChars.toLocaleString()} character context limit. Remove or truncate another item, or increase the safe limit in Settings.`, "error");
+        return;
+      }
+      setContextTrayItems((current) => [...current, item]);
+      appendOutput(`Added ${item.title} to the local Context Tray${item.redacted ? " with secrets redacted" : ""}.`, "success");
+    } catch (error) { appendOutput(error instanceof Error ? error.message : "Context could not be attached.", "error"); }
+  }, [appendOutput, contextTrayItems, syncedSettings.maximumContextChars]);
+
+  const addActiveEditorContext = useCallback(async (action: "selection" | "symbol" | "excerpt" | "markdown_section") => {
+    if (!activeTab || activeTab.availability !== "available" || activeTab.externalConflict) return;
+    const snapshot = observerSnapshot?.relativePath === activeTab.file.relativePath ? observerSnapshot : null;
+    if (action === "selection") {
+      if (!snapshot?.selectedCode) { appendOutput("Select code or document text before adding it to Context.", "error"); return; }
+      await attachTrayItem({ type: activeIsMarkdown ? "selected_markdown" : "selected_code", title: activeIsMarkdown ? `Selected text from ${activeTab.file.name}` : `Selected code from ${activeTab.file.name}`, content: snapshot.selectedCode, relativePath: activeTab.file.relativePath, lineStart: snapshot.selectedLineStart, lineEnd: snapshot.selectedLineEnd, sourceContent: activeTab.draft, reason: "Explicitly attached from the Monaco selection." });
+      return;
+    }
+    if (action === "symbol") {
+      const symbol = currentSymbolContext(activeTab.draft, snapshot?.cursorLine ?? 1);
+      if (!symbol) { appendOutput("No current function, class, or symbol was detected at the cursor.", "error"); return; }
+      await attachTrayItem({ type: "current_symbol", title: `${symbol.name} from ${activeTab.file.name}`, content: symbol.content, relativePath: activeTab.file.relativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd, sourceContent: activeTab.draft, reason: "Explicitly attached current symbol." });
+      return;
+    }
+    if (action === "markdown_section") {
+      const section = currentMarkdownSection(activeTab.draft, snapshot?.cursorLine ?? 1);
+      await attachTrayItem({ type: "markdown_section", title: `${section.title} from ${activeTab.file.name}`, content: section.content, relativePath: activeTab.file.relativePath, lineStart: section.lineStart, lineEnd: section.lineEnd, sourceContent: activeTab.draft, reason: "Explicitly attached current Markdown section." });
+      return;
+    }
+    const excerpt = snapshot?.nearbyCode ?? activeTab.draft.split(/\r?\n/).slice(0, 41).join("\n");
+    const line = snapshot?.cursorLine ?? 1;
+    await attachTrayItem({ type: "file_excerpt", title: `Excerpt from ${activeTab.file.name}`, content: excerpt, relativePath: activeTab.file.relativePath, lineStart: Math.max(1, line - 20), lineEnd: line + 20, sourceContent: activeTab.draft, reason: "Explicitly attached bounded excerpt around the cursor." });
+  }, [activeIsMarkdown, activeTab, appendOutput, attachTrayItem, observerSnapshot]);
+
+  const addDiagnosticContext = useCallback(async (diagnostic: RunDiagnostic) => {
+    await attachTrayItem({ type: "diagnostic", title: `Diagnostic on line ${diagnostic.line}`, content: `${diagnostic.relativePath}:${diagnostic.line}:${diagnostic.column}\n${diagnostic.message}`, relativePath: diagnostic.relativePath, lineStart: diagnostic.line, lineEnd: diagnostic.line, sourceContent: tabsRef.current.find((tab) => tab.file.relativePath === diagnostic.relativePath)?.draft ?? diagnostic.message, reason: "Explicitly attached structured Monaco/run diagnostic." });
+  }, [attachTrayItem]);
+
+  const addSelectedOutputContext = useCallback(async (content: string, source: "terminal" | "output") => {
+    await attachTrayItem({ type: "selected_output", title: `Selected ${source} text`, content, reason: `Explicitly attached user-selected ${source} text.`, maximumCharacters: 8_000 });
+  }, [attachTrayItem]);
+
+  const addLatestRunFailureContext = useCallback(async () => {
+    if (!runOutput || runOutput.status !== "failed") { appendOutput("There is no failed controlled run to attach.", "error"); return; }
+    const content = `${runOutput.relativePath}\nexit ${runOutput.exitCode ?? "unknown"}\n${runOutput.stderr || runOutput.stdout || "No process output."}`;
+    await attachTrayItem({ type: "controlled_run_error", title: `Failed run: ${runOutput.relativePath}`, content, relativePath: runOutput.relativePath, sourceContent: tabsRef.current.find((tab) => tab.file.relativePath === runOutput.relativePath)?.draft ?? content, reason: "Explicitly attached latest controlled Run Current File failure.", maximumCharacters: 8_000 });
+  }, [appendOutput, attachTrayItem, runOutput]);
+
+  const addLatestTaskFailureContext = useCallback(async () => {
+    if (!latestTaskFailure) { appendOutput("There is no failed controlled test/build summary to attach.", "error"); return; }
+    await attachTrayItem({ type: "task_failure", title: `Failed ${latestTaskFailure.kind}: ${latestTaskFailure.command}`, content: latestTaskFailure.summary, reason: "Explicitly attached failed controlled verification summary.", maximumCharacters: 8_000 });
+  }, [appendOutput, attachTrayItem, latestTaskFailure]);
+
+  const addExplorerFileContext = useCallback(async (entry: WorkspaceEntry) => {
+    if (entry.kind !== "file" || entry.isSymbolicLink || isMandatorySecretFile(entry.relativePath) || isExcludedFromAiContext(entry.relativePath, localSettings.aiContextExclusions)) { appendOutput("That file is unavailable or excluded from AI context.", "error"); return; }
+    const result = await window.workspace.readFile(entry.relativePath);
+    if (!result.ok) { appendOutput(result.error, "error"); return; }
+    if (result.value.content.length > localSettings.contextMaximumFileCharacters) { appendOutput(`Complete file exceeds the ${localSettings.contextMaximumFileCharacters.toLocaleString()} character per-file limit. Attach an excerpt instead.`, "error"); return; }
+    const preview = result.value.content.slice(0, 500);
+    if (!window.confirm(`Attach complete file ${entry.relativePath}?\n\n${result.value.content.length.toLocaleString()} characters · ~${Math.ceil(result.value.content.length / 4).toLocaleString()} tokens\n\nPreview:\n${preview}${result.value.content.length > preview.length ? "…" : ""}`)) return;
+    const projectRule = /(^|\/)(AGENTS\.md|README\.md|rules\.md)$/i.test(entry.relativePath);
+    await attachTrayItem({ type: projectRule ? "project_rule" : "complete_file", title: `${projectRule ? "Project rule" : "Complete file"}: ${entry.name}`, content: result.value.content, relativePath: entry.relativePath, lineStart: 1, lineEnd: result.value.content.split(/\r?\n/).length, sourceContent: result.value.content, reason: projectRule ? "Explicitly attached project rule reference from Explorer." : "Explicitly attached complete text file from Explorer after confirmation.", maximumCharacters: localSettings.contextMaximumFileCharacters, completeFile: true });
+  }, [appendOutput, attachTrayItem, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters]);
+
+  const refreshTrayItem = useCallback(async (id: string) => {
+    const item = contextTrayItems.find((candidate) => candidate.id === id);
+    const path = item?.source?.relativePath;
+    if (!item || !path) return;
+    const open = tabsRef.current.find((tab) => tab.file.relativePath === path);
+    const result = open ? { ok: true as const, value: { content: open.draft } } : await window.workspace.readFile(path);
+    if (!result.ok) { setContextTrayItems((current) => current.map((candidate) => candidate.id === id ? { ...candidate, staleState: "unavailable" } : candidate)); appendOutput(result.error, "error"); return; }
+    const full = result.value.content; const start = item.source?.lineStart ?? 1; const end = item.completeFile ? full.split(/\r?\n/).length : item.source?.lineEnd ?? start;
+    const content = item.completeFile ? full : full.split(/\r?\n/).slice(start - 1, end).join("\n");
+    const refreshed = await refreshContextTrayItem(item, content, full);
+    setContextTrayItems((current) => current.map((candidate) => candidate.id === id ? refreshed : candidate));
+    appendOutput(`Refreshed ${item.title} from the current file.`, "success");
+  }, [appendOutput, contextTrayItems]);
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
     const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === relativePath);
@@ -942,6 +1075,8 @@ export default function App({ user, onSignOut }: AppProps) {
     setSentContextSummary(null);
     setObserverEditReview(null);
     setContextPreviewRequest(null);
+    setContextTrayItems([]);
+    setLatestTaskFailure(null);
     setGitDiff(null);
     setMarkdownViewModes({});
     appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
@@ -984,6 +1119,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [localSettings.restoreOpenTabs, openedWorkspace, tabs]);
 
   const renameOpenEntries = useCallback((oldRelativePath: string, entry: WorkspaceEntry) => {
+    setContextTrayItems((current) => current.map((item) => item.source?.relativePath && workspaceEntryContainsPath(item.source.relativePath, oldRelativePath, entry.kind) ? { ...item, staleState: "unavailable" } : item));
     setTabs((current) =>
       current.map((tab) => {
         if (!workspaceEntryContainsPath(tab.file.relativePath, oldRelativePath, entry.kind)) return tab;
@@ -1076,6 +1212,10 @@ export default function App({ user, onSignOut }: AppProps) {
     appendOutput(
       `Workspace updated externally (${batch.changes.length} change${batch.changes.length === 1 ? "" : "s"}).`
     );
+    setContextTrayItems((current) => batch.changes.reduce((items, change) => {
+      if (change.kind === "directory") return items.map((item) => item.source?.relativePath?.startsWith(`${change.relativePath}/`) && item.staleState === "fresh" ? { ...item, staleState: change.type === "deleted" ? "unavailable" : "stale" } : item);
+      return markContextTrayPathStale(items, change.relativePath, change.type === "deleted");
+    }, current));
 
     for (const snapshot of tabsRef.current) {
       const deleted = batchDeletesPath(batch, snapshot.file.relativePath);
@@ -1526,6 +1666,7 @@ export default function App({ user, onSignOut }: AppProps) {
         maximumTotalCharacters: syncedSettings.maximumContextChars,
         maximumRelatedFiles: localSettings.contextMaximumRelatedFiles,
         maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
+        ...(contextTrayItems.length ? { trayItems: contextTrayItems } : {}),
       },
     };
     pendingProactiveFeedbackRef.current = event;
@@ -1542,7 +1683,7 @@ export default function App({ user, onSignOut }: AppProps) {
       return;
     }
     setContextPreviewRequest(prepared.value);
-  }, [activePath, appendOutput, finishProactiveNudge, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, observerProvider, proactiveNudge, queueUsefulnessPrompt, selectFile, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+  }, [activePath, appendOutput, contextTrayItems, finishProactiveNudge, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, observerProvider, proactiveNudge, queueUsefulnessPrompt, selectFile, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
 
   const muteProactiveNudge = useCallback((scope: "error" | "file" | "project") => {
     const event = finishProactiveNudge(scope === "error" ? "mute_error" : scope === "file" ? "mute_file" : "mute_project");
@@ -1778,6 +1919,8 @@ export default function App({ user, onSignOut }: AppProps) {
     setMultiFileError(null);
     setMultiFilePreviewPhase(null);
     setContextPreviewRequest(null);
+    setContextTrayItems([]);
+    setLatestTaskFailure(null);
     setMarkdownViewModes({});
     setSidebarView("explorer");
     appendOutput("Workspace closed. Welcome screen opened.");
@@ -1856,6 +1999,7 @@ export default function App({ user, onSignOut }: AppProps) {
       if (task.stdout.trim()) appendOutput(task.stdout.slice(-8_000));
       if (task.stderr.trim()) appendOutput(task.stderr.slice(-8_000), task.status === "succeeded" ? "info" : "error");
       appendOutput(`${task.kind === "test" ? "Test" : "Build"} ${task.status} in ${task.durationMs} ms${task.exitCode === null ? "" : ` (exit ${task.exitCode})`}.`, task.status === "succeeded" ? "success" : "error");
+      if (task.status !== "succeeded") setLatestTaskFailure({ kind: task.kind, command, summary: `${task.kind} failed\ncommand: ${command}\nexit: ${task.exitCode ?? "unknown"}\n${task.stderr || task.stdout || "No output."}`.slice(0, 8_000) });
       const message = `${command}\n${task.stderr || task.stdout || `exit:${task.exitCode ?? "unknown"}`}`.slice(0, 16_000);
       consumeProactiveObservation(proactiveEngineRef.current.observeObjectiveFailure({
         kind: task.kind,
@@ -1886,6 +2030,11 @@ export default function App({ user, onSignOut }: AppProps) {
     multiFileUndoAvailable: Boolean(multiFileApplied),
     markdownActive: activeIsMarkdown,
     welcomeOpen: !workspaceOpen,
+    hasSelection: Boolean(activeTab && observerSnapshot?.relativePath === activeTab.file.relativePath && observerSnapshot.selectedCode),
+    hasDiagnostic: Boolean(activeTab && runOutput?.diagnostics.some((item) => item.relativePath === activeTab.file.relativePath)),
+    hasRunFailure: runOutput?.status === "failed",
+    hasTaskFailure: Boolean(latestTaskFailure),
+    contextTrayCount: contextTrayItems.length,
   }), [
     activeIsMarkdown,
     activeTab,
@@ -1899,6 +2048,9 @@ export default function App({ user, onSignOut }: AppProps) {
     tabs,
     terminalState,
     workspaceOpen,
+    observerSnapshot,
+    latestTaskFailure,
+    contextTrayItems.length,
   ]);
 
   const commandHandlers = useMemo<CommandHandlers>(() => ({
@@ -1927,6 +2079,14 @@ export default function App({ user, onSignOut }: AppProps) {
     "observer.ask": () => void askObserver(),
     "observer.undoChange": () => void undoObserverChange(),
     "observer.undoMultiFileChange": () => void undoMultiFileChange(),
+    "observer.context.addSelection": () => void addActiveEditorContext("selection"),
+    "observer.context.addCurrentSymbol": () => void addActiveEditorContext("symbol"),
+    "observer.context.addFileExcerpt": () => void addActiveEditorContext("excerpt"),
+    "observer.context.addDiagnostic": () => { const diagnostic = activeTab && runOutput?.diagnostics.find((item) => item.relativePath === activeTab.file.relativePath); if (diagnostic) void addDiagnosticContext(diagnostic); },
+    "observer.context.addRunFailure": () => void addLatestRunFailureContext(),
+    "observer.context.addTaskFailure": () => void addLatestTaskFailureContext(),
+    "observer.context.addMarkdownSection": () => void addActiveEditorContext("markdown_section"),
+    "observer.context.clear": () => { if (contextTrayItems.length === 0 || window.confirm("Clear all session-local Context Tray items?")) setContextTrayItems([]); },
     "markdown.edit": () => {
       if (activePath) setMarkdownViewModes((current) => ({ ...current, [activePath]: "edit" }));
     },
@@ -1950,6 +2110,13 @@ export default function App({ user, onSignOut }: AppProps) {
     stopCurrentRun,
     undoObserverChange,
     undoMultiFileChange,
+    addActiveEditorContext,
+    addDiagnosticContext,
+    addLatestRunFailureContext,
+    addLatestTaskFailureContext,
+    activeTab,
+    runOutput,
+    contextTrayItems,
   ]);
 
   const resolvedCommands = useMemo(
@@ -2013,6 +2180,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [hasDirtyTabs]);
 
   const updateDraft = (relativePath: string, content: string) => {
+    setContextTrayItems((current) => markContextTrayPathStale(current, relativePath));
     setTabs((current) =>
       current.map((tab) =>
         tab.file.relativePath === relativePath
@@ -2075,6 +2243,7 @@ export default function App({ user, onSignOut }: AppProps) {
               commandRequest={explorerCommandRequest}
               confirmBeforeDelete={localSettings.confirmBeforeDelete}
               revealRequest={explorerRevealRequest}
+              onAddFileToContext={(entry) => void addExplorerFileContext(entry)}
             />
           </div>
           <div className={`sidebar-view ${sidebarView === "search" ? "active" : ""}`}>
@@ -2190,6 +2359,7 @@ export default function App({ user, onSignOut }: AppProps) {
             onDiagnosticsChange={(relativePath, diagnostics) => {
               proactiveDiagnosticsRef.current.set(relativePath, diagnostics);
             }}
+            onAddContext={(action) => void addActiveEditorContext(action)}
             markdownViewMode={activeMarkdownViewMode}
             onMarkdownViewModeChange={(mode) => {
               if (!activePath) return;
@@ -2236,6 +2406,14 @@ export default function App({ user, onSignOut }: AppProps) {
             onDisableProactiveAssist={disableProactiveAssist}
             usefulnessPrompt={usefulnessPrompt}
             onUsefulness={answerUsefulness}
+            contextTrayItems={contextTrayItems}
+            maximumContextCharacters={syncedSettings.maximumContextChars}
+            onRemoveContextItem={(id) => setContextTrayItems((current) => current.filter((item) => item.id !== id))}
+            onClearContext={() => { if (contextTrayItems.length === 0 || window.confirm("Clear all session-local Context Tray items?")) setContextTrayItems([]); }}
+            onMoveContextItem={(id, direction) => setContextTrayItems((current) => reorderContextTray(current, id, direction))}
+            onRefreshContextItem={(id) => void refreshTrayItem(id)}
+            onKeepOriginalContextItem={(id) => setContextTrayItems((current) => current.map((item) => item.id === id ? keepOriginalContextTrayItem(item) : item))}
+            onTruncateContextItem={(id) => { const item = contextTrayItems.find((candidate) => candidate.id === id); if (item) void truncateContextTrayItem(item, Math.max(500, Math.floor(item.estimatedCharacters / 2))).then((truncated) => setContextTrayItems((current) => current.map((candidate) => candidate.id === id ? truncated : candidate))); }}
           />
         </aside>
 
@@ -2250,12 +2428,17 @@ export default function App({ user, onSignOut }: AppProps) {
             onStatus={appendOutput}
             commandRequest={bottomCommandRequest}
             onTerminalStateChange={setTerminalState}
+            onAddDiagnostic={(diagnostic) => void addDiagnosticContext(diagnostic)}
+            onAddSelectedOutput={(content, source) => void addSelectedOutputContext(content, source)}
+            onAddRunFailure={() => void addLatestRunFailureContext()}
+            onAddTaskFailure={() => void addLatestTaskFailureContext()}
+            hasTaskFailure={Boolean(latestTaskFailure)}
           />
         </section>
       </div>
 
       <footer className="status-bar">
-        <span>Phase 10A Optional Proactive Observer</span>
+        <span>Phase 11A Privacy-safe Context Tray</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
