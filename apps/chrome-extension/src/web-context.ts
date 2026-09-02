@@ -23,6 +23,7 @@ export interface CaptureInput {
   sourceUrl: string;
   capturedAt?: number;
   captureId?: string;
+  userEdited?: boolean;
 }
 
 export function sanitizeSelectedText(value: string): string {
@@ -63,7 +64,7 @@ export async function createWebContext(input: CaptureInput): Promise<ChromeSelec
     contentHash: await hashText(selectedText),
     characterCount: selectedText.length,
     truncated: selectedText.length < sanitized.length,
-    userEdited: false,
+    userEdited: Boolean(input.userEdited),
     provenance: "chrome_selected_text",
   };
 }

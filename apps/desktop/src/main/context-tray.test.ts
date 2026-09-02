@@ -6,6 +6,7 @@ import {
   CONTEXT_TRAY_TYPES,
   contextTrayTotal,
   createContextTrayItem,
+  createWebResearchContextTrayItem,
   findContextTrayDuplicate,
   keepOriginalContextTrayItem,
   markContextTrayPathStale,
@@ -29,7 +30,7 @@ const base = (type: CreateContextTrayItemInput["type"], content = `safe ${type} 
   completeFile: type === "complete_file",
 });
 
-test("creates and validates every implemented Context Tray item type while reserving web research", async () => {
+test("creates and validates local and Chrome Context Tray item types", async () => {
   const implemented = CONTEXT_TRAY_TYPES.filter((type) => type !== "web_research");
   for (const type of implemented) {
     const item = await createContextTrayItem(base(type));
@@ -37,8 +38,9 @@ test("creates and validates every implemented Context Tray item type while reser
     assert.equal(item.provenance, "user_attached");
     assert.equal(validateContextTrayItem(item)?.id, item.id);
   }
-  const reserved = { ...(await createContextTrayItem(base("selected_code"))), type: "web_research" };
-  assert.equal(validateContextTrayItem(reserved), null);
+  const web = await createWebResearchContextTrayItem({ captureId: "123e4567-e89b-42d3-a456-426614174000", selectedText: "Browser documentation", sourceTitle: "Reference", sourceUrl: "https://docs.example.test/guide", hostname: "docs.example.test", capturedAt: Date.now() });
+  assert.equal(web.type, "web_research"); assert.equal(web.webSource?.hostname, "docs.example.test"); assert.equal(validateContextTrayItem(web)?.id, web.id);
+  assert.equal(validateContextTrayItem({ ...web, webSource: { ...web.webSource!, sourceUrl: "file:///tmp/private" } }), null);
 });
 
 test("redacts content-level secrets and enforces per-item size estimates", async () => {
@@ -79,7 +81,7 @@ test("UI exposes explicit attachment, complete-file confirmation, stale choices,
     readFile(join(root, "App.tsx"), "utf8"), readFile(join(root, "ContextTray.tsx"), "utf8"), readFile(join(root, "ContextPreview.tsx"), "utf8"), readFile(join(root, "Explorer.tsx"), "utf8"), readFile(join(root, "BottomPanel.tsx"), "utf8"),
   ]);
   assert.match(app, /Attach complete file/); assert.match(app, /setContextTrayItems/); assert.match(app, /trayItems: contextTrayItems/);
-  assert.match(tray, /Refresh/); assert.match(tray, /Keep original/); assert.match(tray, /Remove/); assert.match(tray, /Local and session-only/);
+  assert.match(tray, /Refresh/); assert.match(tray, /Keep original/); assert.match(tray, /Remove/); assert.match(tray, /Local and session-only/); assert.match(tray, /Chrome extension pairing code/);
   assert.match(preview, /Manually attached/); assert.match(preview, /Automatic/); assert.match(preview, /Resolve or remove/);
   assert.match(explorer, /Add to Context/); assert.match(bottom, /Add Selected Terminal to Context/); assert.match(bottom, /Add Latest Run Failure/);
   assert.doesNotMatch(tray, /observer\.ask|fetch\(/); assert.doesNotMatch(explorer, /observer\.ask/); assert.doesNotMatch(bottom, /observer\.ask/);

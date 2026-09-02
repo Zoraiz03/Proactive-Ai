@@ -11,6 +11,7 @@ import { registerCheckpointIpc } from "./checkpoint-ipc";
 import { registerMultiFileIpc } from "./multi-file-ipc";
 import { registerVerificationTaskIpc } from "./verification-task-ipc";
 import { registerProactiveInsightsIpc } from "./proactive-insights-ipc";
+import { registerWebContextIpc } from "./web-context-ipc";
 
 declare const __DESKTOP_API_BASE_URL__: string;
 
@@ -104,6 +105,7 @@ app.whenReady().then(() => {
   const multiFileIpc = registerMultiFileIpc(getAuthenticatedWindow, () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim(), app.getPath("userData"), (webContentsId, context) => observerIpc.controller.authorize(webContentsId, context));
   const verificationTaskIpc = registerVerificationTaskIpc(getAuthenticatedWindow);
   const proactiveInsightsIpc = registerProactiveInsightsIpc(getAuthenticatedWindow, app.getPath("userData"));
+  const webContextIpc = registerWebContextIpc(getAuthenticatedWindow);
   terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
   runIpc = registerRunIpc(getAuthenticatedWindow);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
@@ -115,6 +117,7 @@ app.whenReady().then(() => {
       checkpointIpc.controller.setWorkspace(rootPath, webContentsId);
       multiFileIpc.controller.setWorkspace(rootPath, webContentsId);
       verificationTaskIpc.controller.setWorkspace(rootPath, webContentsId);
+      webContextIpc.controller.setWorkspace(webContentsId);
     },
     onWorkspaceClosed: (webContentsId) => {
       terminalIpc?.controller.clearWorkspace(webContentsId);
@@ -124,6 +127,7 @@ app.whenReady().then(() => {
       checkpointIpc.controller.clearWorkspace(webContentsId);
       multiFileIpc.controller.clearWorkspace(webContentsId);
       verificationTaskIpc.controller.clearWorkspace(webContentsId);
+      webContextIpc.controller.clearWorkspace(webContentsId);
     },
     onWorkspaceChanged: () => observerIpc.controller.invalidate(),
   }, app.getPath("userData"));
@@ -135,6 +139,7 @@ app.whenReady().then(() => {
     multiFileIpc.cleanup();
     verificationTaskIpc.cleanup();
     proactiveInsightsIpc.cleanup();
+    void webContextIpc.cleanup();
     authIpc.cleanup();
     runIpc?.cleanup();
     terminalIpc?.cleanup();

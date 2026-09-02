@@ -3,29 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Selected Text Preview</title>
+    <title>Proactive AI</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main>
-      <header><div><strong>Proactive AI IDE</strong><span>Selected-text preview</span></div></header>
-      <p id="status" role="status">Select text on a normal webpage, then choose Refresh Selection.</p>
-      <section id="preview" hidden aria-label="Pending web context">
-        <div class="source"><strong id="source-title"></strong><span id="hostname"></span></div>
-        <details><summary>Full source URL</summary><code id="source-url"></code></details>
-        <label for="selected-text">Selected text</label>
-        <textarea id="selected-text" maxlength="10000" rows="10" spellcheck="false"></textarea>
-        <div class="metadata"><span id="character-count"></span><time id="captured-at"></time></div>
-        <p id="flags" class="flags"></p>
+      <header><div><strong>Proactive AI IDE</strong><span>Selected-text tools</span></div><span id="site-badge">Off</span></header>
+      <section class="site-card" aria-labelledby="site-title">
+        <strong id="site-title">Current website</strong>
+        <span id="site-name">Open a normal webpage</span>
+        <p id="site-status">This feature is off.</p>
+        <button id="site-toggle" type="button" disabled>Turn on for this website</button>
       </section>
-      <div class="actions">
-        <button id="refresh" type="button">Refresh Selection</button>
-        <button id="clear" type="button">Clear</button>
-        <button id="cancel" type="button">Cancel</button>
-        <button id="send" type="button" disabled title="Desktop connection will be added in the next phase.">Send to IDE</button>
-      </div>
-      <p class="connection-note">Desktop connection will be added in the next phase.</p>
-      <aside class="privacy">Only explicitly selected text is captured. Nothing is sent automatically. Complete pages and browsing history are not collected. Desktop transfer will require confirmation.</aside>
+      <section class="desktop-card" aria-labelledby="desktop-title">
+        <strong id="desktop-title">Desktop connection</strong>
+        <p id="desktop-status">Checking this browser session…</p>
+        <div class="pair-row">
+          <label for="pairing-code">Pairing code from the IDE</label>
+          <div><input id="pairing-code" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="8-digit code"><button id="pair" type="button">Connect</button></div>
+        </div>
+      </section>
+      <aside class="privacy">When this website is on, highlighting normal page text shows a small P icon. Text stays on the page until you click the icon, review it, and choose Send to IDE.</aside>
     </main>
     <script type="module" src="popup.js"></script>
   </body>

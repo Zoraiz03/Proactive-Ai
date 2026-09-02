@@ -8,7 +8,7 @@
     "dev": "electron-vite dev",
     "postinstall": "electron-rebuild -f -w node-pty",
     "rebuild:native": "electron-rebuild -f -w node-pty",
-    "test": "node --test src/main/workspace-files.test.ts src/main/recent-projects.test.ts src/main/settings.test.ts src/main/git-service.test.ts src/main/project-context.test.ts src/main/context-tray.test.ts src/main/ai-edit.test.ts src/main/checkpoint-store.test.ts src/main/multi-file-change.test.ts src/main/proactive-observer.test.ts src/main/proactive-insights.test.ts src/renderer/src/command-palette.test.ts",
+    "test": "node --test src/main/workspace-files.test.ts src/main/recent-projects.test.ts src/main/settings.test.ts src/main/git-service.test.ts src/main/project-context.test.ts src/main/context-tray.test.ts src/main/web-context-bridge.test.ts src/main/ai-edit.test.ts src/main/checkpoint-store.test.ts src/main/multi-file-change.test.ts src/main/proactive-observer.test.ts src/main/proactive-insights.test.ts src/renderer/src/command-palette.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview"

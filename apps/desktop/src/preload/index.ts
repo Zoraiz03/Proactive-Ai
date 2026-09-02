@@ -56,6 +56,8 @@ import { CHECKPOINT_CHANNELS, type CheckpointBridge, type CreateCheckpointReques
 import { MULTI_FILE_CHANNELS, type MultiFileApplyRequest, type MultiFileBridge, type MultiFileGenerateRequest, type MultiFileLimits, type MultiFileOutcomeRequest, type MultiFilePlan, type MultiFilePlanRequest } from "../shared/multi-file-change";
 import { VERIFICATION_TASK_CHANNELS, type VerificationTaskBridge, type VerificationTaskRequest } from "../shared/verification-task";
 import { INSIGHTS_CHANNELS, type EvaluationSessionRequest, type InsightMutation, type InsightsBridge, type InsightsExportRequest, type InsightsQuery } from "../shared/proactive-insights";
+import { WEB_CONTEXT_CHANNELS, type WebContextBridge, type WebContextBridgeStatus } from "../shared/web-context-bridge";
+import type { ContextTrayItem } from "../shared/context-tray";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
   openFolder: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.openFolder),
@@ -213,3 +215,18 @@ const insightsBridge: InsightsBridge = Object.freeze({
   export: (request: InsightsExportRequest) => ipcRenderer.invoke(INSIGHTS_CHANNELS.export, request),
 });
 contextBridge.exposeInMainWorld("observerInsights", insightsBridge);
+
+const webContextBridge: WebContextBridge = Object.freeze({
+  getStatus: () => ipcRenderer.invoke(WEB_CONTEXT_CHANNELS.status),
+  onStatusChanged: (listener: (status: WebContextBridgeStatus) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, status: WebContextBridgeStatus) => listener(status);
+    ipcRenderer.on(WEB_CONTEXT_CHANNELS.status, wrapped);
+    return () => ipcRenderer.removeListener(WEB_CONTEXT_CHANNELS.status, wrapped);
+  },
+  onContextReceived: (listener: (item: ContextTrayItem) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, item: ContextTrayItem) => listener(item);
+    ipcRenderer.on(WEB_CONTEXT_CHANNELS.received, wrapped);
+    return () => ipcRenderer.removeListener(WEB_CONTEXT_CHANNELS.received, wrapped);
+  },
+});
+contextBridge.exposeInMainWorld("webContext", webContextBridge);

@@ -1,6 +1,5 @@
-import { captureActiveTabSelection } from "./page-capture.ts";
-import { clearPendingCapture, loadPendingCapture, savePendingCapture } from "./pending-storage.ts";
-import { editWebContext, type ChromeSelectedTextContext } from "./web-context.ts";
+import { bridgeStatus, pairDesktop } from "./bridge-client.ts";
+import { disableSite, enableSite, getSiteAccessState, type SiteAccessState } from "./site-access.ts";
 
 const element = <T extends HTMLElement>(id: string): T => {
   const value = document.getElementById(id);
@@ -8,52 +7,41 @@ const element = <T extends HTMLElement>(id: string): T => {
   return value as T;
 };
 
-const status = element<HTMLParagraphElement>("status");
-const preview = element<HTMLElement>("preview");
-const selectedText = element<HTMLTextAreaElement>("selected-text");
-const sourceTitle = element<HTMLElement>("source-title");
-const hostname = element<HTMLElement>("hostname");
-const sourceUrl = element<HTMLElement>("source-url");
-const characterCount = element<HTMLElement>("character-count");
-const capturedAt = element<HTMLTimeElement>("captured-at");
-const flags = element<HTMLElement>("flags");
-let current: ChromeSelectedTextContext | null = null;
+const badge = element<HTMLElement>("site-badge");
+const siteName = element<HTMLElement>("site-name");
+const siteStatus = element<HTMLParagraphElement>("site-status");
+const toggle = element<HTMLButtonElement>("site-toggle");
+const desktopStatus = element<HTMLParagraphElement>("desktop-status");
+const code = element<HTMLInputElement>("pairing-code");
+const pair = element<HTMLButtonElement>("pair");
+let tab: chrome.tabs.Tab | null = null;
+let site: SiteAccessState | null = null;
 
-function render(capture: ChromeSelectedTextContext | null, message?: string) {
-  current = capture;
-  preview.hidden = !capture;
-  status.textContent = message ?? (capture ? "Review or trim this untrusted plain text. Nothing has been sent." : "Select text on a normal webpage, then choose Refresh Selection.");
-  if (!capture) { selectedText.value = ""; return; }
-  sourceTitle.textContent = capture.sourceTitle;
-  hostname.textContent = capture.hostname;
-  sourceUrl.textContent = capture.sourceUrl;
-  selectedText.value = capture.selectedText;
-  characterCount.textContent = `${capture.characterCount.toLocaleString()} characters`;
-  capturedAt.dateTime = new Date(capture.capturedAt).toISOString();
-  capturedAt.textContent = new Date(capture.capturedAt).toLocaleString();
-  flags.textContent = [capture.truncated ? "Selection truncated to 10,000 characters." : "", capture.userEdited ? "Text edited locally; original source metadata preserved." : ""].filter(Boolean).join(" ");
+function renderSite(state: SiteAccessState) {
+  site = state; siteName.textContent = state.hostname;
+  badge.textContent = state.enabled ? "On" : "Off"; badge.classList.toggle("on", state.enabled);
+  siteStatus.textContent = !state.supported ? "Chrome does not allow selection tools on this page." : state.enabled ? "Highlight page text to show the inline P icon." : "No page text is observed while this website is off.";
+  toggle.disabled = !state.supported; toggle.textContent = state.enabled ? "Turn off for this website" : "Turn on for this website";
 }
 
-async function refresh() {
-  try {
-    const capture = await captureActiveTabSelection();
-    await savePendingCapture(chrome.storage.local, capture);
-    render(capture);
-  } catch (error) { render(current, error instanceof Error ? error.message : "Selection could not be captured."); }
+async function initialize() {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  tab = activeTab ?? null;
+  const current = tab ? await getSiteAccessState(tab) : { supported: false, enabled: false, hostname: "No active webpage", pattern: null, tabId: null };
+  renderSite(tab && current.enabled ? await enableSite(tab) : current);
+  const desktop = await bridgeStatus(); desktopStatus.textContent = desktop.message;
 }
 
-async function clear(close = false) {
-  await clearPendingCapture(chrome.storage.local);
-  render(null, "Pending selection cleared.");
-  if (close) window.close();
-}
-
-element<HTMLButtonElement>("refresh").addEventListener("click", () => void refresh());
-element<HTMLButtonElement>("clear").addEventListener("click", () => void clear());
-element<HTMLButtonElement>("cancel").addEventListener("click", () => void clear(true));
-selectedText.addEventListener("input", () => {
-  if (!current) return;
-  void editWebContext(current, selectedText.value).then(async (edited) => { await savePendingCapture(chrome.storage.local, edited); render(edited); }).catch((error: unknown) => { status.textContent = error instanceof Error ? error.message : "Edited text is invalid."; });
+toggle.addEventListener("click", () => {
+  if (!tab || !site) return;
+  toggle.disabled = true;
+  void (site.enabled ? disableSite(tab) : enableSite(tab)).then(renderSite).catch((error: unknown) => { siteStatus.textContent = error instanceof Error ? error.message : "Website access could not be changed."; toggle.disabled = false; });
 });
 
-void loadPendingCapture(chrome.storage.local).then((capture) => render(capture));
+code.addEventListener("input", () => { code.value = code.value.replace(/\D/g, "").slice(0, 8); });
+pair.addEventListener("click", () => {
+  pair.disabled = true; desktopStatus.textContent = "Connecting to the local IDE…";
+  void pairDesktop(code.value).then((status) => { desktopStatus.textContent = status.message; code.value = ""; }).catch((error: unknown) => { desktopStatus.textContent = error instanceof Error ? error.message : "The IDE could not be paired."; }).finally(() => { pair.disabled = false; });
+});
+
+void initialize().catch(() => { siteStatus.textContent = "Extension state could not be loaded."; desktopStatus.textContent = "Desktop state could not be loaded."; });

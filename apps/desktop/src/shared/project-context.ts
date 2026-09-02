@@ -19,7 +19,8 @@ export type ProjectContextItemType =
   | "task_failure"
   | "selected_output"
   | "selected_markdown"
-  | "markdown_section";
+  | "markdown_section"
+  | "web_research";
 
 export type ProjectContextProvenance =
   | "user"
@@ -43,6 +44,8 @@ export interface ProjectContextItem {
     relativePath?: string;
     lineStart?: number;
     lineEnd?: number;
+    sourceUrl?: string;
+    hostname?: string;
   };
   reason: string;
   estimatedCharacters: number;
@@ -117,7 +120,7 @@ export function removeOptionalContextItem(context: ProjectContextPackage, id: st
   return {
     ...context,
     items,
-    omitted: [...context.omitted, { type: target.type, source: target.source.relativePath, reason: "Removed by user in Context Preview." }],
+    omitted: [...context.omitted, { type: target.type, source: target.source.relativePath ?? target.source.hostname, reason: "Removed by user in Context Preview." }],
     totalCharacters,
     estimatedTokens: Math.ceil(totalCharacters / 4),
     containsCompleteFile: items.some((item) => item.completeFile),
@@ -141,6 +144,9 @@ export function validateProjectContextPackage(value: unknown): ProjectContextPac
     if (!Number.isInteger(item.priority) || item.priority < 1 || item.priority > 8 || typeof item.reason !== "string" || item.reason.length > 500) return null;
     if (item.estimatedCharacters !== item.content.length || item.estimatedTokens !== Math.ceil(item.content.length / 4)) return null;
     if (item.source.relativePath?.startsWith("/") || item.source.relativePath?.split(/[\\/]/).includes("..")) return null;
+    if (item.source.sourceUrl !== undefined) {
+      try { const url = new URL(item.source.sourceUrl); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hostname !== item.source.hostname) return null; } catch { return null; }
+    } else if (item.source.hostname !== undefined) return null;
     if (item.attachmentProvenance !== undefined && !["automatic", "user_attached"].includes(item.attachmentProvenance)) return null;
     if (item.staleState !== undefined && !["fresh", "stale", "keep_original", "unavailable"].includes(item.staleState)) return null;
     if (item.title !== undefined && (typeof item.title !== "string" || !item.title || item.title.length > 160)) return null;

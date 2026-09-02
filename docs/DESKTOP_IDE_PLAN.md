@@ -41,6 +41,7 @@ implementation and its verification evidence in the changelog.
 | Phase 10 | Complete | Proactive Observer V1 and privacy-safe local evaluation tools |
 | Phase 11A | Complete | Privacy-safe Observer Context Tray |
 | Phase 11B1 | Complete | Explicit Chrome selected-text capture and local preview |
+| Phase 11B2 | Implementation Complete | Per-site inline selection UI and paired local desktop handoff |
 
 ## Recommended folder structure
 
@@ -928,6 +929,42 @@ Required verification:
 - [x] **Complete** — No Supabase schema, API, auth, or storage path was added; therefore
   no migration, grants, or RLS change was required.
 
+### Phase 11B2 — Per-site inline selection and paired desktop handoff
+
+- [x] **Complete** — Replace toolbar-driven capture with an explicit per-origin On/Off
+  control using optional runtime host permission. Dynamically register the selection UI
+  only for granted origins and remove it from every matching open tab when turned off.
+- [x] **Complete** — Show a small isolated P control beside a non-collapsed normal-page
+  selection. Read text only after the control is clicked, then show an editable compact
+  preview with Send to IDE and Cancel. Dismiss on outside click, Escape, scroll, resize,
+  selection clear, or site disable; block form, select, textarea, and editable contexts.
+- [x] **Complete** — Add an authenticated loopback bridge bound only to `127.0.0.1` on
+  fixed port 32145. Pair with a rotating eight-digit code from the signed-in
+  desktop Context Tray and a random eight-hour session token bound to the exact Chrome
+  extension origin. Store the token in browser-session storage only.
+- [x] **Complete** — Independently revalidate exact payload keys, UUID, HTTP/HTTPS source,
+  hostname, SHA-256 content/source hashes, size, control characters, ten-minute capture
+  age, authorization, and replay in Electron main. Strip URL query/fragment data and
+  apply existing secret redaction before creating session-local `web_research` context.
+- [x] **Complete** — Deliver accepted context through a narrow main/preload event into the
+  existing removable Context Tray. Preserve the normal Context Preview confirmation and
+  do not trigger AI, cloud sync, Supabase, file writes, commands, or background capture.
+
+Required verification:
+
+- [x] **Complete** — 11/11 extension tests pass for optional per-site permissions,
+  supported-origin matching, isolated text-only UI, editable-field blocking, explicit
+  confirmation, loopback-only transport, session storage, and strict payload contracts.
+- [x] **Complete** — Desktop focused tests cover origin rejection, one-time pairing,
+  bearer authorization, strict hashes/source/age, replay rejection, secret redaction,
+  safe web-context creation, Context Tray display, and server Context Preview validation.
+- [x] **Complete** — Extension and desktop strict TypeScript and production builds pass;
+  root backend harnesses pass with `web_research` treated as untrusted user attachment.
+- [ ] **Pending user-confirmed UI action** — Reload the already-installed unpacked
+  extension and run a live Chrome/Electron selection, dismissal, pairing, and send smoke
+  test. Automated implementation is complete; Codex did not reload installed extension
+  code without the required user confirmation.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1230,6 +1267,37 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-02 — Phase 11B2 inline Chrome handoff implementation complete
+
+Architecture and behavior:
+
+- Replaced the toolbar/context-menu capture interaction with per-site activation and a
+  closed-Shadow-DOM inline P control next to selected page text. Clicking it opens an
+  editable preview; Send to IDE is the only transfer action.
+- Added an ephemeral, origin-bound pairing flow between the extension and an Electron
+  loopback server. The desktop publishes the one-time code in the Context Tray and
+  accepts web research only while authenticated with a workspace open.
+- Implemented `web_research` as removable local tray context and carried its sanitized
+  source through the existing untrusted Context Preview and backend validation path.
+
+Security and privacy:
+
+- Host access is optional and granted per origin. No static content script, browsing
+  history, full-page capture, cloud sync, native messaging, or background AI was added.
+- The loopback bridge rejects non-extension origins, missing/expired/wrong tokens,
+  malformed or old payloads, altered hashes, duplicate capture IDs, oversized bodies,
+  and sends without an authenticated open desktop workspace.
+- URL credentials are rejected; query and fragment data are dropped before attachment;
+  existing content-secret redaction runs before renderer delivery.
+
+Verification:
+
+- Extension tests, strict TypeScript, Manifest V3 validation, and production build pass.
+- Desktop focused bridge/tray/context tests, strict TypeScript, and Electron production
+  build pass. Root project-context backend harness accepts bounded `web_research` and
+  rejects unsafe sources. A live installed-extension reload/smoke test remains pending
+  explicit user confirmation.
 
 ### 2026-09-02 — Phase 11B1 Chrome selected-text preview complete
 
@@ -2500,8 +2568,8 @@ Verification:
 
 ## Recommended next task
 
-Implement **Phase 11B2: explicit desktop handoff for selected web context**. Pair through
-a narrow authenticated local trust boundary, revalidate and redact the versioned payload,
-show it as removable `web_research` context in the existing tray, and require Context
-Preview confirmation. Do not add automatic capture, browsing surveillance, cloud context
-sync, or background AI requests.
+Run the **Phase 11B2 live two-app acceptance test** after the user reloads the unpacked
+extension: verify per-site permission, inline selection positioning/dismissal, pairing,
+Send to IDE, redaction messaging, and removable Context Tray display. Then prepare a
+repeatable desktop/extension installation and onboarding flow without widening host or
+loopback permissions.

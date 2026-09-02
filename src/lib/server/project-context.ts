@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const ContextItem = z.object({
   id: z.string().min(1).max(80),
-  type: z.enum(["user_instruction", "selected_code", "diagnostic", "current_symbol", "nearby_code", "related_file", "project_rule", "attached_markdown", "terminal_error", "file_excerpt", "complete_file", "controlled_run_error", "task_failure", "selected_output", "selected_markdown", "markdown_section"]),
+  type: z.enum(["user_instruction", "selected_code", "diagnostic", "current_symbol", "nearby_code", "related_file", "project_rule", "attached_markdown", "terminal_error", "file_excerpt", "complete_file", "controlled_run_error", "task_failure", "selected_output", "selected_markdown", "markdown_section", "web_research"]),
   priority: z.number().int().min(1).max(8),
   content: z.string().min(1).max(50_000),
   source: z.object({
@@ -10,6 +10,11 @@ const ContextItem = z.object({
     relativePath: z.string().min(1).max(4096).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/).optional(),
     lineStart: z.number().int().positive().optional(),
     lineEnd: z.number().int().positive().optional(),
+    sourceUrl: z.string().url().max(4096).refine((value) => { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password; }).optional(),
+    hostname: z.string().min(1).max(253).optional(),
+  }).superRefine((source, refinement) => {
+    if (source.sourceUrl) { const url = new URL(source.sourceUrl); if (url.hostname !== source.hostname) refinement.addIssue({ code: z.ZodIssueCode.custom, message: "Web source hostname is invalid." }); }
+    else if (source.hostname) refinement.addIssue({ code: z.ZodIssueCode.custom, message: "Web source URL is required." });
   }),
   reason: z.string().min(1).max(500),
   estimatedCharacters: z.number().int().nonnegative(),
@@ -53,7 +58,7 @@ export type ServerProjectContext = z.infer<typeof ProjectContextSchema>;
 export function formatUntrustedProjectContext(context: ServerProjectContext): string {
   const projectItems = context.items.filter((item) => item.type !== "user_instruction").map((item) => `[CONTEXT ITEM ${item.id}]
 Type: ${item.type}
-Source: ${item.source.relativePath ?? item.source.provenance}${item.source.lineStart ? `:${item.source.lineStart}-${item.source.lineEnd ?? item.source.lineStart}` : ""}
+Source: ${item.source.sourceUrl ?? item.source.relativePath ?? item.source.provenance}${item.source.lineStart ? `:${item.source.lineStart}-${item.source.lineEnd ?? item.source.lineStart}` : ""}
 Selection reason: ${item.reason}
 BEGIN UNTRUSTED PROJECT CONTENT
 ${item.content}

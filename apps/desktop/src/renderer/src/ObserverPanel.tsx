@@ -13,6 +13,7 @@ import type { ProactiveAction, ProactiveNudge } from "../../shared/proactive-obs
 import type { UsefulnessFeedback } from "../../shared/proactive-insights";
 import type { ContextTrayItem } from "../../shared/context-tray";
 import ContextTray from "./ContextTray";
+import type { WebContextBridgeStatus } from "../../shared/web-context-bridge";
 
 export type ObserverStatus = "idle" | "thinking" | "ready" | "error";
 
@@ -44,6 +45,7 @@ interface ObserverPanelProps {
   usefulnessPrompt: { eventId: string; title: string } | null;
   onUsefulness: (feedback: UsefulnessFeedback) => void;
   contextTrayItems: readonly ContextTrayItem[];
+  webContextStatus: WebContextBridgeStatus;
   maximumContextCharacters: number;
   onRemoveContextItem: (id: string) => void;
   onClearContext: () => void;
@@ -81,6 +83,7 @@ export default function ObserverPanel({
   usefulnessPrompt,
   onUsefulness,
   contextTrayItems,
+  webContextStatus,
   maximumContextCharacters,
   onRemoveContextItem,
   onClearContext,
@@ -147,6 +150,7 @@ export default function ObserverPanel({
         <ContextTray
           items={contextTrayItems}
           maximumCharacters={maximumContextCharacters}
+          webContextStatus={webContextStatus}
           onRemove={onRemoveContextItem}
           onClear={onClearContext}
           onMove={onMoveContextItem}

@@ -28,6 +28,7 @@ export interface ContextTrayItem {
   type: ContextTrayItemType;
   title: string;
   source?: { relativePath?: string; lineStart?: number; lineEnd?: number };
+  webSource?: { sourceUrl: string; hostname: string; captureId: string; capturedAt: number };
   content: string;
   contentHash: string;
   sourceContentHash?: string;
@@ -55,6 +56,16 @@ export interface CreateContextTrayItemInput {
   reason: string;
   maximumCharacters?: number;
   completeFile?: boolean;
+}
+
+export interface CreateWebResearchContextInput {
+  captureId: string;
+  selectedText: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  hostname: string;
+  capturedAt: number;
+  maximumCharacters?: number;
 }
 
 export type ContextTrayDuplicate = "exact" | "overlap" | null;
@@ -115,12 +126,50 @@ export async function createContextTrayItem(input: CreateContextTrayItemInput): 
   };
 }
 
+const safeWebUrl = (value: string, hostname: string): URL | null => {
+  try {
+    const url = new URL(value);
+    if (value.length > 4096 || hostname.length > 253 || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hostname !== hostname) return null;
+    url.search = ""; url.hash = "";
+    return url;
+  } catch { return null; }
+};
+
+export async function createWebResearchContextTrayItem(input: CreateWebResearchContextInput): Promise<ContextTrayItem> {
+  const url = safeWebUrl(input.sourceUrl, input.hostname);
+  if (!url || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.captureId)) throw new Error("Web research source metadata is invalid.");
+  if (!Number.isInteger(input.capturedAt) || input.capturedAt < 0 || input.capturedAt > Date.now() + 60_000) throw new Error("Web research capture time is invalid.");
+  const safe = redactContextSecrets(input.selectedText);
+  if (!safe.content.trim()) throw new Error("Choose non-empty web research before attaching it.");
+  const maximum = Math.max(500, Math.min(CONTEXT_TRAY_ITEM_LIMIT, Math.trunc(input.maximumCharacters ?? 10_000)));
+  const content = safe.content.slice(0, maximum);
+  const title = `Web: ${input.sourceTitle.trim().slice(0, 120) || input.hostname}`;
+  return {
+    version: CONTEXT_TRAY_VERSION,
+    id: crypto.randomUUID(),
+    type: "web_research",
+    title,
+    webSource: { sourceUrl: url.toString(), hostname: input.hostname, captureId: input.captureId, capturedAt: input.capturedAt },
+    content,
+    contentHash: await sha256Text(content),
+    createdAt: Date.now(),
+    estimatedCharacters: content.length,
+    estimatedTokens: Math.ceil(content.length / 4),
+    redacted: safe.redacted,
+    truncated: content.length < safe.content.length,
+    staleState: "fresh",
+    provenance: "user_attached",
+    reason: `Explicitly selected and confirmed in Chrome from ${input.hostname}.`,
+    completeFile: false,
+  };
+}
+
 export function validateContextTrayItem(value: unknown): ContextTrayItem | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Partial<ContextTrayItem>;
   const keys = Object.keys(item);
-  if (keys.some((key) => !["version", "id", "type", "title", "source", "content", "contentHash", "sourceContentHash", "createdAt", "estimatedCharacters", "estimatedTokens", "redacted", "truncated", "staleState", "provenance", "reason", "completeFile"].includes(key))) return null;
-  if (item.version !== CONTEXT_TRAY_VERSION || typeof item.id !== "string" || !/^[0-9a-f-]{36}$/i.test(item.id) || !CONTEXT_TRAY_TYPES.includes(item.type as ContextTrayItemType) || item.type === "web_research") return null;
+  if (keys.some((key) => !["version", "id", "type", "title", "source", "webSource", "content", "contentHash", "sourceContentHash", "createdAt", "estimatedCharacters", "estimatedTokens", "redacted", "truncated", "staleState", "provenance", "reason", "completeFile"].includes(key))) return null;
+  if (item.version !== CONTEXT_TRAY_VERSION || typeof item.id !== "string" || !/^[0-9a-f-]{36}$/i.test(item.id) || !CONTEXT_TRAY_TYPES.includes(item.type as ContextTrayItemType)) return null;
   if (typeof item.title !== "string" || !item.title || item.title.length > 160 || typeof item.reason !== "string" || !item.reason || item.reason.length > 500) return null;
   if (typeof item.content !== "string" || !item.content || item.content.length > CONTEXT_TRAY_ITEM_LIMIT || !/^[a-f0-9]{64}$/.test(item.contentHash ?? "")) return null;
   if (item.sourceContentHash !== undefined && !/^[a-f0-9]{64}$/.test(item.sourceContentHash)) return null;
@@ -131,6 +180,11 @@ export function validateContextTrayItem(value: unknown): ContextTrayItem | null 
     if (sourceKeys.some((key) => !["relativePath", "lineStart", "lineEnd"].includes(key)) || (item.source.relativePath !== undefined && !safeRelativePath(item.source.relativePath)) || !validRange(item.source.lineStart, item.source.lineEnd)) return null;
     if (item.source.relativePath && !item.sourceContentHash) return null;
   }
+  if (item.type === "web_research") {
+    const web = item.webSource;
+    const safe = web ? safeWebUrl(web.sourceUrl, web.hostname) : null;
+    if (!web || Object.keys(web).some((key) => !["sourceUrl", "hostname", "captureId", "capturedAt"].includes(key)) || !safe || safe.toString() !== web.sourceUrl || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(web.captureId) || !Number.isInteger(web.capturedAt) || web.capturedAt < 0 || item.source !== undefined || item.sourceContentHash !== undefined || item.completeFile) return null;
+  } else if (item.webSource !== undefined) return null;
   if (redactContextSecrets(item.content).redacted) return null;
   return item as ContextTrayItem;
 }

@@ -10,6 +10,7 @@ import type { CheckpointBridge } from "../../shared/checkpoints";
 import type { MultiFileBridge } from "../../shared/multi-file-change";
 import type { VerificationTaskBridge } from "../../shared/verification-task";
 import type { InsightsBridge } from "../../shared/proactive-insights";
+import type { WebContextBridge } from "../../shared/web-context-bridge";
 
 declare global {
   interface Window {
@@ -25,6 +26,7 @@ declare global {
     verificationTask: VerificationTaskBridge;
     observerInsights: InsightsBridge;
     workspaceSearch: WorkspaceSearchBridge;
+    webContext: WebContextBridge;
   }
 }
 

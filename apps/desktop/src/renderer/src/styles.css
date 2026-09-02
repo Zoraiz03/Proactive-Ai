@@ -2166,6 +2166,7 @@ button.tree-row {
 .context-tray > header { display: flex; align-items: center; gap: 8px; padding: 7px; border-bottom: 1px solid #303945; }
 .context-tray-toggle { flex: 1; display: flex; align-items: center; gap: 7px; text-align: left; }
 .context-tray-body { padding: 8px; display: grid; gap: 7px; }
+.chrome-context-pairing { display: grid; gap: 4px; padding: 7px; border: 1px solid #303945; border-radius: 6px; font-size: 9px; color: #929dac; }.chrome-context-pairing strong { color: inherit; font-size: 10px; }.chrome-context-pairing > code { width: fit-content; padding: 4px 7px; border-radius: 4px; background: #0f141a; color: #7fc8ff; font-size: 13px; letter-spacing: 2px; user-select: all; }
 .context-tray-budget { margin: 0; font-size: 9px; color: #929dac; }.context-tray-budget.over { color: #e58e94; font-weight: 700; }
 .context-tray-empty { border: 1px dashed #394452; border-radius: 6px; padding: 12px; color: #929dac; font-size: 10px; }
 .context-tray ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 7px; max-height: 300px; overflow: auto; }

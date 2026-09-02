@@ -97,9 +97,11 @@ import {
   refreshContextTrayItem,
   reorderContextTray,
   truncateContextTrayItem,
+  validateContextTrayItem,
   type ContextTrayItem,
   type CreateContextTrayItemInput,
 } from "../../shared/context-tray";
+import type { WebContextBridgeStatus } from "../../shared/web-context-bridge";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -598,6 +600,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [explorerRevealRequest, setExplorerRevealRequest] = useState<{ relativePath: string; token: number } | null>(null);
   const [contextPreviewRequest, setContextPreviewRequest] = useState<ObserverRequest | null>(null);
   const [contextTrayItems, setContextTrayItems] = useState<ContextTrayItem[]>([]);
+  const [webContextStatus, setWebContextStatus] = useState<WebContextBridgeStatus>({ available: false, paired: false, pairingCode: null, port: null, message: "Chrome bridge is starting…" });
   const [latestTaskFailure, setLatestTaskFailure] = useState<{ kind: "test" | "build"; command: string; summary: string } | null>(null);
   const [multiFileDescription, setMultiFileDescription] = useState("");
   const [multiFilePlan, setMultiFilePlan] = useState<MultiFilePlan | null>(null);
@@ -659,6 +662,26 @@ export default function App({ user, onSignOut }: AppProps) {
     },
     []
   );
+
+  useEffect(() => {
+    let active = true;
+    void window.webContext.getStatus().then((status) => { if (active) setWebContextStatus(status); });
+    const removeStatus = window.webContext.onStatusChanged(setWebContextStatus);
+    const removeContext = window.webContext.onContextReceived((raw) => {
+      const item = validateContextTrayItem(raw);
+      if (!item || item.type !== "web_research") { appendOutput("Incoming Chrome context failed renderer validation.", "error"); return; }
+      setContextTrayItems((current) => {
+        if (current.some((candidate) => candidate.id === item.id || (candidate.type === "web_research" && candidate.webSource?.captureId === item.webSource?.captureId))) return current;
+        if (contextTrayTotal([...current, item]).characters > syncedSettings.maximumContextChars) {
+          appendOutput(`${item.title} exceeds the current context limit. Remove or truncate another item, then send it again.`, "error");
+          return current;
+        }
+        appendOutput(`Added ${item.title} from Chrome to the local Context Tray${item.redacted ? " with secrets redacted" : ""}.`, "success");
+        return [...current, item];
+      });
+    });
+    return () => { active = false; removeStatus(); removeContext(); };
+  }, [appendOutput, syncedSettings.maximumContextChars]);
 
   const insightIdFor = useCallback((event: ProactiveEvent) => {
     const existing = proactiveInsightIdsRef.current.get(event.eventId); if (existing) return existing;
@@ -2408,6 +2431,7 @@ export default function App({ user, onSignOut }: AppProps) {
             onUsefulness={answerUsefulness}
             contextTrayItems={contextTrayItems}
             maximumContextCharacters={syncedSettings.maximumContextChars}
+            webContextStatus={webContextStatus}
             onRemoveContextItem={(id) => setContextTrayItems((current) => current.filter((item) => item.id !== id))}
             onClearContext={() => { if (contextTrayItems.length === 0 || window.confirm("Clear all session-local Context Tray items?")) setContextTrayItems([]); }}
             onMoveContextItem={(id, direction) => setContextTrayItems((current) => reorderContextTray(current, id, direction))}
