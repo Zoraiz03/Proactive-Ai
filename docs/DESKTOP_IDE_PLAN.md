@@ -38,7 +38,9 @@ implementation and its verification evidence in the changelog.
 | Phase 8 | Complete | Deterministic, explainable, privacy-safe project context engine |
 | Phase 9A | Complete | Safe single-file AI changes with diff review and local rollback |
 | Phase 9B | Complete | Safe, explicit multi-file AI change sets with transactional rollback |
-| Phase 10 | Not Started | Proactive Observer V1 for bounded real technical events |
+| Phase 10 | Complete | Proactive Observer V1 and privacy-safe local evaluation tools |
+| Phase 11A | Complete | Privacy-safe Observer Context Tray |
+| Phase 11B1 | Complete | Explicit Chrome selected-text capture and local preview |
 
 ## Recommended folder structure
 
@@ -892,6 +894,40 @@ Required verification:
 - [x] **Complete** — Current Supabase changelog/security guidance was reviewed. Phase
   11A adds no table or cloud persistence, so no migration, grants, or RLS change exists.
 
+### Phase 11B1 — Chrome extension selected-text capture and preview
+
+- [x] **Complete** — Add an isolated Manifest V3 package under
+  `apps/chrome-extension` without changing the Electron renderer or Next.js app.
+- [x] **Complete** — Capture only explicitly selected text from the active HTTP/HTTPS
+  tab after a toolbar Refresh or the selection context-menu action. Reject internal,
+  malformed, credential-bearing, background, form, editable, and password contexts.
+- [x] **Complete** — Show a local preview with source title, hostname, expandable URL,
+  capture time, character count, editable/trimmed plain text, and truncation/edit flags.
+  Refresh, Clear, and Cancel are active; desktop Send is visibly disabled.
+- [x] **Complete** — Define a strict versioned `ChromeSelectedTextContext` contract
+  with a random capture ID, hashed source ID, SHA-256 content hash, bounded text,
+  provenance `chrome_selected_text`, and metadata reserved for `web_research` handoff.
+- [x] **Complete** — Store only the latest pending capture in `chrome.storage.local`,
+  expire it after 30 minutes, and clear it immediately on Clear or Cancel. Add no
+  server, Supabase, authentication, desktop, native-messaging, or AI transport.
+- [x] **Complete** — Keep permissions limited to `activeTab`, `scripting`, `storage`,
+  and `contextMenus`, with no host permissions. Render all captured values through
+  text-only DOM properties under a restrictive extension-page CSP.
+
+Required verification:
+
+- [x] **Complete** — 13/13 extension tests pass for normal/empty/oversized text,
+  protocol and credential rejection, password/editable blocking, control cleanup,
+  hashes/schema, local editing, latest-item retention, expiration, clearing, minimal
+  permissions, text-only rendering, and absence of any transfer implementation.
+- [x] **Complete** — Extension strict TypeScript, production build, and manifest
+  validation pass. The built package contains only local extension assets and no
+  credential/private-key-shaped values.
+- [x] **Complete** — Existing 140/140 desktop tests, strict TypeScript, and Electron
+  production build pass. Root backend tests, lint, and Next.js production build pass.
+- [x] **Complete** — No Supabase schema, API, auth, or storage path was added; therefore
+  no migration, grants, or RLS change was required.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1194,6 +1230,48 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-02 — Phase 11B1 Chrome selected-text preview complete
+
+Architecture and behavior:
+
+- Added a standalone Chrome Manifest V3 package that injects one bounded selection
+  reader only after an explicit action on the active normal web tab. It never reads
+  page HTML, complete-page text, browsing history, background tabs, or form fields.
+- Added toolbar and context-menu capture plus a plain-text preview for safe source
+  metadata, editing/trimming, Refresh, Clear, and Cancel. The Send control is disabled
+  and explains that desktop connectivity is deferred to Phase 11B2.
+- Added a strict, versioned, hash-backed contract designed to map later to the Context
+  Tray's reserved `web_research` type without implementing that mapping or transport.
+
+Changed files:
+
+- Added `apps/chrome-extension` with the manifest, popup assets, background worker,
+  selection/contract/storage modules, local package/lockfile, build scripts, README,
+  and 13 focused tests.
+- Updated only this living plan outside the extension package. Electron, Next.js,
+  Supabase, Observer detection, AI providers, and existing UI source were unchanged.
+
+Security, privacy, and storage decisions:
+
+- Permissions are exactly `activeTab`, `scripting`, `storage`, and `contextMenus`; no
+  host pattern or broad browser-data permission exists. There is no fetch/socket,
+  native messaging, local server, backend, cloud, Supabase, auth, or AI code path.
+- Captures accept HTTP/HTTPS URLs without embedded credentials, normalize CRLF, remove
+  unsafe controls, cap text at 10,000 characters, and render with `textContent`/`value`
+  only. Form, editable, password, empty, malformed, internal, and inactive contexts fail.
+- `chrome.storage.local` contains at most one pending typed item and removes invalid,
+  future-dated, or older-than-30-minute data when read. Clear and Cancel delete it now.
+
+Verification:
+
+- Extension tests: 13/13 passed. Strict TypeScript, production build, and Manifest V3
+  validation passed; dependency audit reported zero vulnerabilities.
+- Desktop regression: 140/140 tests, strict TypeScript, and Electron build passed.
+- Web regression: root backend harnesses, lint, and Next.js production build passed.
+- Static source/build scans confirmed text-only rendering, minimal permissions, no
+  transfer API, and no credential/private-key-shaped values. A live unpacked-extension
+  smoke test remains an environment/user-confirmed Chrome-profile action.
 
 ### 2026-09-02 — Phase 11A privacy-safe Observer Context Tray complete
 
@@ -2422,6 +2500,8 @@ Verification:
 
 ## Recommended next task
 
-Implement **Phase 11B Chrome Research Context Extension**. Keep browser research an
-explicit user attachment with a narrow authenticated trust boundary; do not add automatic
-page capture, browsing surveillance, cloud context sync, or background AI requests.
+Implement **Phase 11B2: explicit desktop handoff for selected web context**. Pair through
+a narrow authenticated local trust boundary, revalidate and redact the versioned payload,
+show it as removable `web_research` context in the existing tray, and require Context
+Preview confirmation. Do not add automatic capture, browsing surveillance, cloud context
+sync, or background AI requests.

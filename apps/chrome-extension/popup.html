@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Selected Text Preview</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header><div><strong>Proactive AI IDE</strong><span>Selected-text preview</span></div></header>
+      <p id="status" role="status">Select text on a normal webpage, then choose Refresh Selection.</p>
+      <section id="preview" hidden aria-label="Pending web context">
+        <div class="source"><strong id="source-title"></strong><span id="hostname"></span></div>
+        <details><summary>Full source URL</summary><code id="source-url"></code></details>
+        <label for="selected-text">Selected text</label>
+        <textarea id="selected-text" maxlength="10000" rows="10" spellcheck="false"></textarea>
+        <div class="metadata"><span id="character-count"></span><time id="captured-at"></time></div>
+        <p id="flags" class="flags"></p>
+      </section>
+      <div class="actions">
+        <button id="refresh" type="button">Refresh Selection</button>
+        <button id="clear" type="button">Clear</button>
+        <button id="cancel" type="button">Cancel</button>
+        <button id="send" type="button" disabled title="Desktop connection will be added in the next phase.">Send to IDE</button>
+      </div>
+      <p class="connection-note">Desktop connection will be added in the next phase.</p>
+      <aside class="privacy">Only explicitly selected text is captured. Nothing is sent automatically. Complete pages and browsing history are not collected. Desktop transfer will require confirmation.</aside>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
