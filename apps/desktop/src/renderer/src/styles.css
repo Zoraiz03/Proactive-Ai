@@ -2071,6 +2071,8 @@ button.tree-row {
 .mandatory-exclusions { display: flex; flex-direction: column; gap: 7px; padding: 12px; background: #191f28; border-radius: 7px; margin-top: 12px; }
 .mandatory-exclusions code { white-space: normal; color: #c3d0df; }
 .settings-message { margin-top: 20px !important; padding: 10px; border: 1px solid #2c6b4b; background: #12291d; border-radius: 6px; color: #b7eccd !important; }
+.incoming-web-context { position: fixed; right: 22px; bottom: 22px; z-index: 45; width: min(430px, calc(100vw - 44px)); max-height: min(560px, calc(100vh - 44px)); overflow: auto; display: grid; gap: 8px; padding: 14px; border: 1px solid #536276; border-radius: 9px; background: #151c25; color: #e8edf4; box-shadow: 0 15px 45px #0009; }
+.incoming-web-context header { display: flex; justify-content: space-between; gap: 10px; }.incoming-web-context code,.incoming-web-context small,.incoming-web-context p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }.incoming-web-context p { max-height: 260px; overflow: auto; padding: 8px; background: #0d1219; border-radius: 6px; }
 .proactive-mute-list { display: grid; gap: 6px; }
 .proactive-mute-list > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border: 1px solid #303b49; border-radius: 6px; }
 .proactive-mute-list code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #b9c9da; }
@@ -2085,6 +2087,7 @@ button.tree-row {
 :root[data-theme="light"] body, :root[data-theme="light"] .app-shell { background: #f3f5f8; color: #1d2733; }
 :root[data-theme="light"] .top-bar, :root[data-theme="light"] .panel, :root[data-theme="light"] .status-bar { background: #fff; color: #1d2733; border-color: #cdd5df; }
 :root[data-theme="light"] .settings-center { background: #fff; color: #1d2733; }
+:root[data-theme="light"] .incoming-web-context { background: #fff; color: #1d2733; border-color: #aeb9c7; }:root[data-theme="light"] .incoming-web-context p { background: #f5f7fa; }
 :root[data-theme="light"] .settings-center input, :root[data-theme="light"] .settings-center select, :root[data-theme="light"] .settings-center textarea { background: #fff; color: #1d2733; border-color: #aeb9c7; }
 :root[data-theme="light"] .setting-row, :root[data-theme="light"] .settings-center > header, :root[data-theme="light"] .settings-body nav { border-color: #dce2e9; }
 @media (max-width: 760px) { .settings-body { grid-template-columns: 170px 1fr; } .api-key-row { grid-template-columns: 1fr; } }

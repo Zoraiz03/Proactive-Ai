@@ -77,11 +77,11 @@ test("reorders, marks stale/unavailable, keeps snapshots, refreshes, truncates, 
 
 test("UI exposes explicit attachment, complete-file confirmation, stale choices, preview integration, and no automatic AI call", async () => {
   const root = join(import.meta.dirname, "..", "renderer", "src");
-  const [app, tray, preview, explorer, bottom] = await Promise.all([
-    readFile(join(root, "App.tsx"), "utf8"), readFile(join(root, "ContextTray.tsx"), "utf8"), readFile(join(root, "ContextPreview.tsx"), "utf8"), readFile(join(root, "Explorer.tsx"), "utf8"), readFile(join(root, "BottomPanel.tsx"), "utf8"),
+  const [app, tray, preview, explorer, bottom, settings, incoming] = await Promise.all([
+    readFile(join(root, "App.tsx"), "utf8"), readFile(join(root, "ContextTray.tsx"), "utf8"), readFile(join(root, "ContextPreview.tsx"), "utf8"), readFile(join(root, "Explorer.tsx"), "utf8"), readFile(join(root, "BottomPanel.tsx"), "utf8"), readFile(join(root, "SettingsPanel.tsx"), "utf8"), readFile(join(root, "IncomingWebContextReview.tsx"), "utf8"),
   ]);
   assert.match(app, /Attach complete file/); assert.match(app, /setContextTrayItems/); assert.match(app, /trayItems: contextTrayItems/);
-  assert.match(tray, /Refresh/); assert.match(tray, /Keep original/); assert.match(tray, /Remove/); assert.match(tray, /Local and session-only/); assert.match(tray, /Chrome extension pairing code/);
+  assert.match(tray, /Refresh/); assert.match(tray, /Keep original/); assert.match(tray, /Remove/); assert.match(tray, /Local and session-only/); assert.match(settings, /Short-lived pairing code/); assert.match(incoming, /Add to Context Tray/); assert.match(incoming, /Reject/);
   assert.match(preview, /Manually attached/); assert.match(preview, /Automatic/); assert.match(preview, /Resolve or remove/);
   assert.match(explorer, /Add to Context/); assert.match(bottom, /Add Selected Terminal to Context/); assert.match(bottom, /Add Latest Run Failure/);
   assert.doesNotMatch(tray, /observer\.ask|fetch\(/); assert.doesNotMatch(explorer, /observer\.ask/); assert.doesNotMatch(bottom, /observer\.ask/);

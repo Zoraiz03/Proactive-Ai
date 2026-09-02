@@ -9,8 +9,9 @@ import {
   type SyncedSettings,
 } from "../../shared/settings";
 import ObserverInsightsSettings from "./ObserverInsightsSettings";
+import type { WebContextBridgeStatus } from "../../shared/web-context-bridge";
 
-const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Observer Insights", "Privacy", "Data and History"] as const;
+const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Observer Insights", "Browser Extension", "Privacy", "Data and History"] as const;
 type Section = typeof sections[number];
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
   local: LocalSettings;
   synced: SyncedSettings;
   providers: ProviderStatus[];
+  webContextStatus: WebContextBridgeStatus;
   onClose: () => void;
   onSaveLocal: (settings: LocalSettings) => Promise<string | null>;
   onSaveSynced: (settings: SyncedSettings) => Promise<string | null>;
@@ -27,6 +29,10 @@ interface Props {
   onClearRecents: () => Promise<string | null>;
   onClearHistory: () => Promise<string | null>;
   onClearCheckpoints: () => Promise<string | null>;
+  onSetBrowserIntegration: (enabled: boolean) => Promise<string | null>;
+  onStartBrowserPairing: () => Promise<string | null>;
+  onCancelBrowserPairing: () => Promise<string | null>;
+  onRevokeBrowserPairing: () => Promise<string | null>;
   onSignOut: () => void;
 }
 
@@ -72,7 +78,7 @@ export default function SettingsPanel(props: Props) {
           {visibleSections.map((section) => <button key={section} className={active === section ? "active" : ""} onClick={() => setActive(section)}>{section}</button>)}
         </nav>
         <main>
-          <div className="storage-badge">{["General", "Editor", "Observer Insights"].includes(active) ? "Stored on this device" : active === "Observer" ? "Manual preferences sync; Assist controls and mutes stay on this device" : "Stored per account in Supabase, except local exclusions"}</div>
+          <div className="storage-badge">{["General", "Editor", "Observer Insights", "Browser Extension"].includes(active) ? "Stored securely on this device" : active === "Observer" ? "Manual preferences sync; Assist controls and mutes stay on this device" : "Stored per account in Supabase, except local exclusions"}</div>
           {active === "General" && <>
             <h3>General</h3>
             <label className="setting-row"><span>Theme</span><select value={local.theme} onChange={(e) => setLocal({ ...local, theme: e.target.value as LocalSettings["theme"] })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
@@ -143,6 +149,19 @@ export default function SettingsPanel(props: Props) {
             <button className="primary" onClick={() => void saveSynced()}>Save Observer settings</button>
           </>}
           {active === "Observer Insights" && <ObserverInsightsSettings local={local} onChange={setLocal} onSave={props.onSaveLocal} />}
+          {active === "Browser Extension" && <>
+            <h3>Browser Extension</h3>
+            <p>Transfers use an authenticated service bound only to 127.0.0.1:{props.webContextStatus.port ?? 32145}. Nothing is uploaded and incoming text requires review before it enters the Context Tray.</p>
+            <div className="provider-card"><strong>Status</strong><span>{props.webContextStatus.message}</span></div>
+            <Toggle label="Enable local browser integration" checked={props.webContextStatus.enabled} disabled={!props.webContextStatus.available && !props.webContextStatus.enabled} onChange={(enabled) => void props.onSetBrowserIntegration(enabled).then((value) => value && setMessage(value))} />
+            {props.webContextStatus.pairingCode && <div className="provider-card"><strong>Short-lived pairing code</strong><code>{props.webContextStatus.pairingCode}</code><span>Expires {props.webContextStatus.pairingExpiresAt ? new Date(props.webContextStatus.pairingExpiresAt).toLocaleTimeString() : "soon"}. The secret credential is never displayed.</span></div>}
+            {props.webContextStatus.pairedDevice && <div className="provider-card"><strong>Paired device</strong><span>{props.webContextStatus.pairedDevice}</span></div>}
+            <div className="settings-actions">
+              {!props.webContextStatus.paired && !props.webContextStatus.pairingCode && <button className="primary" disabled={!props.webContextStatus.enabled} onClick={() => void props.onStartBrowserPairing().then((value) => value && setMessage(value))}>Start Pairing</button>}
+              {props.webContextStatus.pairingCode && <button onClick={() => void props.onCancelBrowserPairing().then((value) => value && setMessage(value))}>Cancel Pairing</button>}
+              {props.webContextStatus.paired && <button onClick={() => void destructive("Revoke this browser pairing? The extension must pair again.", props.onRevokeBrowserPairing, "Browser pairing revoked.")}>Revoke</button>}
+            </div>
+          </>}
           {active === "Privacy" && <>
             <h3>Privacy</h3><p>Local project files are never uploaded automatically. Observer sends focused context only after you ask.</p>
             <Toggle label="Never send .env files" checked disabled onChange={() => undefined} />

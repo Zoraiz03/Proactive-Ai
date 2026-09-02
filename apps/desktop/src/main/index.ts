@@ -105,7 +105,7 @@ app.whenReady().then(() => {
   const multiFileIpc = registerMultiFileIpc(getAuthenticatedWindow, () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim(), app.getPath("userData"), (webContentsId, context) => observerIpc.controller.authorize(webContentsId, context));
   const verificationTaskIpc = registerVerificationTaskIpc(getAuthenticatedWindow);
   const proactiveInsightsIpc = registerProactiveInsightsIpc(getAuthenticatedWindow, app.getPath("userData"));
-  const webContextIpc = registerWebContextIpc(getAuthenticatedWindow);
+  const webContextIpc = registerWebContextIpc(getAuthenticatedWindow, app.getPath("userData"));
   terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
   runIpc = registerRunIpc(getAuthenticatedWindow);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {

@@ -101,7 +101,8 @@ import {
   type ContextTrayItem,
   type CreateContextTrayItemInput,
 } from "../../shared/context-tray";
-import type { WebContextBridgeStatus } from "../../shared/web-context-bridge";
+import type { IncomingWebContext, WebContextBridgeStatus } from "../../shared/web-context-bridge";
+import IncomingWebContextReview from "./IncomingWebContextReview";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -600,7 +601,8 @@ export default function App({ user, onSignOut }: AppProps) {
   const [explorerRevealRequest, setExplorerRevealRequest] = useState<{ relativePath: string; token: number } | null>(null);
   const [contextPreviewRequest, setContextPreviewRequest] = useState<ObserverRequest | null>(null);
   const [contextTrayItems, setContextTrayItems] = useState<ContextTrayItem[]>([]);
-  const [webContextStatus, setWebContextStatus] = useState<WebContextBridgeStatus>({ available: false, paired: false, pairingCode: null, port: null, message: "Chrome bridge is starting…" });
+  const [webContextStatus, setWebContextStatus] = useState<WebContextBridgeStatus>({ available: false, enabled: false, paired: false, connected: false, pairingCode: null, pairingExpiresAt: null, pairedDevice: null, port: null, message: "Chrome bridge is starting…" });
+  const [incomingWebContext, setIncomingWebContext] = useState<IncomingWebContext | null>(null);
   const [latestTaskFailure, setLatestTaskFailure] = useState<{ kind: "test" | "build"; command: string; summary: string } | null>(null);
   const [multiFileDescription, setMultiFileDescription] = useState("");
   const [multiFilePlan, setMultiFilePlan] = useState<MultiFilePlan | null>(null);
@@ -667,11 +669,12 @@ export default function App({ user, onSignOut }: AppProps) {
     let active = true;
     void window.webContext.getStatus().then((status) => { if (active) setWebContextStatus(status); });
     const removeStatus = window.webContext.onStatusChanged(setWebContextStatus);
+    const removePending = window.webContext.onPendingChanged(setIncomingWebContext);
     const removeContext = window.webContext.onContextReceived((raw) => {
       const item = validateContextTrayItem(raw);
       if (!item || item.type !== "web_research") { appendOutput("Incoming Chrome context failed renderer validation.", "error"); return; }
       setContextTrayItems((current) => {
-        if (current.some((candidate) => candidate.id === item.id || (candidate.type === "web_research" && candidate.webSource?.captureId === item.webSource?.captureId))) return current;
+        if (current.some((candidate) => candidate.id === item.id || candidate.contentHash === item.contentHash || (candidate.type === "web_research" && candidate.webSource?.captureId === item.webSource?.captureId))) { appendOutput(`${item.title} duplicates context already in the tray.`, "error"); return current; }
         if (contextTrayTotal([...current, item]).characters > syncedSettings.maximumContextChars) {
           appendOutput(`${item.title} exceeds the current context limit. Remove or truncate another item, then send it again.`, "error");
           return current;
@@ -680,7 +683,7 @@ export default function App({ user, onSignOut }: AppProps) {
         return [...current, item];
       });
     });
-    return () => { active = false; removeStatus(); removeContext(); };
+    return () => { active = false; removeStatus(); removePending(); removeContext(); };
   }, [appendOutput, syncedSettings.maximumContextChars]);
 
   const insightIdFor = useCallback((event: ProactiveEvent) => {
@@ -2488,11 +2491,18 @@ export default function App({ user, onSignOut }: AppProps) {
         openToken={commandPaletteToken}
         onClosed={() => undefined}
       />
+      {incomingWebContext && <IncomingWebContextReview
+        item={incomingWebContext}
+        canAdd={contextTrayTotal(contextTrayItems).characters + incomingWebContext.characterCount <= syncedSettings.maximumContextChars}
+        onAdd={() => void window.webContext.accept(incomingWebContext.transferId).then((result) => { if (!result.ok) appendOutput(result.error ?? "Incoming browser selection could not be added.", "error"); })}
+        onReject={() => void window.webContext.reject(incomingWebContext.transferId).then((result) => { if (!result.ok) appendOutput(result.error ?? "Incoming browser selection could not be rejected.", "error"); })}
+      />}
       <SettingsPanel
         open={settingsOpen}
         local={localSettings}
         synced={syncedSettings}
         providers={providerStatuses}
+        webContextStatus={webContextStatus}
         onClose={() => setSettingsOpen(false)}
         onSaveLocal={saveLocalSettings}
         onSaveSynced={saveSyncedSettings}
@@ -2502,6 +2512,10 @@ export default function App({ user, onSignOut }: AppProps) {
         onClearRecents={clearRecentProjects}
         onClearHistory={clearObserverHistory}
         onClearCheckpoints={clearObserverCheckpoints}
+        onSetBrowserIntegration={async (enabled) => { const result = await window.webContext.setEnabled(enabled); return result.ok ? null : result.error ?? "Browser integration could not be updated."; }}
+        onStartBrowserPairing={async () => { const result = await window.webContext.startPairing(); return result.ok ? null : result.error ?? "Pairing could not start."; }}
+        onCancelBrowserPairing={async () => { const result = await window.webContext.cancelPairing(); return result.ok ? null : result.error ?? "Pairing could not be canceled."; }}
+        onRevokeBrowserPairing={async () => { const result = await window.webContext.revoke(); return result.ok ? null : result.error ?? "Pairing could not be revoked."; }}
         onSignOut={() => void signOut()}
       />
       {contextPreviewRequest && <ContextPreview

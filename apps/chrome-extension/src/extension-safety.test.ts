@@ -40,7 +40,8 @@ test("desktop transport is confined to paired loopback requests", async () => {
   const [bridge, background] = await Promise.all([read("src/bridge-client.ts"), read("src/background.ts")]);
   assert.match(bridge, /http:\/\/127\.0\.0\.1/);
   assert.match(bridge, /Authorization: `Bearer/);
-  assert.match(bridge, /chrome\.storage\.session/);
+  assert.match(bridge, /chrome\.storage\.local/);
+  assert.doesNotMatch(bridge, /chrome\.storage\.sync/);
   assert.doesNotMatch(bridge + background, /supabase|openai|anthropic|gemini|WebSocket|sendBeacon|connectNative/i);
   for (const source of ["src/background.ts", "src/popup.ts", "src/selection-overlay.ts", "src/site-access.ts", "src/web-context.ts"]) assert.doesNotMatch(await read(source), /\bfetch\s*\(/);
 });

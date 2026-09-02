@@ -56,7 +56,7 @@ import { CHECKPOINT_CHANNELS, type CheckpointBridge, type CreateCheckpointReques
 import { MULTI_FILE_CHANNELS, type MultiFileApplyRequest, type MultiFileBridge, type MultiFileGenerateRequest, type MultiFileLimits, type MultiFileOutcomeRequest, type MultiFilePlan, type MultiFilePlanRequest } from "../shared/multi-file-change";
 import { VERIFICATION_TASK_CHANNELS, type VerificationTaskBridge, type VerificationTaskRequest } from "../shared/verification-task";
 import { INSIGHTS_CHANNELS, type EvaluationSessionRequest, type InsightMutation, type InsightsBridge, type InsightsExportRequest, type InsightsQuery } from "../shared/proactive-insights";
-import { WEB_CONTEXT_CHANNELS, type WebContextBridge, type WebContextBridgeStatus } from "../shared/web-context-bridge";
+import { WEB_CONTEXT_CHANNELS, type IncomingWebContext, type WebContextBridge, type WebContextBridgeStatus } from "../shared/web-context-bridge";
 import type { ContextTrayItem } from "../shared/context-tray";
 
 const workspaceBridge: WorkspaceBridge = Object.freeze({
@@ -218,10 +218,21 @@ contextBridge.exposeInMainWorld("observerInsights", insightsBridge);
 
 const webContextBridge: WebContextBridge = Object.freeze({
   getStatus: () => ipcRenderer.invoke(WEB_CONTEXT_CHANNELS.status),
+  setEnabled: (enabled: boolean) => ipcRenderer.invoke(WEB_CONTEXT_CHANNELS.setEnabled, enabled),
+  startPairing: () => ipcRenderer.invoke(WEB_CONTEXT_CHANNELS.startPairing),
+  cancelPairing: () => ipcRenderer.invoke(WEB_CONTEXT_CHANNELS.cancelPairing),
+  revoke: () => ipcRenderer.invoke(WEB_CONTEXT_CHANNELS.revoke),
+  accept: (transferId: string) => ipcRenderer.invoke(WEB_CONTEXT_CHANNELS.accept, transferId),
+  reject: (transferId: string) => ipcRenderer.invoke(WEB_CONTEXT_CHANNELS.reject, transferId),
   onStatusChanged: (listener: (status: WebContextBridgeStatus) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, status: WebContextBridgeStatus) => listener(status);
     ipcRenderer.on(WEB_CONTEXT_CHANNELS.status, wrapped);
     return () => ipcRenderer.removeListener(WEB_CONTEXT_CHANNELS.status, wrapped);
+  },
+  onPendingChanged: (listener: (item: IncomingWebContext | null) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, item: IncomingWebContext | null) => listener(item);
+    ipcRenderer.on(WEB_CONTEXT_CHANNELS.pending, wrapped);
+    return () => ipcRenderer.removeListener(WEB_CONTEXT_CHANNELS.pending, wrapped);
   },
   onContextReceived: (listener: (item: ContextTrayItem) => void) => {
     const wrapped = (_event: Electron.IpcRendererEvent, item: ContextTrayItem) => listener(item);

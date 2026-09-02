@@ -1,8 +1,8 @@
-import { sendToDesktop } from "./bridge-client.ts";
+import { bridgeStatus, sendToDesktop } from "./bridge-client.ts";
 import { createWebContext } from "./web-context.ts";
 import { getSiteAccessState } from "./site-access.ts";
 
-interface SelectionSendMessage { type: "proactive:send-selection"; selectedText: string; userEdited: boolean }
+interface SelectionSendMessage { type: "proactive:send-selection" | "proactive:bridge-status"; selectedText: string; userEdited: boolean }
 
 async function updateBadge(tab: chrome.tabs.Tab) {
   if (!Number.isInteger(tab.id) || tab.id! < 0) return;
@@ -17,6 +17,7 @@ chrome.tabs.onUpdated.addListener((_tabId, change, tab) => { if (change.status =
 
 chrome.runtime.onMessage.addListener((value: unknown, sender, sendResponse) => {
   const message = value as Partial<SelectionSendMessage>;
+  if (message.type === "proactive:bridge-status") { void bridgeStatus().then(sendResponse); return true; }
   if (message.type !== "proactive:send-selection") return false;
   void (async () => {
     const tab = sender.tab;

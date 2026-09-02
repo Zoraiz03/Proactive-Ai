@@ -32,8 +32,7 @@ export default function ContextTray({ items, maximumCharacters, webContextStatus
       <div className="chrome-context-pairing">
         <strong>Chrome research</strong>
         <span>{webContextStatus.message}</span>
-        {webContextStatus.pairingCode && <code aria-label="Chrome extension pairing code">{webContextStatus.pairingCode}</code>}
-        {webContextStatus.port && <small>Local bridge port {webContextStatus.port}. The code changes after pairing.</small>}
+        <small>Pair, revoke, or disable this integration in Settings → Browser Extension.</small>
       </div>
       <p className={total.characters > maximumCharacters ? "context-tray-budget over" : "context-tray-budget"}>{total.characters.toLocaleString()} / {maximumCharacters.toLocaleString()} chars · ~{total.tokens.toLocaleString()} tokens</p>
       {items.length === 0 ? <div className="context-tray-empty">Nothing attached. Add only the project information you want Observer to review.</div> : <ol>

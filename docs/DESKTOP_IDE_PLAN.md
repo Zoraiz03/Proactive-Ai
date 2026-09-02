@@ -41,7 +41,7 @@ implementation and its verification evidence in the changelog.
 | Phase 10 | Complete | Proactive Observer V1 and privacy-safe local evaluation tools |
 | Phase 11A | Complete | Privacy-safe Observer Context Tray |
 | Phase 11B1 | Complete | Explicit Chrome selected-text capture and local preview |
-| Phase 11B2 | Implementation Complete | Per-site inline selection UI and paired local desktop handoff |
+| Phase 11B2 | Verification In Progress | Secure Chrome pairing, incoming review, and local Context Tray handoff |
 
 ## Recommended folder structure
 
@@ -939,31 +939,34 @@ Required verification:
   preview with Send to IDE and Cancel. Dismiss on outside click, Escape, scroll, resize,
   selection clear, or site disable; block form, select, textarea, and editable contexts.
 - [x] **Complete** — Add an authenticated loopback bridge bound only to `127.0.0.1` on
-  fixed port 32145. Pair with a rotating eight-digit code from the signed-in
-  desktop Context Tray and a random eight-hour session token bound to the exact Chrome
-  extension origin. Store the token in browser-session storage only.
+  fixed port 32145. Pair only after Start Pairing in desktop Settings with a two-minute
+  eight-digit code and an independent random token bound to the exact Chrome extension
+  origin. Encrypt the desktop credential with OS safe storage and keep Chrome's copy in
+  local, never-sync storage. Support authenticated health, revoke, disconnect, and disable.
 - [x] **Complete** — Independently revalidate exact payload keys, UUID, HTTP/HTTPS source,
   hostname, SHA-256 content/source hashes, size, control characters, ten-minute capture
   age, authorization, and replay in Electron main. Strip URL query/fragment data and
   apply existing secret redaction before creating session-local `web_research` context.
-- [x] **Complete** — Deliver accepted context through a narrow main/preload event into the
-  existing removable Context Tray. Preserve the normal Context Preview confirmation and
-  do not trigger AI, cloud sync, Supabase, file writes, commands, or background capture.
+- [x] **Complete** — Deliver validated context into a bounded, nonmodal desktop review
+  queue. Add it to the existing removable Context Tray only after the user chooses Add;
+  Reject discards it. Preserve Context Preview and do not trigger AI, cloud sync,
+  Supabase, file writes, commands, or background capture.
 
 Required verification:
 
 - [x] **Complete** — 11/11 extension tests pass for optional per-site permissions,
   supported-origin matching, isolated text-only UI, editable-field blocking, explicit
-  confirmation, loopback-only transport, session storage, and strict payload contracts.
+  confirmation, loopback-only transport, local-only credential storage, authenticated
+  health, disconnect, explicit retry, and strict transfer contracts.
 - [x] **Complete** — Desktop focused tests cover origin rejection, one-time pairing,
   bearer authorization, strict hashes/source/age, replay rejection, secret redaction,
   safe web-context creation, Context Tray display, and server Context Preview validation.
 - [x] **Complete** — Extension and desktop strict TypeScript and production builds pass;
   root backend harnesses pass with `web_research` treated as untrusted user attachment.
-- [ ] **Pending user-confirmed UI action** — Reload the already-installed unpacked
-  extension and run a live Chrome/Electron selection, dismissal, pairing, and send smoke
-  test. Automated implementation is complete; Codex did not reload installed extension
-  code without the required user confirmation.
+- [ ] **Verification in progress** — Run all production builds, regression checks, and a
+  live unpacked-Chrome/Electron flow covering pairing expiry, restart, revocation,
+  dismissal, review Add/Reject, retry, URL stripping, and redaction. Do not mark the phase
+  complete until this manual acceptance pass succeeds.
 
 ## Architecture decisions
 
@@ -1268,36 +1271,36 @@ headers return 401, and authorization data is not logged.
 
 ## Changelog
 
-### 2026-09-02 — Phase 11B2 inline Chrome handoff implementation complete
+### 2026-09-02 — Phase 11B2 secure Chrome handoff verification in progress
 
 Architecture and behavior:
 
 - Replaced the toolbar/context-menu capture interaction with per-site activation and a
   closed-Shadow-DOM inline P control next to selected page text. Clicking it opens an
   editable preview; Send to IDE is the only transfer action.
-- Added an ephemeral, origin-bound pairing flow between the extension and an Electron
-  loopback server. The desktop publishes the one-time code in the Context Tray and
-  accepts web research only while authenticated with a workspace open.
-- Implemented `web_research` as removable local tray context and carried its sanitized
-  source through the existing untrusted Context Preview and backend validation path.
+- Added a user-started, short-lived, origin-bound pairing flow between the extension and
+  Electron Settings, with OS-encrypted persistent credentials, authenticated health,
+  revocation, Disconnect/Forget, and a completely disabled state.
+- Added a bounded incoming review queue. `web_research` becomes removable local tray
+  context only after explicit desktop acceptance and then follows the existing untrusted
+  Context Preview and backend validation path.
 
 Security and privacy:
 
 - Host access is optional and granted per origin. No static content script, browsing
   history, full-page capture, cloud sync, native messaging, or background AI was added.
-- The loopback bridge rejects non-extension origins, missing/expired/wrong tokens,
-  malformed or old payloads, altered hashes, duplicate capture IDs, oversized bodies,
-  and sends without an authenticated open desktop workspace.
+- The loopback bridge rejects non-extension origins, missing/revoked/wrong tokens,
+  malformed or old payloads, altered hashes, duplicate/idempotent transfers, oversized
+  bodies, rate/queue excess, protocol mismatch, and sends without an authenticated open
+  desktop workspace.
 - URL credentials are rejected; query and fragment data are dropped before attachment;
   existing content-secret redaction runs before renderer delivery.
 
 Verification:
 
-- Extension tests, strict TypeScript, Manifest V3 validation, and production build pass.
-- Desktop focused bridge/tray/context tests, strict TypeScript, and Electron production
-  build pass. Root project-context backend harness accepts bounded `web_research` and
-  rejects unsafe sources. A live installed-extension reload/smoke test remains pending
-  explicit user confirmation.
+- Extension focused tests and strict TypeScript pass. Full production builds, desktop
+  loopback tests, root regressions, and live unpacked Chrome/Electron acceptance remain
+  in progress; this phase is not Complete until all of them pass.
 
 ### 2026-09-02 — Phase 11B1 Chrome selected-text preview complete
 
@@ -2565,11 +2568,11 @@ Verification:
 | 2026-09-02 | Phase 11A focused context tests | Complete | 140/140 desktop tests passed across sources/actions, confirmation, priorities/budgets, duplicates, secrets/redaction, symlinks, stale choices, session clearing, preview, and zero-auto-AI boundaries. |
 | 2026-09-02 | Phase 11A desktop/privacy checks | Complete | Strict TypeScript, Electron production build, credential scan, and no-persistence source scan passed. |
 | 2026-09-02 | Phase 11A web/backend regression | Complete | Structured attachment validation and metadata-only logging harnesses, lint, and Next.js production build passed; no Supabase migration was required. |
+| 2026-09-02 | Phase 11B2 automated security and regression | Complete | 145/145 desktop tests (with loopback permission), 11/11 extension tests, both strict TypeScript/production builds, root tests, lint, and Next.js build passed. |
+| 2026-09-02 | Phase 11B2 live UI acceptance | In Progress | Rebuilt unpacked extension reloaded and Electron Browser Extension Settings rendered; full paired selection Add/Reject/restart/revoke flow still requires a reliable interactive window pass. |
 
 ## Recommended next task
 
-Run the **Phase 11B2 live two-app acceptance test** after the user reloads the unpacked
-extension: verify per-site permission, inline selection positioning/dismissal, pairing,
-Send to IDE, redaction messaging, and removable Context Tray display. Then prepare a
-repeatable desktop/extension installation and onboarding flow without widening host or
-loopback permissions.
+Finish the **Phase 11B2 live two-app acceptance test**. After every required check passes,
+the next implementation task is **Phase 12A**; define its exact scope before changing
+product behavior.

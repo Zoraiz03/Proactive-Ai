@@ -1,4 +1,4 @@
-import { bridgeStatus, pairDesktop } from "./bridge-client.ts";
+import { bridgeStatus, disconnectDesktop, pairDesktop, type BridgeStatus } from "./bridge-client.ts";
 import { disableSite, enableSite, getSiteAccessState, type SiteAccessState } from "./site-access.ts";
 
 const element = <T extends HTMLElement>(id: string): T => {
@@ -14,6 +14,7 @@ const toggle = element<HTMLButtonElement>("site-toggle");
 const desktopStatus = element<HTMLParagraphElement>("desktop-status");
 const code = element<HTMLInputElement>("pairing-code");
 const pair = element<HTMLButtonElement>("pair");
+const disconnect = element<HTMLButtonElement>("disconnect");
 let tab: chrome.tabs.Tab | null = null;
 let site: SiteAccessState | null = null;
 
@@ -29,7 +30,12 @@ async function initialize() {
   tab = activeTab ?? null;
   const current = tab ? await getSiteAccessState(tab) : { supported: false, enabled: false, hostname: "No active webpage", pattern: null, tabId: null };
   renderSite(tab && current.enabled ? await enableSite(tab) : current);
-  const desktop = await bridgeStatus(); desktopStatus.textContent = desktop.message;
+  renderDesktop(await bridgeStatus());
+}
+
+function renderDesktop(desktop: BridgeStatus) {
+  desktopStatus.textContent = desktop.message; desktopStatus.dataset.state = desktop.state;
+  disconnect.hidden = !desktop.paired; pair.hidden = desktop.paired; code.hidden = desktop.paired;
 }
 
 toggle.addEventListener("click", () => {
@@ -41,7 +47,8 @@ toggle.addEventListener("click", () => {
 code.addEventListener("input", () => { code.value = code.value.replace(/\D/g, "").slice(0, 8); });
 pair.addEventListener("click", () => {
   pair.disabled = true; desktopStatus.textContent = "Connecting to the local IDE…";
-  void pairDesktop(code.value).then((status) => { desktopStatus.textContent = status.message; code.value = ""; }).catch((error: unknown) => { desktopStatus.textContent = error instanceof Error ? error.message : "The IDE could not be paired."; }).finally(() => { pair.disabled = false; });
+  void pairDesktop(code.value).then((status) => { renderDesktop(status); code.value = ""; }).catch((error: unknown) => { desktopStatus.textContent = error instanceof Error ? error.message : "The IDE could not be paired."; }).finally(() => { pair.disabled = false; });
 });
+disconnect.addEventListener("click", () => { disconnect.disabled = true; void disconnectDesktop().then(renderDesktop).finally(() => { disconnect.disabled = false; }); });
 
 void initialize().catch(() => { siteStatus.textContent = "Extension state could not be loaded."; desktopStatus.textContent = "Desktop state could not be loaded."; });

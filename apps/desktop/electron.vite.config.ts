@@ -15,6 +15,8 @@ export default defineConfig(({ mode }) => {
     desktopEnvironment.DESKTOP_API_BASE_URL ??
     webEnvironment.NEXT_PUBLIC_APP_URL ??
     (mode === "development" ? "http://127.0.0.1:3000" : "");
+  const chromeExtensionOrigin = process.env.DESKTOP_CHROME_EXTENSION_ORIGIN ??
+    desktopEnvironment.DESKTOP_CHROME_EXTENSION_ORIGIN ?? "";
 
   return {
     main: {
@@ -23,6 +25,7 @@ export default defineConfig(({ mode }) => {
         __DESKTOP_SUPABASE_URL__: JSON.stringify(supabaseUrl),
         __DESKTOP_SUPABASE_PUBLISHABLE_KEY__: JSON.stringify(publishableKey),
         __DESKTOP_API_BASE_URL__: JSON.stringify(apiBaseUrl),
+        __DESKTOP_CHROME_EXTENSION_ORIGIN__: JSON.stringify(chromeExtensionOrigin),
       },
     },
     preload: {
