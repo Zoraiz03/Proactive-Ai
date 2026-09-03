@@ -43,6 +43,7 @@ implementation and its verification evidence in the changelog.
 | Phase 11B1 | Complete | Explicit Chrome selected-text capture and local preview |
 | Phase 11B2 | Verification In Progress | Secure Chrome pairing, incoming review, and local Context Tray handoff |
 | Phase 12A | Complete | Local code-to-documentation relationship detection |
+| Phase 12B | Complete | Safe, evidence-based Markdown update suggestions with explicit review and rollback |
 
 ## Recommended folder structure
 
@@ -1040,6 +1041,71 @@ meaning, scans only a bounded portion of very large workspaces, and cannot infer
 indirect relationship. Low filename evidence remains opt-in. It detects impact but does
 not generate or apply documentation changes.
 
+### Phase 12B — Safe AI documentation update suggestions
+
+- [x] **Complete** — Add Draft Documentation Update for confirmed or High-confidence
+  Phase 12A relationships only. Preparation requires signed-in Observer mode, an existing
+  writable workspace `.md` target, matching evidence hashes, safe paths, and no dirty or
+  conflicted documentation tab. Opening preparation never calls AI.
+- [x] **Complete** — Show the changed code/document, relationship type, confidence,
+  evidence, affected section, bounded context size, redaction state, editable explicit
+  request, local context preview, and opt-in Context Tray attachments before generation.
+- [x] **Complete** — Send only the explicit request, relationship identifiers, bounded
+  changed-code evidence, the relevant Markdown section, applicable bounded project rules,
+  and explicitly selected tray items. The full document stays local for diffing; web
+  context is labeled untrusted and cannot prove local implementation behavior.
+- [x] **Complete** — Add strict server and desktop contracts for section update/insertion,
+  path/route/command correction, symbol/setup descriptions, and small code examples.
+  Validate relative `.md` targets, exact trusted ranges/text/hashes and evidence references,
+  bounded sizes, balanced fences, preserved headings/links, secret and absolute-path
+  redaction, unsafe HTML rejection, and unverified test/build warnings.
+- [x] **Complete** — Provide full-document Monaco diff, rendered Markdown preview,
+  editable proposed section, warnings and evidence, Copy Draft, source navigation,
+  Refresh Context, Regenerate, Reject/Escape, and explicit acceptance. No file changes
+  before acceptance and no silent stale-content rebasing.
+- [x] **Complete** — Recheck code/document hashes, exact range, relationship identity,
+  dirty state, workspace path, and disk version before apply. Create a local checkpoint
+  first, perform a versioned safe write, refresh the editor/analysis, and expose hash-gated
+  Undo plus optional preview, relationship recheck, Git diff, and Context Tray actions.
+- [x] **Complete** — Keep analytics metadata-only: generic document label, action,
+  relationship type/confidence, provider/model, changed-line and warning counts, outcome,
+  and timing. No raw code, full Markdown, generated text, web selection, absolute path,
+  checkpoint content, key, automatic AI call, command, build/test run, or Git mutation.
+
+Required verification:
+
+- [x] **Complete** — 160/160 desktop tests pass, including the new documentation action,
+  request/response validation, stale evidence, Markdown safety, authenticated explicit-call,
+  writable preflight, checkpoint/rollback, UI action, and prior regression coverage.
+- [x] **Complete** — Desktop strict TypeScript and Electron production build pass.
+- [x] **Complete** — Root backend harnesses, lint, and Next.js production build pass with
+  the authenticated documentation-update route and no Supabase schema change.
+- [x] **Complete** — Unchanged Chrome extension 11/11 tests, strict TypeScript, Manifest V3
+  validation, and production build pass.
+- [x] **Complete** — Generated credential/private-key, analytics raw-content,
+  absolute-path, request-boundary, and whitespace scans pass.
+
+Manual acceptance steps:
+
+1. Sign in, enable Observer, open a workspace with a changed code file and matching `.md`
+   relationship, then confirm the relationship (or use a High-confidence result).
+2. Choose Draft Documentation Update. Verify preparation appears without a network call;
+   review the bounded code/Markdown context and explicitly select any desired tray item.
+3. Generate the draft and inspect Markdown Diff and Rendered Preview. Exercise editing,
+   Copy Draft, code/document navigation, Regenerate, Reject, and Escape.
+4. Change either source before acceptance and verify apply is blocked with Refresh Context,
+   Regenerate, and Cancel/Reject choices. Also verify a dirty document and read-only target
+   are blocked.
+5. Accept a fresh draft and verify the editor/preview and Documentation Impact refresh,
+   then exercise Preview, Recheck Relationship, Git Diff, Add Relevant Files, and Undo.
+   Confirm no tests, terminal commands, Git commits, or further AI calls run automatically.
+
+Known limitations: Phase 12B updates one existing `.md` file per request by default and
+does not support MDX, DOCX, PDF, generated/dependency documentation, file deletion, or
+automatic multi-document changes. Relationship discovery remains Phase 12A's bounded,
+deterministic analysis. AI output still requires human factual review, and the outstanding
+Phase 11B2 live two-application acceptance remains a release-verification item.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1342,6 +1408,25 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-03 — Phase 12B safe documentation update suggestions complete
+
+Architecture and behavior:
+
+- Added a bounded structured Markdown-edit contract, authenticated provider route,
+  metadata-only history, and dual server/desktop validation.
+- Added preparation, explicit Context Tray selection, diff/rendered review, editable draft,
+  stale-context recovery, checkpointed safe write, rollback, and optional post-apply actions.
+- Extended the trusted workspace bridge with a root-confined writable-file preflight and
+  added a device-local maximum-documents setting defaulting to one. No migration was needed.
+
+Verification:
+
+- 160/160 desktop tests, strict TypeScript, and Electron production build pass.
+- Root backend harnesses, lint, and Next.js production build pass.
+- Chrome extension 11/11 tests, strict TypeScript, Manifest V3 validation, and production
+  build pass unchanged.
+- Generated-output secret, request/analytics privacy, absolute-path, and whitespace scans pass.
 
 ### 2026-09-03 — Phase 12A local documentation relationship detection complete
 
@@ -2665,9 +2750,9 @@ Verification:
 | 2026-09-02 | Phase 11B2 live UI acceptance | In Progress | Rebuilt unpacked extension reloaded and Electron Browser Extension Settings rendered; full paired selection Add/Reject/restart/revoke flow still requires a reliable interactive window pass. |
 | 2026-09-03 | Phase 12A deterministic relationship tests | Complete | 153/153 desktop tests passed, including signal confidence, lifecycle, decisions, safety boundaries, Context Tray provenance, and prior regressions. |
 | 2026-09-03 | Phase 12A builds/privacy checks | Complete | Desktop strict TypeScript/Electron build, root tests/lint/Next.js build, extension tests/type/build, secret/privacy scans, and whitespace validation passed. |
+| 2026-09-03 | Phase 12B documentation-update tests | Complete | 160/160 desktop tests passed across explicit generation, all supported actions, stale/range/path/Markdown protections, writable preflight, review, checkpoint, rollback, and prior regressions. |
+| 2026-09-03 | Phase 12B builds/privacy checks | Complete | Desktop strict TypeScript/Electron build, root tests/lint/Next.js build, extension tests/type/build, generated secret and request/analytics privacy scans, and whitespace validation passed. |
 
 ## Recommended next task
 
-**Phase 12B — Safe AI Documentation Update Suggestions.** Keep suggestions explicit,
-reviewable, bounded, and separate from automatic file modification. The outstanding
-Phase 11B2 live two-app acceptance pass remains a release-verification item.
+**Phase 13 — UI/UX Redesign Planning and Coffee-Cream Design System.**

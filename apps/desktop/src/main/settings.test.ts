@@ -45,6 +45,7 @@ test("uses restrictive defaults and recovers corrupted or old local settings", a
   assert.equal(recovered.documentationMinimumConfidence, "medium");
   assert.equal(recovered.documentationIncludeLowConfidence, false);
   assert.deepEqual(recovered.documentationRelationshipDecisions, []);
+  assert.equal(recovered.documentationUpdateMaximumFiles, 1);
   assert.equal("unexpected" in recovered, false);
   const bounded = normalizeLocalSettings({ contextMaximumRelatedFiles: 99, contextMaximumFileCharacters: 100 });
   assert.equal(bounded.contextMaximumRelatedFiles, 4);

@@ -7,6 +7,7 @@ export const WORKSPACE_CHANNELS = {
   clearRecent: "workspace:clear-recent",
   readDirectory: "workspace:read-directory",
   readFile: "workspace:read-file",
+  canWriteFile: "workspace:can-write-file",
   writeFile: "workspace:write-file",
   createEntry: "workspace:create-entry",
   renameEntry: "workspace:rename-entry",
@@ -121,6 +122,7 @@ export interface WorkspaceBridge {
     relativePath: string
   ) => Promise<IpcResult<WorkspaceEntry[]>>;
   readFile: (relativePath: string) => Promise<FileReadResult>;
+  canWriteFile: (relativePath: string) => Promise<IpcResult<boolean>>;
   writeFile: (request: FileWriteRequest) => Promise<FileWriteResult>;
   createEntry: (
     request: CreateWorkspaceEntryRequest

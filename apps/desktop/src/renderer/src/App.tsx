@@ -96,6 +96,7 @@ import {
   markContextTrayPathStale,
   refreshContextTrayItem,
   reorderContextTray,
+  redactContextSecrets,
   truncateContextTrayItem,
   validateContextTrayItem,
   type ContextTrayItem,
@@ -105,8 +106,19 @@ import type { IncomingWebContext, WebContextBridgeStatus } from "../../shared/we
 import IncomingWebContextReview from "./IncomingWebContextReview";
 import DocumentationImpactPanel from "./DocumentationImpactPanel";
 import type { ChangedCodeSource, DocumentationRelationship, RelationshipDecision } from "../../shared/documentation-impact";
+import DocumentationUpdateWorkspace, { type DocumentationUpdateView } from "./DocumentationUpdateWorkspace";
+import { validateDocumentationEdit, type DocumentationUpdateContext } from "../../shared/documentation-update";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
+
+function markdownSectionAt(content: string, line: number) {
+  const lines = content.split(/\r?\n/); let start = Math.max(0, Math.min(lines.length - 1, line - 1));
+  while (start > 0 && !/^#{1,6}\s+/.test(lines[start])) start -= 1;
+  if (!/^#{1,6}\s+/.test(lines[start])) start = Math.max(0, line - 2);
+  let end = start + 1; while (end < lines.length && !/^#{1,6}\s+/.test(lines[end])) end += 1;
+  const sectionLines = lines.slice(start, end); const heading = sectionLines[0]?.match(/^#{1,6}\s+(.+?)\s*#*$/)?.[1] ?? "";
+  return { heading, text: sectionLines.join("\n"), range: { start: { line: start + 1, column: 1 }, end: { line: Math.max(start + 1, end), column: (lines[Math.max(start, end - 1)]?.length ?? 0) + 1 } } };
+}
 
 interface EditorTab {
   file: WorkspaceTextFile;
@@ -607,6 +619,8 @@ export default function App({ user, onSignOut }: AppProps) {
   const [incomingWebContext, setIncomingWebContext] = useState<IncomingWebContext | null>(null);
   const [latestTaskFailure, setLatestTaskFailure] = useState<{ kind: "test" | "build"; command: string; summary: string } | null>(null);
   const [documentationSessionChanges, setDocumentationSessionChanges] = useState<ChangedCodeSource[]>([]);
+  const [documentationUpdateView, setDocumentationUpdateView] = useState<DocumentationUpdateView | null>(null);
+  const [documentationUpdateRelationship, setDocumentationUpdateRelationship] = useState<DocumentationRelationship | null>(null);
   const [multiFileDescription, setMultiFileDescription] = useState("");
   const [multiFilePlan, setMultiFilePlan] = useState<MultiFilePlan | null>(null);
   const [multiFileBases, setMultiFileBases] = useState<MultiFileBase[] | null>(null);
@@ -1113,6 +1127,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setContextTrayItems([]);
     setLatestTaskFailure(null);
     setDocumentationSessionChanges([]);
+    setDocumentationUpdateView(null); setDocumentationUpdateRelationship(null);
     setGitDiff(null);
     setMarkdownViewModes({});
     appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
@@ -1958,6 +1973,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setContextTrayItems([]);
     setLatestTaskFailure(null);
     setDocumentationSessionChanges([]);
+    setDocumentationUpdateView(null); setDocumentationUpdateRelationship(null);
     setMarkdownViewModes({});
     setSidebarView("explorer");
     appendOutput("Workspace closed. Welcome screen opened.");
@@ -2005,6 +2021,86 @@ export default function App({ user, onSignOut }: AppProps) {
       appendOutput("Added bounded code and documentation excerpts with relationship evidence to the local Context Tray.", "success");
     } catch (error) { appendOutput(error instanceof Error ? error.message : "Documentation relationship context could not be attached.", "error"); }
   }, [appendOutput, contextTrayItems, syncedSettings.maximumContextChars]);
+
+  const startDocumentationDraft = useCallback(async (relationship: DocumentationRelationship) => {
+    if (!syncedSettings.observerEnabled || (relationship.decision !== "confirmed" && relationship.confidence !== "high")) { appendOutput("Confirm this relationship before drafting a documentation update.", "error"); return; }
+    if (!/\.md$/i.test(relationship.documentationPath) || /(?:^|\/)(?:node_modules|dist|build|out|coverage|\.next)\//i.test(relationship.documentationPath) || isMandatorySecretFile(relationship.documentationPath) || isExcludedFromAiContext(relationship.documentationPath, localSettings.aiContextExclusions)) { appendOutput("Only safe existing workspace Markdown files can be updated.", "error"); return; }
+    if (localSettings.documentationUpdateMaximumFiles < 1) return;
+    const openDocument = tabsRef.current.find((tab) => tab.file.relativePath === relationship.documentationPath);
+    if (openDocument && (isDirty(openDocument) || openDocument.externalConflict || openDocument.availability !== "available")) { appendOutput("Save or resolve the documentation tab before preparing an update.", "error"); return; }
+    const [codeRead, documentRead, rulesRead, writable] = await Promise.all([window.workspace.readFile(relationship.codePath), window.workspace.readFile(relationship.documentationPath), window.workspace.readFile("AGENTS.md"), window.workspace.canWriteFile(relationship.documentationPath)]);
+    if (!codeRead.ok || !documentRead.ok || !writable.ok || !writable.value) { appendOutput("The related code or Markdown file no longer exists or is not writable.", "error"); return; }
+    const openCode = tabsRef.current.find((tab) => tab.file.relativePath === relationship.codePath);
+    const codeContent = openCode?.draft ?? codeRead.value.content; const documentContent = documentRead.value.content;
+    const [codeHash, documentationHash] = await Promise.all([sha256Text(codeContent), sha256Text(documentContent)]);
+    if (codeHash !== relationship.codeHash || documentationHash !== relationship.documentationHash) { appendOutput("Relationship evidence changed. Recheck Documentation Impact before generating.", "error"); setWorkspaceVersion((value) => value + 1); return; }
+    const codeLines = codeContent.split(/\r?\n/); const codeLine = relationship.codeLineStart ?? 1; const codeExcerpt = codeLines.slice(Math.max(0, codeLine - 11), Math.min(codeLines.length, codeLine + 10)).join("\n");
+    const section = markdownSectionAt(documentContent, relationship.documentationLineStart);
+    const safeCode = redactContextSecrets(codeExcerpt); const safeSection = redactContextSecrets(section.text); const safeRules = rulesRead.ok ? redactContextSecrets(rulesRead.value.content.slice(0, 8_000)) : { content: "", redacted: false };
+    const context: DocumentationUpdateContext = { userRequest: "Update only the relevant Markdown section to match the verified local code evidence.", relationshipId: relationship.id, evidenceHash: relationship.evidenceHash, relationshipType: relationship.type, confidence: relationship.confidence, reference: relationship.reference, evidence: relationship.evidence, codePath: relationship.codePath, codeHash, codeExcerpt: safeCode.content, documentationPath: relationship.documentationPath, documentationHash, documentationContent: documentContent, affectedHeading: section.heading, sectionRange: section.range, sectionText: safeSection.content, redacted: safeCode.redacted || safeSection.redacted || safeRules.redacted, ...(safeRules.content ? { projectRules: safeRules.content } : {}), selectedContext: [] };
+    setDocumentationUpdateRelationship(relationship); setDocumentationUpdateView({ stage: "prepare", value: { context, availableContext: contextTrayItems.filter((item) => item.staleState === "fresh"), userRequest: context.userRequest, busy: false } });
+  }, [appendOutput, contextTrayItems, localSettings.aiContextExclusions, localSettings.documentationUpdateMaximumFiles, syncedSettings.observerEnabled]);
+
+  const generateDocumentationDraft = useCallback(async (userRequest: string, selectedIds: string[]) => {
+    if (!documentationUpdateView || documentationUpdateView.stage !== "prepare") return;
+    const preparation = documentationUpdateView.value; const context = preparation.context;
+    const [code, document] = await Promise.all([window.workspace.readFile(context.codePath), window.workspace.readFile(context.documentationPath)]);
+    const openCode = tabsRef.current.find((tab) => tab.file.relativePath === context.codePath);
+    if (!code.ok || !document.ok || await sha256Text(openCode?.draft ?? code.value.content) !== context.codeHash || await sha256Text(document.value.content) !== context.documentationHash) { setDocumentationUpdateView({ stage: "prepare", value: { ...preparation, busy: false, error: "Code or Markdown became stale. Cancel and Refresh Context from Documentation Impact." } }); return; }
+    const selectedContext = preparation.availableContext.filter((item) => selectedIds.includes(item.id)).map((item) => ({ title: item.title, type: item.type, content: item.content.slice(0, 8_000), ...(item.webSource ? { source: item.webSource.sourceUrl } : item.source?.relativePath ? { source: item.source.relativePath } : {}) }));
+    const { documentationContent: _localDocument, ...boundedContext } = context;
+    const request = { ...boundedContext, userRequest, selectedContext, provider: observerProvider, ...(observerProvider === syncedSettings.preferredProvider ? { model: syncedSettings.preferredModel } : {}), storeHistory: syncedSettings.storeSuggestionHistory };
+    setDocumentationUpdateView({ stage: "prepare", value: { ...preparation, userRequest, busy: true } });
+    const result = await window.observer.documentationDraft(request);
+    if (!result.ok) { setDocumentationUpdateView({ stage: "prepare", value: { ...preparation, userRequest, busy: false, error: result.error } }); appendOutput(`Documentation draft: ${result.error}`, "error"); return; }
+    const validated = validateDocumentationEdit(result.value.edit, { ...context, userRequest, selectedContext }, document.value.content, context.documentationHash, context.codeHash);
+    if (!validated.ok) { setDocumentationUpdateView({ stage: "prepare", value: { ...preparation, userRequest, busy: false, error: validated.message } }); return; }
+    setDocumentationUpdateView({ stage: "review", value: { context: { ...context, userRequest, selectedContext }, validated: validated.value, busy: false } });
+    appendOutput("Documentation draft is ready for explicit diff review. No file was modified.", "success");
+  }, [appendOutput, documentationUpdateView, observerProvider, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+
+  const editDocumentationDraft = useCallback((replacement: string) => {
+    setDocumentationUpdateView((current) => {
+      if (!current || current.stage !== "review") return current;
+      const candidate = { ...current.value.validated.edit, replacementMarkdown: replacement };
+      const validated = validateDocumentationEdit(candidate, current.value.context, current.value.context.documentationContent, current.value.context.documentationHash, current.value.context.codeHash);
+      return validated.ok ? { stage: "review", value: { ...current.value, validated: validated.value, staleMessage: undefined } } : { stage: "review", value: { ...current.value, staleMessage: validated.message } };
+    });
+  }, []);
+
+  const acceptDocumentationDraft = useCallback(async () => {
+    if (!documentationUpdateView || documentationUpdateView.stage !== "review" || !openedWorkspace) return;
+    const review = documentationUpdateView.value; const context = review.context;
+    const open = tabsRef.current.find((tab) => tab.file.relativePath === context.documentationPath);
+    if (open && (isDirty(open) || open.externalConflict)) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: "The documentation tab has newer or conflicting edits." } }); return; }
+    const [code, document] = await Promise.all([window.workspace.readFile(context.codePath), window.workspace.readFile(context.documentationPath)]); const openCode = tabsRef.current.find((tab) => tab.file.relativePath === context.codePath);
+    if (!code.ok || !document.ok) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: "A relationship source is unavailable." } }); return; }
+    const codeHash = await sha256Text(openCode?.draft ?? code.value.content); const documentHash = await sha256Text(document.value.content);
+    const validated = validateDocumentationEdit(review.validated.edit, context, document.value.content, documentHash, codeHash);
+    if (!validated.ok || !documentationUpdateRelationship || documentationUpdateRelationship.id !== context.relationshipId) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: validated.ok ? "The confirmed relationship disappeared." : validated.message } }); return; }
+    setDocumentationUpdateView({ stage: "review", value: { ...review, busy: true } }); const appliedHash = await sha256Text(validated.value.proposedContent);
+    const checkpoint = await window.checkpoints.create({ workspaceId: openedWorkspace.workspaceId, relativePath: context.documentationPath, previousContent: document.value.content, previousContentHash: documentHash, appliedContentHash: appliedHash, suggestionId: validated.value.edit.suggestionId, retentionLimit: localSettings.checkpointRetentionLimit });
+    if (!checkpoint.ok) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: `Checkpoint creation failed: ${checkpoint.error}` } }); return; }
+    const latest = await window.workspace.readFile(context.documentationPath);
+    if (!latest.ok || await sha256Text(latest.value.content) !== documentHash) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: "Markdown changed after checkpoint creation; nothing was applied." } }); return; }
+    const written = await window.workspace.writeFile({ relativePath: context.documentationPath, content: validated.value.proposedContent, expectedModifiedAtMs: latest.value.modifiedAtMs });
+    if (!written.ok) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: written.error } }); return; }
+    setTabs((current) => current.map((tab) => tab.file.relativePath === context.documentationPath ? { ...tab, file: { ...tab.file, content: validated.value.proposedContent, modifiedAtMs: written.value.modifiedAtMs }, draft: validated.value.proposedContent, saveStatus: null, autoSaveBlocked: false } : tab));
+    setWorkspaceVersion((value) => value + 1); setGitRefreshToken((value) => value + 1); setDocumentationUpdateView({ stage: "applied", path: context.documentationPath, relationshipId: context.relationshipId });
+    await openDocumentationLocation(context.documentationPath, context.sectionRange.start.line);
+    if (syncedSettings.storeSuggestionHistory) void window.observer.recordOutcome({ suggestionId: validated.value.edit.suggestionId, outcome: "accepted" });
+    appendOutput("Documentation update saved with a local rollback checkpoint. No commands or Git actions ran.", "success");
+  }, [appendOutput, documentationUpdateRelationship, documentationUpdateView, localSettings.checkpointRetentionLimit, openDocumentationLocation, openedWorkspace, syncedSettings.storeSuggestionHistory]);
+
+  const undoDocumentationUpdate = useCallback(async () => {
+    if (!documentationUpdateView || documentationUpdateView.stage !== "applied" || !openedWorkspace) return;
+    const current = await window.workspace.readFile(documentationUpdateView.path); if (!current.ok) { appendOutput(current.error, "error"); return; }
+    const restored = await window.checkpoints.restore({ workspaceId: openedWorkspace.workspaceId, relativePath: documentationUpdateView.path, currentContentHash: await sha256Text(current.value.content) });
+    if (!restored.ok) { appendOutput(restored.error, "error"); return; }
+    const written = await window.workspace.writeFile({ relativePath: documentationUpdateView.path, content: restored.value.previousContent, expectedModifiedAtMs: current.value.modifiedAtMs });
+    if (!written.ok) { appendOutput(written.error, "error"); return; }
+    setTabs((tabs) => tabs.map((tab) => tab.file.relativePath === documentationUpdateView.path ? { ...tab, file: { ...tab.file, content: restored.value.previousContent, modifiedAtMs: written.value.modifiedAtMs }, draft: restored.value.previousContent, saveStatus: null } : tab)); setWorkspaceVersion((value) => value + 1); setGitRefreshToken((value) => value + 1); setDocumentationUpdateView(null); appendOutput("Documentation update rolled back without overwriting newer edits.", "success");
+  }, [appendOutput, documentationUpdateView, openedWorkspace]);
   const saveSyncedSettings = useCallback(async (settings: SyncedSettings) => {
     const result = await window.settings.updateSynced(settings);
     if (!result.ok) return result.error;
@@ -2339,7 +2435,7 @@ export default function App({ user, onSignOut }: AppProps) {
             />
           </div>
           <div className={`sidebar-view ${sidebarView === "documentation-impact" ? "active" : ""}`}>
-            <DocumentationImpactPanel active={sidebarView === "documentation-impact"} workspaceOpen={workspaceOpen} workspaceVersion={workspaceVersion} settings={localSettings} sessionChanges={documentationChanges} onOpen={(path, line) => void openDocumentationLocation(path, line)} onDecision={(relationship, decision) => void decideDocumentationRelationship(relationship, decision)} onAddBoth={(relationship) => void addDocumentationRelationshipContext(relationship)} />
+            <DocumentationImpactPanel active={sidebarView === "documentation-impact"} workspaceOpen={workspaceOpen} workspaceVersion={workspaceVersion} settings={localSettings} sessionChanges={documentationChanges} observerEnabled={syncedSettings.observerEnabled} onOpen={(path, line) => void openDocumentationLocation(path, line)} onDecision={(relationship, decision) => void decideDocumentationRelationship(relationship, decision)} onAddBoth={(relationship) => void addDocumentationRelationshipContext(relationship)} onDraftUpdate={(relationship) => void startDocumentationDraft(relationship)} />
           </div>
         </aside>
 
@@ -2547,6 +2643,25 @@ export default function App({ user, onSignOut }: AppProps) {
         canAdd={contextTrayTotal(contextTrayItems).characters + incomingWebContext.characterCount <= syncedSettings.maximumContextChars}
         onAdd={() => void window.webContext.accept(incomingWebContext.transferId).then((result) => { if (!result.ok) appendOutput(result.error ?? "Incoming browser selection could not be added.", "error"); })}
         onReject={() => void window.webContext.reject(incomingWebContext.transferId).then((result) => { if (!result.ok) appendOutput(result.error ?? "Incoming browser selection could not be rejected.", "error"); })}
+      />}
+      {documentationUpdateView && <DocumentationUpdateWorkspace
+        view={documentationUpdateView}
+        theme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+        fontSize={localSettings.editor.fontSize}
+        onCancel={() => { if (documentationUpdateView.stage === "review" && syncedSettings.storeSuggestionHistory) void window.observer.recordOutcome({ suggestionId: documentationUpdateView.value.validated.edit.suggestionId, outcome: "dismissed" }); setDocumentationUpdateView(null); }}
+        onGenerate={(request, selectedIds) => void generateDocumentationDraft(request, selectedIds)}
+        onEdit={editDocumentationDraft}
+        onAccept={() => void acceptDocumentationDraft()}
+        onRegenerate={() => { if (documentationUpdateRelationship) void startDocumentationDraft(documentationUpdateRelationship); }}
+        onRefresh={() => { if (documentationUpdateRelationship) void startDocumentationDraft(documentationUpdateRelationship); }}
+        onCopy={() => { if (documentationUpdateView.stage === "review") void window.observer.copySnippet(documentationUpdateView.value.validated.edit.replacementMarkdown); }}
+        onOpenCode={() => { if (documentationUpdateRelationship) void openDocumentationLocation(documentationUpdateRelationship.codePath, documentationUpdateRelationship.codeLineStart); }}
+        onOpenDocument={() => { if (documentationUpdateRelationship) void openDocumentationLocation(documentationUpdateRelationship.documentationPath, documentationUpdateRelationship.documentationLineStart); }}
+        onUndo={() => void undoDocumentationUpdate()}
+        onPreview={() => { if (documentationUpdateView.stage === "applied") { setMarkdownViewModes((current) => ({ ...current, [documentationUpdateView.path]: "preview" })); void openDocumentationLocation(documentationUpdateView.path); setDocumentationUpdateView(null); } }}
+        onRecheck={() => { setWorkspaceVersion((value) => value + 1); setSidebarView("documentation-impact"); setDocumentationUpdateView(null); }}
+        onGitDiff={() => { if (documentationUpdateView.stage === "applied") void window.git.status().then((status) => { if (status.ok && status.value.state === "repository") { const file = status.value.files.find((item) => item.relativePath === documentationUpdateView.path); if (file) void openGitDiff(file); } }); setDocumentationUpdateView(null); }}
+        onAddContext={() => { if (documentationUpdateRelationship) void addDocumentationRelationshipContext(documentationUpdateRelationship); }}
       />}
       <SettingsPanel
         open={settingsOpen}

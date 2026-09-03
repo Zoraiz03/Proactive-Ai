@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -9,6 +9,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   isSupportedWorkspaceTextFile,
+  canWriteWorkspaceTextFile,
   createWorkspaceEntry,
   deleteWorkspaceEntry,
   normalizeWorkspaceRelativePath,
@@ -1029,6 +1030,16 @@ test("overwrites an existing supported file and returns its new disk version", a
 
   assert.equal(await readFile(join(workspaceRoot, "editable.ts"), "utf8"), "const value = 2;\n");
   assert.equal(Number.isFinite(saved.modifiedAtMs), true);
+});
+
+test("preflights existing writable workspace files without escaping the root", async () => {
+  const path = join(workspaceRoot, "writable.md");
+  await writeFile(path, "# Writable\n");
+  assert.equal(await canWriteWorkspaceTextFile(workspaceRoot, "writable.md"), true);
+  await chmod(path, 0o444);
+  assert.equal(await canWriteWorkspaceTextFile(workspaceRoot, "writable.md"), false);
+  assert.equal(await canWriteWorkspaceTextFile(workspaceRoot, "image.png"), false);
+  await assert.rejects(canWriteWorkspaceTextFile(workspaceRoot, "../outside.md"));
 });
 
 test("round-trips MDX as inert Markdown source and preserves external-change conflicts", async () => {

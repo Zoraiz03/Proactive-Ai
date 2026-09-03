@@ -11,6 +11,7 @@ import type { ObserverRequest } from "../shared/observer";
 import type { ProjectContextPackage } from "../shared/project-context";
 import { createHash } from "node:crypto";
 import { isEditableObserverMode } from "../shared/ai-edit";
+import { validateDocumentationDraftRequest } from "../shared/documentation-update";
 
 function isTrustedSender(event: IpcMainInvokeEvent, getMainWindow: () => BrowserWindow | null): boolean {
   const window = getMainWindow();
@@ -54,6 +55,13 @@ export function registerObserverIpc(
     return client.recordOutcome(request);
   });
 
+  ipcMain.handle(OBSERVER_CHANNELS.documentationDraft, async (event, value: unknown) => {
+    if (!isTrustedSender(event, getMainWindow)) return { ok: false, error: "Documentation draft request was rejected." };
+    const request = validateDocumentationDraftRequest(value);
+    if (!request) return { ok: false, error: "Documentation update context is invalid or unsafe." };
+    return client.documentationDraft(request);
+  });
+
   ipcMain.handle(OBSERVER_CHANNELS.copy, (event, value: unknown) => {
     if (!isTrustedSender(event, getMainWindow)) {
       return { ok: false, error: "Observer copy request was rejected." };
@@ -73,6 +81,7 @@ export function registerObserverIpc(
       ipcMain.removeHandler(OBSERVER_CHANNELS.ask);
       ipcMain.removeHandler(OBSERVER_CHANNELS.outcome);
       ipcMain.removeHandler(OBSERVER_CHANNELS.copy);
+      ipcMain.removeHandler(OBSERVER_CHANNELS.documentationDraft);
     },
   };
 }

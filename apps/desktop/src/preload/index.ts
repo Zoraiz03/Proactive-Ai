@@ -38,6 +38,7 @@ import {
   type ObserverRequest,
   type ObserverPrepareRequest,
 } from "../shared/observer";
+import type { DocumentationDraftRequest } from "../shared/documentation-update";
 import {
   SEARCH_CHANNELS,
   type WorkspaceSearchBatch,
@@ -70,6 +71,8 @@ const workspaceBridge: WorkspaceBridge = Object.freeze({
     ipcRenderer.invoke(WORKSPACE_CHANNELS.readDirectory, relativePath),
   readFile: (relativePath: string) =>
     ipcRenderer.invoke(WORKSPACE_CHANNELS.readFile, relativePath),
+  canWriteFile: (relativePath: string) =>
+    ipcRenderer.invoke(WORKSPACE_CHANNELS.canWriteFile, relativePath),
   writeFile: (request: FileWriteRequest) =>
     ipcRenderer.invoke(WORKSPACE_CHANNELS.writeFile, request),
   createEntry: (request: CreateWorkspaceEntryRequest) =>
@@ -160,6 +163,7 @@ const observerBridge: ObserverBridge = Object.freeze({
   recordOutcome: (request: ObserverOutcomeRequest) =>
     ipcRenderer.invoke(OBSERVER_CHANNELS.outcome, request),
   copySnippet: (snippet: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.copy, snippet),
+  documentationDraft: (request: DocumentationDraftRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.documentationDraft, request),
 });
 
 contextBridge.exposeInMainWorld("observer", observerBridge);

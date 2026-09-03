@@ -2154,6 +2154,21 @@ button.tree-row {
 .documentation-evidence small { color: #7f8a99; }
 .documentation-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
 .documentation-actions button { padding: 3px 5px; border: 1px solid #35404d; border-radius: 4px; background: #202832; color: #cbd3dc; font-size: 9px; cursor: pointer; }
+.documentation-actions button.primary { border-color: #3378bc; background: #245f98; color: #fff; }
+.documentation-actions button:disabled { cursor: not-allowed; opacity: .5; }
+.documentation-update-backdrop { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 24px; background: rgba(3, 7, 12, .76); }
+.documentation-update-dialog { width: min(1000px, 96vw); max-height: 94vh; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #394452; border-radius: 12px; background: #171d24; color: #e5eaf0; box-shadow: 0 24px 70px #0009; }
+.documentation-update-dialog.review { height: min(900px, 94vh); }.documentation-update-dialog.applied { width: min(720px, 94vw); padding: 24px; }
+.documentation-update-dialog > header, .documentation-update-dialog > footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #303945; }
+.documentation-update-dialog > footer { border-top: 1px solid #303945; border-bottom: 0; }.documentation-update-dialog h2 { margin: 0 0 4px; }.documentation-update-dialog header p { margin: 0; color: #9daabd; }
+.documentation-update-body { overflow: auto; padding: 16px 20px; }.documentation-update-body dl { display: grid; grid-template-columns: 180px 1fr; gap: 7px 14px; }.documentation-update-body dt { color: #929dac; }.documentation-update-body dd { margin: 0; overflow-wrap: anywhere; }
+.documentation-request { display: grid; gap: 6px; margin: 16px 0; }.documentation-request textarea, .documentation-proposed-edit textarea { min-height: 90px; resize: vertical; }
+.documentation-update-body fieldset { display: grid; gap: 7px; margin: 14px 0; border: 1px solid #35404d; }.documentation-context-review { display: grid; gap: 6px; }.documentation-context-review h3 { margin: 8px 0 0; }.documentation-context-review pre { max-height: 180px; overflow: auto; margin: 0; padding: 10px; background: #0e1319; white-space: pre-wrap; }
+.documentation-update-actions, .documentation-update-dialog footer > div { display: flex; flex-wrap: wrap; gap: 7px; }.documentation-update-dialog button.primary { background: #2776c5; color: #fff; }.documentation-update-dialog button:disabled { opacity: .5; }
+.documentation-review-meta { display: flex; flex-wrap: wrap; gap: 7px 14px; padding: 10px 16px; border-bottom: 1px solid #303945; }.documentation-review-meta p { width: 100%; margin: 0; }.documentation-review-meta strong, .documentation-review-meta em { color: #d8bd73; }.documentation-review-meta .stale { color: #ee969c; }
+.documentation-review-tabs { display: flex; gap: 5px; padding: 6px 12px; }.documentation-review-tabs button.active { background: #31445a; color: #fff; }.documentation-update-dialog.review > .monaco-editor, .documentation-update-dialog.review > .monaco-diff-editor, .documentation-update-dialog.review > .markdown-preview { min-height: 250px; flex: 1; overflow: auto; }
+.documentation-proposed-edit { display: grid; gap: 4px; padding: 8px 14px; }.documentation-proposed-edit textarea { min-height: 80px; background: #0e1319; color: #e5eaf0; }
+:root[data-theme="light"] .documentation-update-dialog { background: #fff; color: #1d2733; border-color: #ccd4dd; }:root[data-theme="light"] .documentation-context-review pre, :root[data-theme="light"] .documentation-proposed-edit textarea { background: #f5f7f9; color: #1d2733; }
 .context-preview-backdrop { z-index: 90; }
 .context-preview { width: min(900px, calc(100vw - 48px)); max-height: min(820px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #394452; border-radius: 12px; background: #171d24; box-shadow: 0 24px 70px #0008; }
 .context-preview > header, .context-preview > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid #303945; }

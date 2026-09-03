@@ -19,6 +19,8 @@ interface Props {
   onOpen: (relativePath: string, line?: number) => void;
   onDecision: (relationship: DocumentationRelationship, decision: RelationshipDecision["decision"]) => void;
   onAddBoth: (relationship: DocumentationRelationship) => void;
+  observerEnabled: boolean;
+  onDraftUpdate: (relationship: DocumentationRelationship) => void;
 }
 
 const ignoredDirectory = /^(?:\.git|node_modules|dist|build|out|coverage|\.next|target|vendor)$/i;
@@ -112,6 +114,7 @@ export default function DocumentationImpactPanel(props: Props) {
         <button onClick={() => props.onOpen(item.codePath, item.codeLineStart)}>Open Code</button><button onClick={() => props.onOpen(item.documentationPath, item.documentationLineStart)}>Open Documentation</button>
         <button onClick={() => props.onDecision(item, "confirmed")}>Confirm Relationship</button><button onClick={() => props.onDecision(item, "rejected")}>Not Related</button>
         <button onClick={() => setIgnored((current) => new Set(current).add(item.id))}>Ignore for This Session</button><button onClick={() => props.onAddBoth(item)}>Add Both to Context Tray</button>
+        <button className="primary" disabled={!props.observerEnabled || !/\.md$/i.test(item.documentationPath) || (item.decision !== "confirmed" && item.confidence !== "high")} title={item.decision !== "confirmed" && item.confidence !== "high" ? "Confirm this relationship before drafting an update." : "Prepare an explicit documentation update request."} onClick={() => props.onDraftUpdate(item)}>Draft Documentation Update</button>
       </div>
     </article>)}
   </section>;

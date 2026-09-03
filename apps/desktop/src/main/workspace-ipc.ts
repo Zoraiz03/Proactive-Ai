@@ -10,6 +10,7 @@ import {
 } from "../shared/workspace";
 import {
   prepareWorkspaceRoot,
+  canWriteWorkspaceTextFile,
   createWorkspaceEntry,
   deleteWorkspaceEntry,
   readWorkspaceDirectory,
@@ -384,6 +385,20 @@ export function registerWorkspaceIpc(
   );
 
   ipcMain.handle(
+    WORKSPACE_CHANNELS.canWriteFile,
+    async (event, relativePath: unknown): Promise<IpcResult<boolean>> => {
+      if (!isTrustedSender(event, getMainWindow)) return { ok: false, error: "Workspace request was rejected." };
+      const rootPath = authorizedRoot(event);
+      if (!rootPath) return { ok: false, error: "Open a project folder first." };
+      try {
+        return { ok: true, value: await canWriteWorkspaceTextFile(rootPath, relativePath) };
+      } catch {
+        return { ok: false, error: "The file is outside the selected workspace or is unavailable." };
+      }
+    }
+  );
+
+  ipcMain.handle(
     WORKSPACE_CHANNELS.createEntry,
     async (event, request: unknown): Promise<WorkspaceMutationResult<WorkspaceEntry>> => {
       if (!isTrustedSender(event, getMainWindow)) {
@@ -522,6 +537,7 @@ export function registerWorkspaceIpc(
       ipcMain.removeHandler(WORKSPACE_CHANNELS.readDirectory);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.readFile);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.writeFile);
+      ipcMain.removeHandler(WORKSPACE_CHANNELS.canWriteFile);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.createEntry);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.renameEntry);
       ipcMain.removeHandler(WORKSPACE_CHANNELS.deleteEntry);

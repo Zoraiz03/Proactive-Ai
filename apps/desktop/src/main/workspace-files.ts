@@ -1,4 +1,5 @@
 import {
+  access,
   lstat,
   mkdir,
   open,
@@ -10,6 +11,7 @@ import {
   stat,
   unlink,
 } from "node:fs/promises";
+import { constants } from "node:fs";
 import {
   basename,
   dirname,
@@ -311,6 +313,24 @@ export async function readWorkspaceTextFile(
     content,
     modifiedAtMs: finalStats.mtimeMs,
   };
+}
+
+export async function canWriteWorkspaceTextFile(
+  rootPath: string,
+  relativePath: unknown
+): Promise<boolean> {
+  const normalized = normalizeWorkspaceRelativePath(relativePath);
+  const fileName = normalized.segments.at(-1) ?? "";
+  if (!isSupportedWorkspaceTextFile(fileName)) return false;
+  const target = await resolveWorkspacePath(rootPath, normalized.relativePath);
+  const fileStats = await stat(target.realPath);
+  if (!fileStats.isFile()) return false;
+  try {
+    await access(target.realPath, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function validateFileWriteRequest(input: unknown): FileWriteRequest {

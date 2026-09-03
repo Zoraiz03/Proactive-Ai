@@ -7,7 +7,7 @@ import type { DocumentationConfidence, RelationshipDecision } from "./documentat
 const CODE_SETTING_MODES = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const;
 const SETTING_PROVIDERS = ["gemini", "openai", "deepseek", "anthropic", "demo"] as const;
 
-export const SETTINGS_VERSION = 7;
+export const SETTINGS_VERSION = 8;
 
 export const SETTINGS_CHANNELS = {
   getLocal: "settings:get-local",
@@ -74,6 +74,7 @@ export interface LocalSettings {
   documentationUseGit: boolean;
   documentationUseSessionFallback: boolean;
   documentationRelationshipDecisions: RelationshipDecision[];
+  documentationUpdateMaximumFiles: number;
 }
 
 export interface SyncedSettings {
@@ -151,6 +152,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
   documentationUseGit: true,
   documentationUseSessionFallback: true,
   documentationRelationshipDecisions: Object.freeze([]) as unknown as RelationshipDecision[],
+  documentationUpdateMaximumFiles: 1,
 });
 
 export const DEFAULT_SYNCED_SETTINGS: SyncedSettings = Object.freeze({
@@ -266,6 +268,7 @@ export function normalizeLocalSettings(value: unknown): LocalSettings {
     documentationUseGit: bool(source.documentationUseGit, DEFAULT_LOCAL_SETTINGS.documentationUseGit),
     documentationUseSessionFallback: bool(source.documentationUseSessionFallback, DEFAULT_LOCAL_SETTINGS.documentationUseSessionFallback),
     documentationRelationshipDecisions: cleanRelationshipDecisions(source.documentationRelationshipDecisions),
+    documentationUpdateMaximumFiles: boundedInt(source.documentationUpdateMaximumFiles, DEFAULT_LOCAL_SETTINGS.documentationUpdateMaximumFiles, 1, 5),
   };
 }
 

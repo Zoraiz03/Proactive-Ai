@@ -2,6 +2,7 @@ import type { IpcResult } from "./workspace";
 import { validateProjectContextPackage, type ProjectContextPackage, type ProjectContextSeed } from "./project-context.ts";
 import type { ObserverEditBase, StructuredObserverEdit } from "./ai-edit.ts";
 import { CONTEXT_TRAY_MAX_ITEMS, validateContextTrayItem } from "./context-tray.ts";
+import type { DocumentationDraftRequest, StructuredDocumentationEdit } from "./documentation-update.ts";
 
 export const CODE_OBSERVER_MODES = [
   "explain",
@@ -35,6 +36,7 @@ export const OBSERVER_CHANNELS = {
   ask: "observer:ask",
   outcome: "observer:outcome",
   copy: "observer:copy",
+  documentationDraft: "observer:documentation-draft",
 } as const;
 
 export type ObserverMode = typeof OBSERVER_MODES[number];
@@ -130,6 +132,7 @@ export interface ObserverBridge {
   ask: (request: ObserverRequest) => Promise<IpcResult<ObserverAskResult>>;
   recordOutcome: (request: ObserverOutcomeRequest) => Promise<IpcResult<void>>;
   copySnippet: (snippet: string) => Promise<IpcResult<void>>;
+  documentationDraft: (request: DocumentationDraftRequest) => Promise<IpcResult<{ edit: StructuredDocumentationEdit; provider: ObserverProvider }>>;
 }
 
 export interface CreateObserverRequestInput {

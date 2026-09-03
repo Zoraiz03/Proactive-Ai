@@ -7,6 +7,7 @@ import {
   type ObserverSuggestion,
 } from "../shared/observer.ts";
 import { parseStructuredObserverEdit } from "../shared/ai-edit.ts";
+import { parseDocumentationEdit, validateDocumentationDraftRequest, type DocumentationDraftRequest } from "../shared/documentation-update.ts";
 
 type FetchImplementation = typeof fetch;
 
@@ -109,6 +110,24 @@ export class ObserverApiClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  async documentationDraft(request: DocumentationDraftRequest): Promise<IpcResult<{ edit: import("../shared/documentation-update.ts").StructuredDocumentationEdit; provider: ObserverAskResult["provider"] }>> {
+    const safe = validateDocumentationDraftRequest(request);
+    if (!safe || !this.baseUrl) return { ok: false, error: "Documentation update context is invalid or the backend is unavailable." };
+    const accessToken = await this.getAccessToken().catch(() => null);
+    if (!accessToken) return { ok: false, error: "Sign in before generating a documentation draft." };
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 45_000);
+    try {
+      const response = await this.fetchImplementation(`${this.baseUrl}/api/documentation-update`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify(safe), signal: controller.signal });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) return { ok: false, error: typeof payload === "object" && payload !== null && typeof (payload as { error?: unknown }).error === "string" ? (payload as { error: string }).error : "The documentation backend rejected the request." };
+      if (!payload || typeof payload !== "object") return { ok: false, error: "The documentation backend returned an invalid response." };
+      const edit = parseDocumentationEdit((payload as { edit?: unknown }).edit); const provider = (payload as { provider?: unknown }).provider;
+      if (!edit || !OBSERVER_PROVIDERS.includes(provider as ObserverAskResult["provider"])) return { ok: false, error: "The documentation backend returned a malformed edit." };
+      return { ok: true, value: { edit, provider: provider as ObserverAskResult["provider"] } };
+    } catch (error) { return { ok: false, error: publicRequestError(error) }; }
+    finally { clearTimeout(timeout); }
   }
 
   async recordOutcome(request: ObserverOutcomeRequest): Promise<IpcResult<void>> {
