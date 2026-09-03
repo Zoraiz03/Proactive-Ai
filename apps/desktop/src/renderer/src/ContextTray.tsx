@@ -37,7 +37,7 @@ export default function ContextTray({ items, maximumCharacters, webContextStatus
       <p className={total.characters > maximumCharacters ? "context-tray-budget over" : "context-tray-budget"}>{total.characters.toLocaleString()} / {maximumCharacters.toLocaleString()} chars · ~{total.tokens.toLocaleString()} tokens</p>
       {items.length === 0 ? <div className="context-tray-empty">Nothing attached. Add only the project information you want Observer to review.</div> : <ol>
         {items.map((item, index) => <li key={item.id} className={`context-tray-item ${item.staleState}`}>
-          <div className="context-tray-item-heading"><strong>{item.title}</strong><span>{label(item.type)}</span></div>
+          <div className="context-tray-item-heading"><strong>{item.title}</strong><span>{item.provenance === "documentation_relationship" ? "Documentation relationship" : label(item.type)}</span></div>
           <code>{item.webSource?.hostname ?? item.source?.relativePath ?? "User-selected output"}{item.source?.lineStart ? `:${item.source.lineStart}${item.source.lineEnd && item.source.lineEnd !== item.source.lineStart ? `–${item.source.lineEnd}` : ""}` : ""}</code>
           {item.webSource && <details><summary>Source URL</summary><code>{item.webSource.sourceUrl}</code></details>}
           <p>{item.content.slice(0, 180)}{item.content.length > 180 ? "…" : ""}</p>

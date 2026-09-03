@@ -32,7 +32,8 @@ export type ProjectContextProvenance =
   | "nearby_test"
   | "project_configuration"
   | "project_instruction"
-  | "user_attached";
+  | "user_attached"
+  | "documentation_relationship";
 
 export interface ProjectContextItem {
   id: string;

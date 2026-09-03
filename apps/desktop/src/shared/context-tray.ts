@@ -38,7 +38,7 @@ export interface ContextTrayItem {
   redacted: boolean;
   truncated: boolean;
   staleState: ContextTrayStaleState;
-  provenance: "user_attached";
+  provenance: "user_attached" | "documentation_relationship";
   reason: string;
   completeFile: boolean;
 }
@@ -56,6 +56,7 @@ export interface CreateContextTrayItemInput {
   reason: string;
   maximumCharacters?: number;
   completeFile?: boolean;
+  provenance?: ContextTrayItem["provenance"];
 }
 
 export interface CreateWebResearchContextInput {
@@ -120,7 +121,7 @@ export async function createContextTrayItem(input: CreateContextTrayItemInput): 
     redacted: safe.redacted,
     truncated: content.length < safe.content.length,
     staleState: "fresh",
-    provenance: "user_attached",
+    provenance: input.provenance ?? "user_attached",
     reason: input.reason.trim(),
     completeFile: Boolean(input.completeFile && content.length === safe.content.length),
   };
@@ -174,7 +175,7 @@ export function validateContextTrayItem(value: unknown): ContextTrayItem | null 
   if (typeof item.content !== "string" || !item.content || item.content.length > CONTEXT_TRAY_ITEM_LIMIT || !/^[a-f0-9]{64}$/.test(item.contentHash ?? "")) return null;
   if (item.sourceContentHash !== undefined && !/^[a-f0-9]{64}$/.test(item.sourceContentHash)) return null;
   if (!Number.isInteger(item.createdAt) || item.createdAt! < 0 || item.estimatedCharacters !== item.content.length || item.estimatedTokens !== Math.ceil(item.content.length / 4)) return null;
-  if (typeof item.redacted !== "boolean" || typeof item.truncated !== "boolean" || typeof item.completeFile !== "boolean" || item.provenance !== "user_attached" || !["fresh", "stale", "keep_original", "unavailable"].includes(item.staleState ?? "")) return null;
+  if (typeof item.redacted !== "boolean" || typeof item.truncated !== "boolean" || typeof item.completeFile !== "boolean" || !["user_attached", "documentation_relationship"].includes(item.provenance ?? "") || !["fresh", "stale", "keep_original", "unavailable"].includes(item.staleState ?? "")) return null;
   if (item.source !== undefined) {
     const sourceKeys = Object.keys(item.source);
     if (sourceKeys.some((key) => !["relativePath", "lineStart", "lineEnd"].includes(key)) || (item.source.relativePath !== undefined && !safeRelativePath(item.source.relativePath)) || !validRange(item.source.lineStart, item.source.lineEnd)) return null;
@@ -234,6 +235,7 @@ export async function refreshContextTrayItem(item: ContextTrayItem, content: str
     reason: item.reason,
     maximumCharacters: Math.max(500, item.estimatedCharacters),
     completeFile: item.completeFile,
+    provenance: item.provenance,
   });
 }
 

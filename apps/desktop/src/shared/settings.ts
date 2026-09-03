@@ -2,11 +2,12 @@ import type { IpcResult } from "./workspace";
 import type { ObserverMode, ObserverProvider } from "./observer";
 import type { ProactiveObserverMode } from "./proactive-observer.ts";
 import type { AssistPreset } from "./proactive-insights.ts";
+import type { DocumentationConfidence, RelationshipDecision } from "./documentation-impact.ts";
 
 const CODE_SETTING_MODES = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests"] as const;
 const SETTING_PROVIDERS = ["gemini", "openai", "deepseek", "anthropic", "demo"] as const;
 
-export const SETTINGS_VERSION = 6;
+export const SETTINGS_VERSION = 7;
 
 export const SETTINGS_CHANNELS = {
   getLocal: "settings:get-local",
@@ -66,6 +67,13 @@ export interface LocalSettings {
   proactiveMutedErrors: string[];
   proactiveMutedFiles: string[];
   proactiveMutedProjects: string[];
+  documentationImpactEnabled: boolean;
+  documentationPaths: string[];
+  documentationMinimumConfidence: DocumentationConfidence;
+  documentationIncludeLowConfidence: boolean;
+  documentationUseGit: boolean;
+  documentationUseSessionFallback: boolean;
+  documentationRelationshipDecisions: RelationshipDecision[];
 }
 
 export interface SyncedSettings {
@@ -136,6 +144,13 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
   proactiveMutedErrors: Object.freeze([]) as unknown as string[],
   proactiveMutedFiles: Object.freeze([]) as unknown as string[],
   proactiveMutedProjects: Object.freeze([]) as unknown as string[],
+  documentationImpactEnabled: true,
+  documentationPaths: Object.freeze([]) as unknown as string[],
+  documentationMinimumConfidence: "medium",
+  documentationIncludeLowConfidence: false,
+  documentationUseGit: true,
+  documentationUseSessionFallback: true,
+  documentationRelationshipDecisions: Object.freeze([]) as unknown as RelationshipDecision[],
 });
 
 export const DEFAULT_SYNCED_SETTINGS: SyncedSettings = Object.freeze({
@@ -176,8 +191,15 @@ function cleanExclusions(value: unknown): string[] {
     typeof item === "string" && item.trim().length > 0 && item.length <= 300 && !item.includes("\0")
   ).map((item) => item.trim().replaceAll("\\", "/")))).slice(0, 100);
 }
+function cleanDocumentationPaths(value: unknown): string[] {
+  return cleanExclusions(value).filter((path) => !path.startsWith("/") && !path.split("/").includes(".."));
+}
 
 const cleanIdentifiers = (value: unknown, pattern: RegExp, maximum = 200): string[] => Array.isArray(value) ? Array.from(new Set(value.filter((item): item is string => typeof item === "string" && pattern.test(item)))).slice(0, maximum) : [];
+const cleanRelationshipDecisions = (value: unknown): RelationshipDecision[] => Array.isArray(value) ? value.flatMap((item) => {
+  if (!plainObject(item) || typeof item.relationshipId !== "string" || !/^[a-f0-9]{24}$/.test(item.relationshipId) || typeof item.evidenceHash !== "string" || !/^[a-f0-9]{64}$/.test(item.evidenceHash) || !["confirmed", "rejected"].includes(String(item.decision))) return [];
+  return [{ relationshipId: item.relationshipId, evidenceHash: item.evidenceHash, decision: item.decision as RelationshipDecision["decision"] }];
+}).slice(-500) : [];
 
 export function normalizeLocalSettings(value: unknown): LocalSettings {
   const source = plainObject(value) ? value : {};
@@ -237,6 +259,13 @@ export function normalizeLocalSettings(value: unknown): LocalSettings {
     proactiveMutedErrors: cleanIdentifiers(source.proactiveMutedErrors, /^[a-f0-9]{16}$/),
     proactiveMutedFiles: cleanIdentifiers(source.proactiveMutedFiles, /^(?!\/)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))[^\0]{1,4096}$/),
     proactiveMutedProjects: cleanIdentifiers(source.proactiveMutedProjects, /^[a-f0-9]{64}$/),
+    documentationImpactEnabled: bool(source.documentationImpactEnabled, DEFAULT_LOCAL_SETTINGS.documentationImpactEnabled),
+    documentationPaths: cleanDocumentationPaths(source.documentationPaths),
+    documentationMinimumConfidence: ["high", "medium", "low"].includes(String(source.documentationMinimumConfidence)) ? source.documentationMinimumConfidence as DocumentationConfidence : DEFAULT_LOCAL_SETTINGS.documentationMinimumConfidence,
+    documentationIncludeLowConfidence: bool(source.documentationIncludeLowConfidence, DEFAULT_LOCAL_SETTINGS.documentationIncludeLowConfidence),
+    documentationUseGit: bool(source.documentationUseGit, DEFAULT_LOCAL_SETTINGS.documentationUseGit),
+    documentationUseSessionFallback: bool(source.documentationUseSessionFallback, DEFAULT_LOCAL_SETTINGS.documentationUseSessionFallback),
+    documentationRelationshipDecisions: cleanRelationshipDecisions(source.documentationRelationshipDecisions),
   };
 }
 

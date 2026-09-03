@@ -6,7 +6,7 @@ const ContextItem = z.object({
   priority: z.number().int().min(1).max(8),
   content: z.string().min(1).max(50_000),
   source: z.object({
-    provenance: z.enum(["user", "editor_selection", "editor_cursor", "diagnostics", "run_output", "local_import", "nearby_test", "project_configuration", "project_instruction", "user_attached"]),
+    provenance: z.enum(["user", "editor_selection", "editor_cursor", "diagnostics", "run_output", "local_import", "nearby_test", "project_configuration", "project_instruction", "user_attached", "documentation_relationship"]),
     relativePath: z.string().min(1).max(4096).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/).optional(),
     lineStart: z.number().int().positive().optional(),
     lineEnd: z.number().int().positive().optional(),
@@ -43,7 +43,7 @@ export const ProjectContextSchema = z.object({
     if (ids.has(item.id)) refinement.addIssue({ code: z.ZodIssueCode.custom, message: "Context item IDs must be unique." });
     ids.add(item.id); total += item.content.length;
     if (item.estimatedCharacters !== item.content.length || item.estimatedTokens !== Math.ceil(item.content.length / 4)) refinement.addIssue({ code: z.ZodIssueCode.custom, message: "Context item cost is invalid." });
-    if (item.source.provenance === "user_attached" && (!item.title || !item.contentHash || !item.createdAt || item.attachmentProvenance !== "user_attached")) refinement.addIssue({ code: z.ZodIssueCode.custom, message: "Attached context provenance is incomplete." });
+    if (["user_attached", "documentation_relationship"].includes(item.source.provenance) && (!item.title || !item.contentHash || !item.createdAt || item.attachmentProvenance !== "user_attached")) refinement.addIssue({ code: z.ZodIssueCode.custom, message: "Attached context provenance is incomplete." });
     if (item.staleState === "stale" || item.staleState === "unavailable") refinement.addIssue({ code: z.ZodIssueCode.custom, message: "Resolve stale or unavailable attached context before sending." });
   }
   if (total !== context.totalCharacters || total > context.limits.maximumTotalCharacters || context.estimatedTokens !== Math.ceil(total / 4)) refinement.addIssue({ code: z.ZodIssueCode.custom, message: "Context package size is invalid." });
@@ -67,5 +67,5 @@ END UNTRUSTED PROJECT CONTENT`).join("\n\n");
 }
 
 export function safeProjectContextMetadata(context: ServerProjectContext) {
-  return { version: context.version, itemTypes: context.items.map((item) => item.type), itemSizes: context.items.map((item) => ({ type: item.type, characters: item.estimatedCharacters, provenance: item.source.provenance === "user_attached" ? "user_attached" : "automatic" })), itemCount: context.items.length, userAttachedCount: context.items.filter((item) => item.source.provenance === "user_attached").length, totalCharacters: context.totalCharacters, estimatedTokens: context.estimatedTokens, omittedCount: context.omitted.length, redactedCount: context.items.filter((item) => item.redacted).length, truncatedCount: context.items.filter((item) => item.truncated).length, completeFileIncluded: context.containsCompleteFile };
+  return { version: context.version, itemTypes: context.items.map((item) => item.type), itemSizes: context.items.map((item) => ({ type: item.type, characters: item.estimatedCharacters, provenance: ["user_attached", "documentation_relationship"].includes(item.source.provenance) ? item.source.provenance : "automatic" })), itemCount: context.items.length, userAttachedCount: context.items.filter((item) => ["user_attached", "documentation_relationship"].includes(item.source.provenance)).length, totalCharacters: context.totalCharacters, estimatedTokens: context.estimatedTokens, omittedCount: context.omitted.length, redactedCount: context.items.filter((item) => item.redacted).length, truncatedCount: context.items.filter((item) => item.truncated).length, completeFileIncluded: context.containsCompleteFile };
 }

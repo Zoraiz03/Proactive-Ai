@@ -2130,8 +2130,30 @@ button.tree-row {
 .git-diff-loading p, .git-diff-unavailable p { max-width: 460px; margin: 0; }
 .git-diff-loading.error { color: #e58e94; }
 :root[data-theme="light"] .source-control-toolbar { background: #fff; border-color: #d5dce4; }
+:root[data-theme="light"] .documentation-impact-panel > header { background: #fff; border-color: #d5dce4; }
+:root[data-theme="light"] .documentation-impact-card { border-color: #d5dce4; background: #f7f9fb; color: #263342; }
 :root[data-theme="light"] .source-control-panel, :root[data-theme="light"] .git-diff-toolbar { color: #344050; }
 :root[data-theme="light"] .source-control-toolbar strong, :root[data-theme="light"] .git-diff-toolbar strong { color: #1d2733; }
+
+.documentation-impact-panel { height: 100%; overflow: auto; color: #b9c2ce; font-size: 10px; }
+.documentation-impact-panel > header { position: sticky; z-index: 2; top: 0; display: flex; justify-content: space-between; gap: 8px; padding: 10px; border-bottom: 1px solid #29313c; background: #151a21; }
+.documentation-impact-panel > header span { color: #7f8a99; }
+.documentation-impact-state, .documentation-impact-notice { margin: 10px; padding: 12px; color: #8f9baa; line-height: 1.5; text-align: center; }
+.documentation-impact-state.error { color: #e69a9f; }
+.documentation-impact-notice { border: 1px solid #66572e; border-radius: 5px; background: #2a2516; color: #ddc77e; text-align: left; }
+.documentation-impact-card { margin: 8px; padding: 9px; border: 1px solid #303947; border-radius: 6px; background: #181e26; }
+.documentation-impact-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; color: #e6ebf1; }
+.documentation-impact-heading .confidence { padding: 2px 5px; border-radius: 8px; text-transform: uppercase; font-size: 8px; }
+.documentation-impact-heading .confidence.high { background: #174b33; color: #a8e2c2; }
+.documentation-impact-heading .confidence.medium { background: #544419; color: #f0d58b; }
+.documentation-impact-heading .confidence.low { background: #343c47; color: #abb6c4; }
+.documentation-impact-card .path, .documentation-impact-card .evidence-toggle { display: block; overflow: hidden; width: 100%; padding: 3px 0; border: 0; background: transparent; color: #8fc3ff; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.relationship-arrow { display: block; color: #808b99; }
+.documentation-evidence { margin: 5px 0; padding: 7px; border-left: 2px solid #7260a8; background: #12171d; line-height: 1.4; }
+.documentation-evidence p { margin: 5px 0; overflow-wrap: anywhere; }
+.documentation-evidence small { color: #7f8a99; }
+.documentation-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.documentation-actions button { padding: 3px 5px; border: 1px solid #35404d; border-radius: 4px; background: #202832; color: #cbd3dc; font-size: 9px; cursor: pointer; }
 .context-preview-backdrop { z-index: 90; }
 .context-preview { width: min(900px, calc(100vw - 48px)); max-height: min(820px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #394452; border-radius: 12px; background: #171d24; box-shadow: 0 24px 70px #0008; }
 .context-preview > header, .context-preview > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid #303945; }

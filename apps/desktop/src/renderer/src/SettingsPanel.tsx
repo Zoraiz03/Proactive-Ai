@@ -11,7 +11,7 @@ import {
 import ObserverInsightsSettings from "./ObserverInsightsSettings";
 import type { WebContextBridgeStatus } from "../../shared/web-context-bridge";
 
-const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Observer Insights", "Browser Extension", "Privacy", "Data and History"] as const;
+const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Observer Insights", "Documentation Impact", "Browser Extension", "Privacy", "Data and History"] as const;
 type Section = typeof sections[number];
 
 interface Props {
@@ -78,7 +78,7 @@ export default function SettingsPanel(props: Props) {
           {visibleSections.map((section) => <button key={section} className={active === section ? "active" : ""} onClick={() => setActive(section)}>{section}</button>)}
         </nav>
         <main>
-          <div className="storage-badge">{["General", "Editor", "Observer Insights", "Browser Extension"].includes(active) ? "Stored securely on this device" : active === "Observer" ? "Manual preferences sync; Assist controls and mutes stay on this device" : "Stored per account in Supabase, except local exclusions"}</div>
+          <div className="storage-badge">{["General", "Editor", "Observer Insights", "Documentation Impact", "Browser Extension"].includes(active) ? "Stored securely on this device" : active === "Observer" ? "Manual preferences sync; Assist controls and mutes stay on this device" : "Stored per account in Supabase, except local exclusions"}</div>
           {active === "General" && <>
             <h3>General</h3>
             <label className="setting-row"><span>Theme</span><select value={local.theme} onChange={(e) => setLocal({ ...local, theme: e.target.value as LocalSettings["theme"] })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
@@ -149,6 +149,18 @@ export default function SettingsPanel(props: Props) {
             <button className="primary" onClick={() => void saveSynced()}>Save Observer settings</button>
           </>}
           {active === "Observer Insights" && <ObserverInsightsSettings local={local} onChange={setLocal} onSave={props.onSaveLocal} />}
+          {active === "Documentation Impact" && <>
+            <h3>Documentation Impact</h3>
+            <p>Detects local relationships between changed code and project documentation using deterministic paths, links, routes, commands, symbols, and configuration keys. It never calls AI.</p>
+            <Toggle label="Enable documentation relationship detection" checked={local.documentationImpactEnabled} onChange={(value) => setLocal({ ...local, documentationImpactEnabled: value })} />
+            <Toggle label="Use Git modified, staged, untracked, renamed, and deleted files" checked={local.documentationUseGit} onChange={(value) => setLocal({ ...local, documentationUseGit: value })} />
+            <Toggle label="Use changes saved or open in this IDE session as fallback" checked={local.documentationUseSessionFallback} onChange={(value) => setLocal({ ...local, documentationUseSessionFallback: value })} />
+            <label className="setting-row"><span>Minimum confidence</span><select value={local.documentationMinimumConfidence} onChange={(event) => setLocal({ ...local, documentationMinimumConfidence: event.target.value as LocalSettings["documentationMinimumConfidence"] })}><option value="high">High</option><option value="medium">Medium (default)</option><option value="low">Low</option></select></label>
+            <Toggle label="Include low-confidence relationships" checked={local.documentationIncludeLowConfidence} onChange={(value) => setLocal({ ...local, documentationIncludeLowConfidence: value })} />
+            <label className="setting-column"><span>Additional documentation files/folders (one relative path per line)</span><textarea value={local.documentationPaths.join("\n")} placeholder="handbook\narchitecture/decisions" onChange={(event) => setLocal({ ...local, documentationPaths: event.target.value.split(/\r?\n/).filter(Boolean) })} /></label>
+            <p>README variants, docs/, Markdown setup/API/contribution files, and ADRs are discovered automatically. Symlinks, generated output, binaries, oversized files, secrets, and ignored paths are excluded.</p>
+            <div className="settings-actions"><button className="primary" onClick={() => void saveLocal()}>Save Documentation Impact settings</button><button disabled={!local.documentationRelationshipDecisions.length} onClick={() => { const next = { ...local, documentationRelationshipDecisions: [] }; setLocal(next); void props.onSaveLocal(next).then((error) => setMessage(error ?? "Documentation relationship decisions cleared.")); }}>Clear saved decisions ({local.documentationRelationshipDecisions.length})</button></div>
+          </>}
           {active === "Browser Extension" && <>
             <h3>Browser Extension</h3>
             <p>Transfers use an authenticated service bound only to 127.0.0.1:{props.webContextStatus.port ?? 32145}. Nothing is uploaded and incoming text requires review before it enters the Context Tray.</p>

@@ -103,6 +103,8 @@ import {
 } from "../../shared/context-tray";
 import type { IncomingWebContext, WebContextBridgeStatus } from "../../shared/web-context-bridge";
 import IncomingWebContextReview from "./IncomingWebContextReview";
+import DocumentationImpactPanel from "./DocumentationImpactPanel";
+import type { ChangedCodeSource, DocumentationRelationship, RelationshipDecision } from "../../shared/documentation-impact";
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -577,7 +579,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [observerEditReview, setObserverEditReview] = useState<ObserverEditReviewState | null>(null);
   const [applyingObserverEdit, setApplyingObserverEdit] = useState(false);
   const [markdownViewModes, setMarkdownViewModes] = useState<Record<string, MarkdownViewMode>>({});
-  const [sidebarView, setSidebarView] = useState<"explorer" | "search" | "source-control">("explorer");
+  const [sidebarView, setSidebarView] = useState<"explorer" | "search" | "source-control" | "documentation-impact">("explorer");
   const [searchFocusToken, setSearchFocusToken] = useState(0);
   const [commandPaletteToken, setCommandPaletteToken] = useState(0);
   const [explorerCommandRequest, setExplorerCommandRequest] = useState<{
@@ -604,6 +606,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [webContextStatus, setWebContextStatus] = useState<WebContextBridgeStatus>({ available: false, enabled: false, paired: false, connected: false, pairingCode: null, pairingExpiresAt: null, pairedDevice: null, port: null, message: "Chrome bridge is starting…" });
   const [incomingWebContext, setIncomingWebContext] = useState<IncomingWebContext | null>(null);
   const [latestTaskFailure, setLatestTaskFailure] = useState<{ kind: "test" | "build"; command: string; summary: string } | null>(null);
+  const [documentationSessionChanges, setDocumentationSessionChanges] = useState<ChangedCodeSource[]>([]);
   const [multiFileDescription, setMultiFileDescription] = useState("");
   const [multiFilePlan, setMultiFilePlan] = useState<MultiFilePlan | null>(null);
   const [multiFileBases, setMultiFileBases] = useState<MultiFileBase[] | null>(null);
@@ -941,6 +944,12 @@ export default function App({ user, onSignOut }: AppProps) {
       return false;
     }
 
+    setDocumentationSessionChanges((current) => {
+      const previous = current.find((item) => item.relativePath === relativePath);
+      const next: ChangedCodeSource = { relativePath, originalContent: previous?.originalContent ?? tab.file.content, currentContent: contentToSave, kind: "session" };
+      return [...current.filter((item) => item.relativePath !== relativePath), next].slice(-100);
+    });
+
     const latestDraft = tabsRef.current.find(
       (candidate) => candidate.file.relativePath === relativePath
     )?.draft;
@@ -1103,6 +1112,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setContextPreviewRequest(null);
     setContextTrayItems([]);
     setLatestTaskFailure(null);
+    setDocumentationSessionChanges([]);
     setGitDiff(null);
     setMarkdownViewModes({});
     appendOutput("Workspace opened. Previous terminal and file-run processes were closed.");
@@ -1947,6 +1957,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setContextPreviewRequest(null);
     setContextTrayItems([]);
     setLatestTaskFailure(null);
+    setDocumentationSessionChanges([]);
     setMarkdownViewModes({});
     setSidebarView("explorer");
     appendOutput("Workspace closed. Welcome screen opened.");
@@ -1958,6 +1969,42 @@ export default function App({ user, onSignOut }: AppProps) {
     setLocalSettings(result.value);
     return null;
   }, []);
+
+  const documentationChanges = useMemo<ChangedCodeSource[]>(() => {
+    const dirty = tabs.filter((tab) => isDirty(tab) && !isMarkdownFile(tab.file.name)).map((tab) => ({ relativePath: tab.file.relativePath, originalContent: tab.file.content, currentContent: tab.draft, kind: "session" as const }));
+    return [...documentationSessionChanges.filter((saved) => !dirty.some((item) => item.relativePath === saved.relativePath)), ...dirty];
+  }, [documentationSessionChanges, tabs]);
+
+  const openDocumentationLocation = useCallback(async (relativePath: string, line = 1) => {
+    await selectFile({ name: relativePath.split("/").at(-1) ?? relativePath, relativePath, kind: "file", isSymbolicLink: false });
+    setEditorLocation({ relativePath, line: Math.max(1, line), column: 1, token: Date.now() });
+  }, [selectFile]);
+
+  const decideDocumentationRelationship = useCallback(async (relationship: DocumentationRelationship, decision: RelationshipDecision["decision"]) => {
+    const decisions = [...localSettings.documentationRelationshipDecisions.filter((item) => item.relationshipId !== relationship.id), { relationshipId: relationship.id, evidenceHash: relationship.evidenceHash, decision }].slice(-500);
+    const result = await window.settings.updateLocal({ ...localSettings, documentationRelationshipDecisions: decisions });
+    if (result.ok) { setLocalSettings(result.value); appendOutput(decision === "confirmed" ? "Documentation relationship confirmed." : "Documentation relationship marked not related.", "success"); }
+    else appendOutput(result.error, "error");
+  }, [appendOutput, localSettings]);
+
+  const addDocumentationRelationshipContext = useCallback(async (relationship: DocumentationRelationship) => {
+    const [code, document] = await Promise.all([window.workspace.readFile(relationship.codePath), window.workspace.readFile(relationship.documentationPath)]);
+    if (!code.ok || !document.ok) { appendOutput("One of the related files is unavailable, so nothing was attached.", "error"); return; }
+    const excerpt = (content: string, line: number) => { const lines = content.split(/\r?\n/); const start = Math.max(1, line - 10); const end = Math.min(lines.length, line + 10); return { content: lines.slice(start - 1, end).join("\n"), start, end }; };
+    const codeExcerpt = excerpt(code.value.content, relationship.codeLineStart ?? 1);
+    const docExcerpt = excerpt(document.value.content, relationship.documentationLineStart);
+    const reason = `Documentation relationship (${relationship.type}, ${relationship.confidence}): ${relationship.evidence}`.slice(0, 500);
+    try {
+      const pair = await Promise.all([
+        createContextTrayItem({ type: "file_excerpt", title: `Related code: ${relationship.codePath}`, content: codeExcerpt.content, relativePath: relationship.codePath, lineStart: codeExcerpt.start, lineEnd: codeExcerpt.end, sourceContent: code.value.content, reason, maximumCharacters: 8_000, provenance: "documentation_relationship" }),
+        createContextTrayItem({ type: "markdown_section", title: `Related documentation: ${relationship.documentationPath}`, content: `Evidence: ${relationship.evidence}\n\n${docExcerpt.content}`, relativePath: relationship.documentationPath, lineStart: docExcerpt.start, lineEnd: docExcerpt.end, sourceContent: document.value.content, reason, maximumCharacters: 8_000, provenance: "documentation_relationship" }),
+      ]);
+      if (pair.some((item) => findContextTrayDuplicate(contextTrayItems, item))) { appendOutput("One of those relationship excerpts is already attached.", "error"); return; }
+      if (contextTrayTotal([...contextTrayItems, ...pair]).characters > syncedSettings.maximumContextChars) { appendOutput("Those relationship excerpts would exceed the current Context Tray limit.", "error"); return; }
+      setContextTrayItems((current) => [...current, ...pair]);
+      appendOutput("Added bounded code and documentation excerpts with relationship evidence to the local Context Tray.", "success");
+    } catch (error) { appendOutput(error instanceof Error ? error.message : "Documentation relationship context could not be attached.", "error"); }
+  }, [appendOutput, contextTrayItems, syncedSettings.maximumContextChars]);
   const saveSyncedSettings = useCallback(async (settings: SyncedSettings) => {
     const result = await window.settings.updateSynced(settings);
     if (!result.ok) return result.error;
@@ -2252,6 +2299,7 @@ export default function App({ user, onSignOut }: AppProps) {
             <button type="button" role="tab" aria-selected={sidebarView === "explorer"} className={sidebarView === "explorer" ? "active" : ""} onClick={() => setSidebarView("explorer")}>Explorer</button>
             <button type="button" role="tab" aria-selected={sidebarView === "search"} className={sidebarView === "search" ? "active" : ""} onClick={() => { setSidebarView("search"); setSearchFocusToken((current) => current + 1); }}>Search</button>
             <button type="button" role="tab" aria-selected={sidebarView === "source-control"} className={sidebarView === "source-control" ? "active" : ""} title="Source Control (Ctrl/Cmd+Shift+G)" onClick={() => setSidebarView("source-control")}>Source</button>
+            <button type="button" role="tab" aria-selected={sidebarView === "documentation-impact"} className={sidebarView === "documentation-impact" ? "active" : ""} onClick={() => setSidebarView("documentation-impact")}>Docs</button>
           </div>
           <div className={`sidebar-view ${sidebarView === "explorer" ? "active" : ""}`}>
             <Explorer
@@ -2289,6 +2337,9 @@ export default function App({ user, onSignOut }: AppProps) {
               refreshToken={gitRefreshToken}
               onOpenDiff={(file) => void openGitDiff(file)}
             />
+          </div>
+          <div className={`sidebar-view ${sidebarView === "documentation-impact" ? "active" : ""}`}>
+            <DocumentationImpactPanel active={sidebarView === "documentation-impact"} workspaceOpen={workspaceOpen} workspaceVersion={workspaceVersion} settings={localSettings} sessionChanges={documentationChanges} onOpen={(path, line) => void openDocumentationLocation(path, line)} onDecision={(relationship, decision) => void decideDocumentationRelationship(relationship, decision)} onAddBoth={(relationship) => void addDocumentationRelationshipContext(relationship)} />
           </div>
         </aside>
 

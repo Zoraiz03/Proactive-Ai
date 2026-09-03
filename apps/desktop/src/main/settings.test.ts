@@ -41,6 +41,10 @@ test("uses restrictive defaults and recovers corrupted or old local settings", a
   assert.equal(recovered.proactiveMetricsCollection, true);
   assert.equal(recovered.proactiveFeedbackPrompts, true);
   assert.equal(recovered.proactiveRetentionDays, 30);
+  assert.equal(recovered.documentationImpactEnabled, true);
+  assert.equal(recovered.documentationMinimumConfidence, "medium");
+  assert.equal(recovered.documentationIncludeLowConfidence, false);
+  assert.deepEqual(recovered.documentationRelationshipDecisions, []);
   assert.equal("unexpected" in recovered, false);
   const bounded = normalizeLocalSettings({ contextMaximumRelatedFiles: 99, contextMaximumFileCharacters: 100 });
   assert.equal(bounded.contextMaximumRelatedFiles, 4);
@@ -51,6 +55,8 @@ test("uses restrictive defaults and recovers corrupted or old local settings", a
   assert.equal(normalizeLocalSettings({ proactiveRetentionDays: 1 }).proactiveRetentionDays, 30);
   assert.equal(normalizeLocalSettings({ proactiveDetectorCooldownMinutes: { failed_run: 1 } }).proactiveDetectorCooldownMinutes.failed_run, 10);
   assert.equal(normalizeLocalSettings({ proactiveDetectorMaximumPerHour: { failed_test: 99 } }).proactiveDetectorMaximumPerHour.failed_test, 3);
+  assert.deepEqual(normalizeLocalSettings({ documentationPaths: ["docs", "../private"], documentationRelationshipDecisions: [{ relationshipId: "a".repeat(24), evidenceHash: "b".repeat(64), decision: "rejected" }, { relationshipId: "bad", evidenceHash: "bad", decision: "confirmed" }] }).documentationRelationshipDecisions, [{ relationshipId: "a".repeat(24), evidenceHash: "b".repeat(64), decision: "rejected" }]);
+  assert.deepEqual(normalizeLocalSettings({ documentationPaths: ["docs", "../private", "/absolute"] }).documentationPaths, ["docs"]);
 });
 
 test("stores only typed local preferences in owner-only app data", async () => {

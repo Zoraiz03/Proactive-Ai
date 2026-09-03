@@ -54,6 +54,12 @@ test("redacts content-level secrets and enforces per-item size estimates", async
   assert.equal(redactContextSecrets(raw).redacted, true);
 });
 
+test("preserves validated documentation relationship provenance", async () => {
+  const item = await createContextTrayItem({ ...base("file_excerpt"), provenance: "documentation_relationship" });
+  assert.equal(item.provenance, "documentation_relationship");
+  assert.equal(validateContextTrayItem(item)?.provenance, "documentation_relationship");
+});
+
 test("detects exact and overlapping attachments without silently removing either", async () => {
   const first = await createContextTrayItem({ ...base("selected_code", "alpha"), lineStart: 2, lineEnd: 4 });
   const exact = await createContextTrayItem({ ...base("selected_code", "alpha"), lineStart: 2, lineEnd: 4 });

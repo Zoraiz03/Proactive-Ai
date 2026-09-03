@@ -178,7 +178,7 @@ export class ProjectContextEngine {
         type: tray.type as ProjectContextItemType,
         priority: highPriorityTrayType(tray) ? 2 : 3,
         content: tray.content,
-        source: { provenance: "user_attached", ...(tray.source ?? {}), ...(tray.webSource ? { sourceUrl: tray.webSource.sourceUrl, hostname: tray.webSource.hostname } : {}) },
+        source: { provenance: tray.provenance, ...(tray.source ?? {}), ...(tray.webSource ? { sourceUrl: tray.webSource.sourceUrl, hostname: tray.webSource.hostname } : {}) },
         reason: tray.reason,
         ...cost,
         optional: true,

@@ -42,6 +42,7 @@ implementation and its verification evidence in the changelog.
 | Phase 11A | Complete | Privacy-safe Observer Context Tray |
 | Phase 11B1 | Complete | Explicit Chrome selected-text capture and local preview |
 | Phase 11B2 | Verification In Progress | Secure Chrome pairing, incoming review, and local Context Tray handoff |
+| Phase 12A | Complete | Local code-to-documentation relationship detection |
 
 ## Recommended folder structure
 
@@ -968,6 +969,77 @@ Required verification:
   dismissal, review Add/Reject, retry, URL stripping, and redaction. Do not mark the phase
   complete until this manual acceptance pass succeeds.
 
+## Phase 12 — Documentation impact and safe update assistance
+
+### Phase 12A — Local code-to-documentation relationship detection
+
+- [x] **Complete** — Add a typed, relative-path-only relationship model with stable
+  IDs, evidence-version hashes, code/document hashes, line ranges, timestamps,
+  current/stale/dismissed state, and confirmed/rejected decisions.
+- [x] **Complete** — Discover README variants, project Markdown/MDX, docs, setup,
+  contribution, API, architecture/ADR, and configured documentation paths through the
+  existing bounded, workspace-scoped, symlink-safe text-file bridge. Exclude generated,
+  ignored, secret, binary, oversized, and user-excluded content.
+- [x] **Complete** — Detect exact file paths and Markdown links, exported symbols,
+  API routes, package/CLI scripts, configuration/environment keys, README setup links,
+  and test-file/command relationships without AI, embeddings, command execution, or
+  network access.
+- [x] **Complete** — Assign High confidence to direct paths/links/routes/scripts,
+  Medium to exact symbols/configuration keys, and Low to weak filename evidence. The
+  default view starts at Medium and suppresses Low results unless explicitly enabled.
+- [x] **Complete** — Consume existing read-only Git status/diffs for modified, staged,
+  untracked, renamed, and deleted code, plus bounded saved/dirty session changes. In a
+  non-Git workspace, explain that results are limited to the current IDE session.
+- [x] **Complete** — Ignore comment-only/formatting-only edits, use changed lines for
+  new identifiers, retain removed/renamed identifiers as evidence, update on workspace,
+  Git, code, documentation, settings, and decisions, mark matching relationships current
+  after documentation changes, resolve disappearing evidence, and resurface rejected
+  relationships only when source evidence hashes materially change.
+- [x] **Complete** — Add the Documentation Impact sidebar with “May need review,”
+  confidence and lifecycle state, expandable evidence, correct file/line navigation,
+  Confirm Relationship, Not Related, Ignore for This Session, and an empty state.
+- [x] **Complete** — Add Both to Context Tray creates only bounded code/document
+  excerpts after an explicit click, includes evidence, reuses secret/budget/duplicate
+  protections, and preserves `documentation_relationship` provenance through Context
+  Preview and server validation. It never modifies a file or calls AI.
+- [x] **Complete** — Add device-only defaults and controls for enablement, documentation
+  paths, confidence, Low visibility, Git/session sources, and clearing decisions. Persist
+  only bounded relative paths, stable IDs, hashes, and decisions—never raw code,
+  documentation, absolute paths, analytics, Supabase records, or a cloud graph.
+
+Required verification:
+
+- [x] **Complete** — 153/153 desktop tests pass, including deterministic signal types,
+  confidence filtering, comment/format suppression, removal/rename evidence, decisions,
+  materially new evidence, lifecycle resolution/current state, Context Tray provenance,
+  path/settings validation, and all prior desktop/Chrome bridge regressions.
+- [x] **Complete** — Desktop strict TypeScript and Electron production build pass.
+- [x] **Complete** — Root backend tests, lint, and Next.js production build pass with
+  additive `documentation_relationship` validation and unchanged Supabase storage.
+- [x] **Complete** — Chrome extension 11/11 tests, strict TypeScript, Manifest V3
+  validation, and production build pass unchanged.
+- [x] **Complete** — Generated-output credential/private-key scan and detection-path
+  AI/network/storage source scan pass with no matches; `git diff --check` passes.
+
+Manual acceptance steps:
+
+1. Open a Git workspace containing a changed code file and a Markdown reference to its
+   path, symbol, route, script, or configuration key; open **Docs** in the sidebar.
+2. Verify the card says **May need review**, shows confidence/state/evidence, and that
+   Open Code/Open Documentation navigate to the indicated local line.
+3. Exercise Confirm Relationship, Not Related, Ignore for This Session, and clearing
+   decisions in Settings. Change the underlying evidence and verify a rejected match can
+   reappear; update the documentation and verify the matching relationship becomes current.
+4. Choose Add Both to Context Tray and verify two bounded excerpts appear with
+   Documentation relationship provenance and remain removable in Context Preview.
+5. Repeat in a non-Git workspace after saving a code edit and verify the limited-session
+   notice. Confirm that no command, AI request, file write, or network action occurs.
+
+Known limitations: Phase 12A uses exact deterministic identifiers rather than semantic
+meaning, scans only a bounded portion of very large workspaces, and cannot infer every
+indirect relationship. Low filename evidence remains opt-in. It detects impact but does
+not generate or apply documentation changes.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1270,6 +1342,27 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-03 — Phase 12A local documentation relationship detection complete
+
+Architecture and behavior:
+
+- Added the pure relationship engine and focused tests in
+  `apps/desktop/src/shared/documentation-impact.ts` and
+  `apps/desktop/src/main/documentation-impact.test.ts`.
+- Added `DocumentationImpactPanel.tsx`, App/sidebar/session-change wiring, restrained
+  existing-theme styles, and device-local Settings controls/defaults/decision validation.
+- Extended Context Tray, Project Context, and the server's strict untrusted-context schema
+  to preserve `documentation_relationship` provenance. No AI route, provider, file-write,
+  command, Supabase schema, migration, analytics, or cloud index was added.
+
+Verification:
+
+- 153/153 desktop tests, desktop strict TypeScript, and Electron production build pass.
+- Root backend harnesses, lint, and Next.js production build pass.
+- The unchanged Chrome extension passes 11/11 tests, strict TypeScript, manifest
+  validation, and production build.
+- Privacy/source, generated credential/private-key, and whitespace scans pass.
 
 ### 2026-09-02 — Phase 11B2 secure Chrome handoff verification in progress
 
@@ -2570,9 +2663,11 @@ Verification:
 | 2026-09-02 | Phase 11A web/backend regression | Complete | Structured attachment validation and metadata-only logging harnesses, lint, and Next.js production build passed; no Supabase migration was required. |
 | 2026-09-02 | Phase 11B2 automated security and regression | Complete | 145/145 desktop tests (with loopback permission), 11/11 extension tests, both strict TypeScript/production builds, root tests, lint, and Next.js build passed. |
 | 2026-09-02 | Phase 11B2 live UI acceptance | In Progress | Rebuilt unpacked extension reloaded and Electron Browser Extension Settings rendered; full paired selection Add/Reject/restart/revoke flow still requires a reliable interactive window pass. |
+| 2026-09-03 | Phase 12A deterministic relationship tests | Complete | 153/153 desktop tests passed, including signal confidence, lifecycle, decisions, safety boundaries, Context Tray provenance, and prior regressions. |
+| 2026-09-03 | Phase 12A builds/privacy checks | Complete | Desktop strict TypeScript/Electron build, root tests/lint/Next.js build, extension tests/type/build, secret/privacy scans, and whitespace validation passed. |
 
 ## Recommended next task
 
-Finish the **Phase 11B2 live two-app acceptance test**. After every required check passes,
-the next implementation task is **Phase 12A**; define its exact scope before changing
-product behavior.
+**Phase 12B — Safe AI Documentation Update Suggestions.** Keep suggestions explicit,
+reviewable, bounded, and separate from automatic file modification. The outstanding
+Phase 11B2 live two-app acceptance pass remains a release-verification item.
