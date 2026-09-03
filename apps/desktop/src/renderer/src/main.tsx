@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "./theme.css";
 import "./monaco";
 import DesktopAuth from "./DesktopAuth";
 import "./styles.css";

@@ -12,6 +12,7 @@ import { registerMultiFileIpc } from "./multi-file-ipc";
 import { registerVerificationTaskIpc } from "./verification-task-ipc";
 import { registerProactiveInsightsIpc } from "./proactive-insights-ipc";
 import { registerWebContextIpc } from "./web-context-ipc";
+import { DESKTOP_WINDOW_BACKGROUND } from "../shared/desktop-theme";
 
 declare const __DESKTOP_API_BASE_URL__: string;
 
@@ -30,7 +31,7 @@ function createMainWindow(): BrowserWindow {
     height: 820,
     minWidth: 760,
     minHeight: 560,
-    backgroundColor: "#11151b",
+    backgroundColor: DESKTOP_WINDOW_BACKGROUND,
     title: "Proactive AI IDE",
     show: false,
     webPreferences,

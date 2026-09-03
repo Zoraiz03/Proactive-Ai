@@ -14,7 +14,7 @@ export interface ObserverEditReviewState {
 interface Props {
   review: ObserverEditReviewState;
   settings: LocalSettings["editor"];
-  theme: "vs" | "vs-dark";
+  theme: string;
   applying: boolean;
   onAccept: () => void;
   onReject: () => void;

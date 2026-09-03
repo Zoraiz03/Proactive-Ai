@@ -1,6 +1,6 @@
 import Editor from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { monacoLanguageForFile } from "../../shared/languages";
 import {
   extractMarkdownHeadings,
@@ -108,6 +108,15 @@ import DocumentationImpactPanel from "./DocumentationImpactPanel";
 import type { ChangedCodeSource, DocumentationRelationship, RelationshipDecision } from "../../shared/documentation-impact";
 import DocumentationUpdateWorkspace, { type DocumentationUpdateView } from "./DocumentationUpdateWorkspace";
 import { validateDocumentationEdit, type DocumentationUpdateContext } from "../../shared/documentation-update";
+import { MONACO_CREAM_THEME } from "./theme";
+
+const PANE_LIMITS = {
+  sidebar: { min: 180, max: 320, initial: 230 },
+  observer: { min: 230, max: 380, initial: 290 },
+  bottom: { min: 160, max: 360, initial: 220 },
+} as const;
+
+type ResizablePane = keyof typeof PANE_LIMITS;
 
 type SaveStatus = { kind: "success" | "error"; message: string };
 
@@ -235,7 +244,7 @@ interface EditorWorkspaceProps {
   markdownViewMode: MarkdownViewMode;
   onMarkdownViewModeChange: (mode: MarkdownViewMode) => void;
   editorSettings: LocalSettings["editor"];
-  editorTheme: "vs" | "vs-dark";
+  editorTheme: string;
 }
 
 function EditorWorkspace({
@@ -632,6 +641,11 @@ export default function App({ user, onSignOut }: AppProps) {
   const [multiFilePreviewPhase, setMultiFilePreviewPhase] = useState<"plan" | "generate" | null>(null);
   const [proactiveNudge, setProactiveNudge] = useState<ProactiveNudge | null>(null);
   const [usefulnessPrompt, setUsefulnessPrompt] = useState<{ eventId: string; title: string } | null>(null);
+  const [paneSizes, setPaneSizes] = useState({
+    sidebar: PANE_LIMITS.sidebar.initial,
+    observer: PANE_LIMITS.observer.initial,
+    bottom: PANE_LIMITS.bottom.initial,
+  });
   const tabsRef = useRef(tabs);
   const runOutputRef = useRef(runOutput);
   const observerRequestInFlight = useRef(false);
@@ -2365,11 +2379,55 @@ export default function App({ user, onSignOut }: AppProps) {
     prompt?.resolve(choice);
   };
 
+  const setPaneSize = (pane: ResizablePane, value: number) => {
+    const limits = PANE_LIMITS[pane];
+    setPaneSizes((current) => ({
+      ...current,
+      [pane]: Math.min(limits.max, Math.max(limits.min, value)),
+    }));
+  };
+
+  const beginPaneResize = (pane: ResizablePane, event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const startingPointer = pane === "bottom" ? event.clientY : event.clientX;
+    const startingSize = paneSizes[pane];
+    document.body.classList.add("pane-resizing");
+
+    const move = (pointerEvent: PointerEvent) => {
+      const pointer = pane === "bottom" ? pointerEvent.clientY : pointerEvent.clientX;
+      const delta = pointer - startingPointer;
+      setPaneSize(pane, startingSize + (pane === "observer" || pane === "bottom" ? -delta : delta));
+    };
+    const finish = () => {
+      document.body.classList.remove("pane-resizing");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  };
+
+  const handlePaneResizeKey = (pane: ResizablePane, event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const decreaseKey = pane === "bottom" ? "ArrowDown" : pane === "observer" ? "ArrowRight" : "ArrowLeft";
+    const increaseKey = pane === "bottom" ? "ArrowUp" : pane === "observer" ? "ArrowLeft" : "ArrowRight";
+    if (event.key !== decreaseKey && event.key !== increaseKey) return;
+    event.preventDefault();
+    setPaneSize(pane, paneSizes[pane] + (event.key === increaseKey ? 8 : -8));
+  };
+
+  const layoutStyle = {
+    "--sidebar-width": `${paneSizes.sidebar}px`,
+    "--observer-width": `${paneSizes.observer}px`,
+    "--bottom-panel-height": `${paneSizes.bottom}px`,
+  } as CSSProperties;
+
   return (
     <div className="app-shell">
       <header className="top-bar">
-        <div className="brand-mark" aria-hidden="true">P</div>
-        <h1>Proactive AI IDE</h1>
+        <div className="brand-mark" aria-hidden="true"><span /></div>
+        <h1>Proactive·AI <span>IDE</span></h1>
         <span className="phase-label">Secure workspace</span>
         <button type="button" className="settings-button" onClick={() => setSettingsOpen(true)} title="Settings (Ctrl+, / Cmd+,)">⚙ Settings</button>
         <details className="user-menu">
@@ -2389,14 +2447,17 @@ export default function App({ user, onSignOut }: AppProps) {
         </details>
       </header>
 
-      <div className="ide-layout">
+      <div className="workspace-shell">
+      <nav className="activity-bar" aria-label="Workspace views">
+        <button type="button" className={sidebarView === "explorer" ? "active" : ""} aria-current={sidebarView === "explorer" ? "page" : undefined} aria-label="Explorer" data-label="Explorer" onClick={() => setSidebarView("explorer")}><span aria-hidden="true">▱</span></button>
+        <button type="button" className={sidebarView === "search" ? "active" : ""} aria-current={sidebarView === "search" ? "page" : undefined} aria-label="Search" data-label="Search" onClick={() => { setSidebarView("search"); setSearchFocusToken((current) => current + 1); }}><span aria-hidden="true">⌕</span></button>
+        <button type="button" className={sidebarView === "source-control" ? "active" : ""} aria-current={sidebarView === "source-control" ? "page" : undefined} aria-label="Source Control" data-label="Source Control" title="Source Control (Ctrl/Cmd+Shift+G)" onClick={() => setSidebarView("source-control")}><span aria-hidden="true">⑂</span></button>
+        <button type="button" className={sidebarView === "documentation-impact" ? "active" : ""} aria-current={sidebarView === "documentation-impact" ? "page" : undefined} aria-label="Documentation impact" data-label="Docs" onClick={() => setSidebarView("documentation-impact")}><span aria-hidden="true">¶</span></button>
+      </nav>
+
+      <div className="ide-layout" style={layoutStyle}>
         <aside className="panel explorer-panel">
-          <div className="sidebar-tabs" role="tablist" aria-label="Project sidebar">
-            <button type="button" role="tab" aria-selected={sidebarView === "explorer"} className={sidebarView === "explorer" ? "active" : ""} onClick={() => setSidebarView("explorer")}>Explorer</button>
-            <button type="button" role="tab" aria-selected={sidebarView === "search"} className={sidebarView === "search" ? "active" : ""} onClick={() => { setSidebarView("search"); setSearchFocusToken((current) => current + 1); }}>Search</button>
-            <button type="button" role="tab" aria-selected={sidebarView === "source-control"} className={sidebarView === "source-control" ? "active" : ""} title="Source Control (Ctrl/Cmd+Shift+G)" onClick={() => setSidebarView("source-control")}>Source</button>
-            <button type="button" role="tab" aria-selected={sidebarView === "documentation-impact"} className={sidebarView === "documentation-impact" ? "active" : ""} onClick={() => setSidebarView("documentation-impact")}>Docs</button>
-          </div>
+          <div className="sidebar-heading">{sidebarView === "explorer" ? "Explorer" : sidebarView === "search" ? "Search" : sidebarView === "source-control" ? "Source Control" : "Documentation"}</div>
           <div className={`sidebar-view ${sidebarView === "explorer" ? "active" : ""}`}>
             <Explorer
               openedWorkspace={openedWorkspace}
@@ -2439,6 +2500,8 @@ export default function App({ user, onSignOut }: AppProps) {
           </div>
         </aside>
 
+        <button type="button" className="pane-resizer sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" aria-valuemin={PANE_LIMITS.sidebar.min} aria-valuemax={PANE_LIMITS.sidebar.max} aria-valuenow={paneSizes.sidebar} onPointerDown={(event) => beginPaneResize("sidebar", event)} onKeyDown={(event) => handlePaneResizeKey("sidebar", event)} />
+
         <main className="panel editor-panel">
           <PanelTitle>Editor</PanelTitle>
           {!workspaceOpen ? (
@@ -2466,7 +2529,7 @@ export default function App({ user, onSignOut }: AppProps) {
               changeSet={multiFileChangeSet}
               activeIndex={multiFileActiveIndex}
               settings={localSettings.editor}
-              theme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+              theme={MONACO_CREAM_THEME}
               applying={multiFileBusy}
               conflict={multiFileError}
               onSelect={setMultiFileActiveIndex}
@@ -2487,7 +2550,7 @@ export default function App({ user, onSignOut }: AppProps) {
             <ObserverEditReview
               review={observerEditReview}
               settings={localSettings.editor}
-              theme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+              theme={MONACO_CREAM_THEME}
               applying={applyingObserverEdit}
               onAccept={() => void acceptObserverEdit()}
               onReject={rejectObserverEdit}
@@ -2502,7 +2565,7 @@ export default function App({ user, onSignOut }: AppProps) {
             <GitDiffViewer
               diff={gitDiff.value}
               editorSettings={localSettings.editor}
-              theme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+              theme={MONACO_CREAM_THEME}
               onClose={() => setGitDiff(null)}
               onOpenFile={() => {
                 const relativePath = gitDiff.value.relativePath;
@@ -2539,10 +2602,12 @@ export default function App({ user, onSignOut }: AppProps) {
               setMarkdownViewModes((current) => ({ ...current, [activePath]: mode }));
             }}
             editorSettings={localSettings.editor}
-            editorTheme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+            editorTheme={MONACO_CREAM_THEME}
           />
           )}
         </main>
+
+        <button type="button" className="pane-resizer observer-resizer" role="separator" aria-label="Resize Observer panel" aria-orientation="vertical" aria-valuemin={PANE_LIMITS.observer.min} aria-valuemax={PANE_LIMITS.observer.max} aria-valuenow={paneSizes.observer} onPointerDown={(event) => beginPaneResize("observer", event)} onKeyDown={(event) => handlePaneResizeKey("observer", event)} />
 
         <aside className="panel observer-panel">
           <PanelTitle>Observer</PanelTitle>
@@ -2591,6 +2656,8 @@ export default function App({ user, onSignOut }: AppProps) {
           />
         </aside>
 
+        <button type="button" className="pane-resizer bottom-resizer" role="separator" aria-label="Resize bottom panel" aria-orientation="horizontal" aria-valuemin={PANE_LIMITS.bottom.min} aria-valuemax={PANE_LIMITS.bottom.max} aria-valuenow={paneSizes.bottom} onPointerDown={(event) => beginPaneResize("bottom", event)} onKeyDown={(event) => handlePaneResizeKey("bottom", event)} />
+
         <section className="panel output-panel">
           <BottomPanel
             workspaceOpen={workspaceOpen}
@@ -2609,6 +2676,7 @@ export default function App({ user, onSignOut }: AppProps) {
             hasTaskFailure={Boolean(latestTaskFailure)}
           />
         </section>
+      </div>
       </div>
 
       <footer className="status-bar">
@@ -2646,7 +2714,7 @@ export default function App({ user, onSignOut }: AppProps) {
       />}
       {documentationUpdateView && <DocumentationUpdateWorkspace
         view={documentationUpdateView}
-        theme={document.documentElement.dataset.theme === "light" ? "vs" : "vs-dark"}
+        theme={MONACO_CREAM_THEME}
         fontSize={localSettings.editor.fontSize}
         onCancel={() => { if (documentationUpdateView.stage === "review" && syncedSettings.storeSuggestionHistory) void window.observer.recordOutcome({ suggestionId: documentationUpdateView.value.validated.edit.suggestionId, outcome: "dismissed" }); setDocumentationUpdateView(null); }}
         onGenerate={(request, selectedIds) => void generateDocumentationDraft(request, selectedIds)}

@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RunDiagnostic, RunLanguage, RunStatus } from "../../shared/runner";
+import { themeColor } from "./theme";
 
 export interface IdeOutputMessage {
   id: number;
@@ -101,25 +102,25 @@ export default function BottomPanel({
       convertEol: false,
       cursorBlink: true,
       cursorStyle: "bar",
-      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontFamily: themeColor("--font-mono"),
       fontSize: 12,
       lineHeight: 1.2,
       macOptionIsMeta: true,
       scrollback: 5_000,
       theme: {
-        background: "#0e1218",
-        foreground: "#c9d1dc",
-        cursor: "#b89cff",
-        selectionBackground: "#5f49b266",
-        black: "#202630",
-        brightBlack: "#697587",
-        red: "#e58b92",
-        green: "#7dcda6",
-        yellow: "#e5c18c",
-        blue: "#8ba9e8",
-        magenta: "#b89cff",
-        cyan: "#7fc9d4",
-        white: "#d8dee9",
+        background: themeColor("--desktop-terminal"),
+        foreground: themeColor("--desktop-terminal-text"),
+        cursor: themeColor("--coffee-accent"),
+        selectionBackground: themeColor("--ink-50"),
+        black: themeColor("--coffee-deep"),
+        brightBlack: themeColor("--tan"),
+        red: themeColor("--window-close"),
+        green: themeColor("--window-success"),
+        yellow: themeColor("--window-warn"),
+        blue: themeColor("--coffee-eyebrow"),
+        magenta: themeColor("--coffee-accent"),
+        cyan: themeColor("--coffee-star"),
+        white: themeColor("--cream"),
       },
     });
     const fitAddon = new FitAddon();

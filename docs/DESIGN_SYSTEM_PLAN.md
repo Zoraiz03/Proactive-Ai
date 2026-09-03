@@ -297,15 +297,16 @@ breakpoints and continue to honor the current Electron minimum-window constraint
 
 ### Phase 13B — Foundation and shell
 
-- [ ] Add one centralized theme-variable layer containing every approved primitive and
+- [x] Add one centralized theme-variable layer containing every approved primitive and
   semantic token; remove direct color ownership from component rules as they migrate.
-- [ ] Bundle/use Geist Sans and Geist Mono for Electron without a network dependency.
-- [ ] Restyle desktop authentication, root background, brand mark, title/status bars,
+- [x] Bundle/use Geist Sans and Geist Mono for Electron without a network dependency.
+- [x] Restyle desktop authentication, root background, brand mark, title/status bars,
   main grid, panel boundaries, activity/sidebar navigation, shared buttons, inputs, pills,
   menus, focus states, and scrollbars.
-- [ ] Define a centralized Monaco light theme using only approved tokens; validate syntax,
+- [x] Define a centralized Monaco light theme using only approved tokens; validate syntax,
   selection, caret, diagnostics, find, and diff contrast.
-- [ ] Preserve all existing behavior and run screenshot baselines at wide/medium/compact sizes.
+- [x] Preserve all existing behavior and run live development/production screenshot QA;
+  full multi-size baselines and advanced-workflow state coverage remain Phase 13D acceptance.
 
 ### Phase 13C — Feature-surface migration
 

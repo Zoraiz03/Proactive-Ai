@@ -45,6 +45,7 @@ implementation and its verification evidence in the changelog.
 | Phase 12A | Complete | Local code-to-documentation relationship detection |
 | Phase 12B | Complete | Safe, evidence-based Markdown update suggestions with explicit review and rollback |
 | Phase 13A | Complete | Read-only website visual audit and centralized desktop design-system plan |
+| Phase 13B | Complete | Source-exact coffee-and-cream desktop foundation and complete visible shell migration |
 
 ## Recommended folder structure
 
@@ -1146,6 +1147,46 @@ showcase, but not a fully specified dark IDE component system. Phase 13B must no
 missing dark states. Visual parity, responsive interaction, and Monaco token tuning require
 implementation and screenshot QA in Phases 13B–13D.
 
+### Phase 13B — Main desktop shell redesign
+
+- [x] **Complete** — Add one renderer theme layer containing the exact website primitives,
+  semantic desktop colors, bundled Geist typography, Tailwind spacing, radii, borders,
+  shadows, focus rules, and responsive shell geometry.
+- [x] **Complete** — Remove legacy black, navy, blue, violet, and purple literals from
+  desktop component CSS. The native Electron boot surface mirrors the exact cream
+  background through one shared native token.
+- [x] **Complete** — Apply the website identity coherently to the root/window, title and
+  status bars, activity bar, Explorer/Search, editor tabs and chrome, welcome/recents,
+  Observer controls, Context Tray, bottom tools, dialogs, menus, and visible empty,
+  hover, selected, active, disabled, and focus states.
+- [x] **Complete** — Define and select the `proactive-cream` Monaco theme at every editor
+  and diff entry point. Its colors are resolved from CSS variables rather than duplicated
+  literals, and no `vs-dark` fallback remains in desktop source.
+- [x] **Complete** — Pass the xterm palette from the centralized theme at startup. Its only
+  dark surface uses source-approved ink/coffee values, never black, navy, or purple.
+- [x] **Complete** — Add pointer and keyboard-operable sidebar, Observer, and bottom-panel
+  separators with bounded sizes and responsive 1024px/768px layout behavior.
+- [x] **Complete** — Preserve IPC, filesystem, terminal, authentication, AI, database, and
+  browser-application behavior; no dependency or `main` website change was required.
+
+Verification:
+
+- [x] **Complete** — Strict desktop TypeScript and Electron production build pass; both
+  Geist variable fonts are emitted into the renderer bundle.
+- [x] **Complete** — All 160 desktop tests pass with loopback permission, and root tests
+  and lint pass.
+- [x] **Complete** — A source scan finds no legacy theme literals or `vs-dark` references
+  in desktop components; approved color literals live only in the centralized theme layer
+  plus the shared native boot-background token.
+- [x] **Complete** — Live development and production Electron windows were inspected. The
+  cream welcome workspace, Observer, Context Tray, Explorer, editor chrome, and coffee
+  terminal form one palette; no visually obvious black, navy, or purple region remains.
+
+Known limitations: Phase 13B establishes the coherent source-exact theme and covers every
+currently visible shell state. Phase 13C remains responsible for deliberate component-level
+polish and state-by-state visual QA of advanced feature workflows that were not opened in
+this phase; Phase 13D retains full breakpoint, contrast, and accessibility acceptance.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1448,6 +1489,17 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-03 — Phase 13B coffee-and-cream desktop shell complete
+
+- Added centralized source-exact CSS primitives and semantics, bundled Geist fonts, a
+  CSS-token-driven Monaco theme, a CSS-token-driven xterm coffee theme, and an exact cream
+  native window fallback.
+- Replaced the old renderer color literals and corrected the root, shell, welcome screen,
+  Observer, Context Tray, Explorer, tabs, editor chrome, terminal/output, status, controls,
+  menus, dialogs, and interaction states without changing their behavior.
+- Added bounded pointer and keyboard pane resizing and kept the editor usable at the
+  Electron minimum window size. Verified the production UI by screenshot.
 
 ### 2026-09-03 — Phase 13A desktop visual audit and planning complete
 
@@ -2805,13 +2857,13 @@ Verification:
 | 2026-09-03 | Phase 12B builds/privacy checks | Complete | Desktop strict TypeScript/Electron build, root tests/lint/Next.js build, extension tests/type/build, generated secret and request/analytics privacy scans, and whitespace validation passed. |
 | 2026-09-03 | Phase 13A website visual audit | Complete | Read-only `main` tree/show/grep inspection captured exact palette, typography, Tailwind 3.4.19 primitives, component states, and responsive patterns without switching branches. |
 | 2026-09-03 | Phase 13A documentation checks | Complete | Branch, exact-token provenance, WCAG contrast, Markdown structure, docs-only scope, whitespace, and staged-diff checks passed; no application source changed. |
+| 2026-09-03 | Phase 13B desktop regressions | Complete | Strict TypeScript, 160/160 desktop tests with loopback permission, root tests/lint, Electron production build, and source theme-literal scans passed. |
+| 2026-09-03 | Phase 13B visual QA | Complete | Development and production Electron windows showed a coherent cream/card/sand/bronze shell with a source-approved ink/coffee terminal and no visible black, navy, violet, or purple surfaces. |
 
 ## Recommended next task
 
-**Phase 13B — Desktop Theme Foundation and Shell Migration.**
+**Phase 13C — Feature-surface visual refinement.**
 
-Implement centralized source-exact theme variables, bundled website fonts, shared
-interaction primitives,
-coffee-cream authentication, application shell/title/status bars, pane boundaries,
-activity/sidebar navigation, and a source-exact Monaco light-theme foundation without
-changing application behavior.
+Polish advanced Observer, Context Tray/Preview, Git/diff, Markdown, Settings, web-context,
+AI review, dialog, notification, and error/loading states against the centralized Phase 13B
+tokens without changing their behavior. Phase 13C is not started by this phase.

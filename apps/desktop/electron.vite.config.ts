@@ -34,6 +34,11 @@ export default defineConfig(({ mode }) => {
     renderer: {
       root: resolve("src/renderer"),
       plugins: [react()],
+      server: {
+        fs: {
+          allow: [resolve("../..")],
+        },
+      },
     },
   };
 });

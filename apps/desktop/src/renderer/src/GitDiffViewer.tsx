@@ -7,7 +7,7 @@ import { monacoOptionsFromSettings } from "../../shared/settings";
 interface Props {
   diff: GitDiffSnapshot;
   editorSettings: LocalSettings["editor"];
-  theme: "vs" | "vs-dark";
+  theme: string;
   onClose: () => void;
   onOpenFile: () => void;
 }

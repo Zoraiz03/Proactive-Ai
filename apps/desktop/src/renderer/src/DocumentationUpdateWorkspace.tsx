@@ -8,7 +8,7 @@ export interface DocumentationPreparation { context: DocumentationUpdateContext;
 export interface DocumentationReview { context: DocumentationUpdateContext; validated: ValidatedDocumentationEdit; busy: boolean; staleMessage?: string }
 export type DocumentationUpdateView = { stage: "prepare"; value: DocumentationPreparation } | { stage: "review"; value: DocumentationReview } | { stage: "applied"; path: string; relationshipId: string };
 
-interface Props { view: DocumentationUpdateView; theme: "vs" | "vs-dark"; fontSize: number; onCancel: () => void; onGenerate: (request: string, selectedIds: string[]) => void; onEdit: (replacement: string) => void; onAccept: () => void; onRegenerate: () => void; onRefresh: () => void; onCopy: () => void; onOpenCode: () => void; onOpenDocument: () => void; onUndo: () => void; onPreview: () => void; onRecheck: () => void; onGitDiff: () => void; onAddContext: () => void }
+interface Props { view: DocumentationUpdateView; theme: string; fontSize: number; onCancel: () => void; onGenerate: (request: string, selectedIds: string[]) => void; onEdit: (replacement: string) => void; onAccept: () => void; onRegenerate: () => void; onRefresh: () => void; onCopy: () => void; onOpenCode: () => void; onOpenDocument: () => void; onUndo: () => void; onPreview: () => void; onRecheck: () => void; onGitDiff: () => void; onAddContext: () => void }
 
 export default function DocumentationUpdateWorkspace(props: Props) {
   const [showContext, setShowContext] = useState(false); const [request, setRequest] = useState(props.view.stage === "prepare" ? props.view.value.userRequest : ""); const [selected, setSelected] = useState<string[]>([]); const [rendered, setRendered] = useState(false);
