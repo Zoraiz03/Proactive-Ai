@@ -2610,7 +2610,6 @@ export default function App({ user, onSignOut }: AppProps) {
         <button type="button" className="pane-resizer observer-resizer" role="separator" aria-label="Resize Observer panel" aria-orientation="vertical" aria-valuemin={PANE_LIMITS.observer.min} aria-valuemax={PANE_LIMITS.observer.max} aria-valuenow={paneSizes.observer} onPointerDown={(event) => beginPaneResize("observer", event)} onKeyDown={(event) => handlePaneResizeKey("observer", event)} />
 
         <aside className="panel observer-panel">
-          <PanelTitle>Observer</PanelTitle>
           <ObserverPanel
             mode={activeObserverMode}
             modes={observerModes}

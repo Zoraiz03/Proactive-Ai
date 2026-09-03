@@ -46,6 +46,7 @@ implementation and its verification evidence in the changelog.
 | Phase 12B | Complete | Safe, evidence-based Markdown update suggestions with explicit review and rollback |
 | Phase 13A | Complete | Read-only website visual audit and centralized desktop design-system plan |
 | Phase 13B | Complete | Source-exact coffee-and-cream desktop foundation and complete visible shell migration |
+| Phase 13C1 | Complete | Observer and Context Tray visual refinement with preserved privacy and action flows |
 
 ## Recommended folder structure
 
@@ -1187,6 +1188,43 @@ currently visible shell state. Phase 13C remains responsible for deliberate comp
 polish and state-by-state visual QA of advanced feature workflows that were not opened in
 this phase; Phase 13D retains full breakpoint, contrast, and accessibility acceptance.
 
+### Phase 13C1 — Observer and Context Tray UI redesign
+
+- [x] **Complete** — Replace the generic Observer heading and hidden legacy orb with a
+  source-derived bronze/cream emblem, explicit text status, calm section hierarchy, and a
+  dedicated scroll region that keeps request controls and the privacy boundary reachable.
+- [x] **Complete** — Restyle request mode/provider fields, context summary, Ask, shortcut,
+  disabled state, Undo, empty/loading/error/suggestion states, code previews, reasons,
+  dismissal, proactive nudges, and usefulness feedback with centralized semantic tokens.
+- [x] **Complete** — Preserve the existing separate edit-review Accept/Reject/Regenerate
+  workflow and apply the same primary, secondary, disabled, hover, and focus hierarchy to
+  its controls without changing checkpoint or rollback behavior.
+- [x] **Complete** — Redesign Context Tray hierarchy, count, expansion, browser connection
+  status, request usage, empty state, source cards, titles/paths/URLs, previews, stale flags,
+  ordering, refresh/keep/truncate, Remove, Clear, and session-local privacy messaging.
+- [x] **Complete** — Keep all Observer prompts, provider calls, proactive detection, IPC,
+  authentication, filesystem, database, browser pairing, and Context Tray data flow intact.
+
+Verification:
+
+- [x] **Complete** — Strict desktop TypeScript and the Electron production build pass; all
+  160 desktop tests pass with loopback permission, including Observer success/error API
+  handling, explicit edit acceptance/checkpointing, dismissal, rollback, Context Tray
+  validation, reorder, stale, refresh, truncate, clear, and no-automatic-AI guarantees.
+- [x] **Complete** — Root suggestion/context harnesses, lint, and Next.js production build
+  pass unchanged.
+- [x] **Complete** — Live Electron QA verifies the empty and populated Tray, local attach,
+  remove, clear, collapse/expand, browser unavailable/off states, bronze keyboard focus,
+  scroll containment, and 230px/380px Observer widths without horizontal overflow.
+- [x] **Complete** — Computed live colors resolve to exact cream `#faf7f0`, card `#fdfbf6`,
+  ink `#2b2118`, ink-soft `#5c4d3d`, sand `#e8dfd0`, bronze `#8a5a34`, and approved ember
+  alpha states. The review screenshot is `docs/screenshots/phase-13c1-observer-context-tray.png`.
+
+Known limitation: a live provider request was not sent from the repository workspace during
+visual QA because that would transmit active project context to the configured external
+provider. Deterministic authenticated client tests cover response/error outcomes, while the
+live pass covers the explicit pre-send and local Context Tray interaction boundary.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1489,6 +1527,17 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-03 — Phase 13C1 Observer and Context Tray redesign complete
+
+- Rebuilt the Observer presentation around a source-exact bronze emblem, explicit status,
+  compact request hierarchy, resilient scroll region, clearer result states, and consistent
+  primary/secondary/destructive/focus treatment.
+- Rebuilt the Context Tray presentation with a clear item count, collapsible source area,
+  labeled browser status, request usage, wrapping previews and URLs, source metadata, and
+  distinct local remove/clear controls while preserving its session-only behavior.
+- Verified the renderer in live Electron at narrow and wide panel widths, exercised local
+  add/remove/clear and collapse/expand behavior, and saved the populated-state screenshot.
 
 ### 2026-09-03 — Phase 13B coffee-and-cream desktop shell complete
 
@@ -2859,11 +2908,14 @@ Verification:
 | 2026-09-03 | Phase 13A documentation checks | Complete | Branch, exact-token provenance, WCAG contrast, Markdown structure, docs-only scope, whitespace, and staged-diff checks passed; no application source changed. |
 | 2026-09-03 | Phase 13B desktop regressions | Complete | Strict TypeScript, 160/160 desktop tests with loopback permission, root tests/lint, Electron production build, and source theme-literal scans passed. |
 | 2026-09-03 | Phase 13B visual QA | Complete | Development and production Electron windows showed a coherent cream/card/sand/bronze shell with a source-approved ink/coffee terminal and no visible black, navy, violet, or purple surfaces. |
+| 2026-09-03 | Phase 13C1 Observer and Context Tray regressions | Complete | Strict TypeScript, 160/160 desktop tests with loopback permission, root tests/lint/build, Electron production build, and token/whitespace scans passed. |
+| 2026-09-03 | Phase 13C1 live visual QA | Complete | Electron verified exact computed theme colors, visible bronze focus, local Tray add/remove/clear and collapse/expand, long-preview containment, and 230px/380px Observer widths; populated screenshot saved under docs/screenshots. |
 
 ## Recommended next task
 
-**Phase 13C — Feature-surface visual refinement.**
+**Phase 13C2 — Remaining feature-surface visual refinement.**
 
-Polish advanced Observer, Context Tray/Preview, Git/diff, Markdown, Settings, web-context,
-AI review, dialog, notification, and error/loading states against the centralized Phase 13B
-tokens without changing their behavior. Phase 13C is not started by this phase.
+Polish Context Preview and incoming web-context review, Git/diff, Markdown presentation,
+Settings and insights, documentation and multi-file workspaces, dialogs, menus, banners,
+notifications, and detailed empty/loading/error states against the centralized Phase 13B
+tokens without changing their behavior. Observer and Context Tray work is complete in 13C1.
