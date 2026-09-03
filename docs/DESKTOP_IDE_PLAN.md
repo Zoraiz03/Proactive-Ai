@@ -44,6 +44,7 @@ implementation and its verification evidence in the changelog.
 | Phase 11B2 | Verification In Progress | Secure Chrome pairing, incoming review, and local Context Tray handoff |
 | Phase 12A | Complete | Local code-to-documentation relationship detection |
 | Phase 12B | Complete | Safe, evidence-based Markdown update suggestions with explicit review and rollback |
+| Phase 13A | Complete | Read-only website visual audit and centralized desktop design-system plan |
 
 ## Recommended folder structure
 
@@ -1106,6 +1107,45 @@ automatic multi-document changes. Relationship discovery remains Phase 12A's bou
 deterministic analysis. AI output still requires human factual review, and the outstanding
 Phase 11B2 live two-application acceptance remains a release-verification item.
 
+## Phase 13 — Desktop coffee-cream visual identity
+
+### Phase 13A — Visual audit and design-system planning
+
+- [x] **Complete** — Confirm work remains on `desktop-ide-foundation`, not `main`, and
+  inspect the original browser application's tracked styling through read-only
+  `git ls-tree`, `git show main:<path>`, and `git grep` commands without switching branches
+  or modifying website files.
+- [x] **Complete** — Record the exact ten-color website palette plus every intentional
+  source-specific input, traffic-light, and dark coffee showcase color with its `main`
+  source location. No screenshot sampling, approximation, or invented palette is used.
+- [x] **Complete** — Audit Geist Sans/Mono and Georgia typography, Tailwind 3.4.19 spacing,
+  radii, borders, shadows, hover/focus/disabled states, and exact responsive breakpoints.
+- [x] **Complete** — Inventory every current Electron renderer surface and map website
+  patterns to shell/title/status bars, sidebar/navigation, Explorer/Search, editor/Monaco,
+  terminal/output/diagnostics, Observer, Context Tray, Git/diff, Markdown, Settings/auth,
+  dialogs/menus, AI review flows, and all empty/loading/error/notification states.
+- [x] **Complete** — Add `docs/DESIGN_SYSTEM_PLAN.md` with centralized semantic token
+  requirements, component mappings, WCAG contrast measurements/restrictions, responsive
+  pane behavior, staged Phases 13B–13D, and a visual QA checklist.
+- [x] **Complete** — Keep the phase documentation-only: no desktop UI/CSS/Monaco source,
+  web application, `main` branch, behavior, dependency, build output, or completed feature
+  is changed.
+
+Verification:
+
+- [x] **Complete** — Source/provenance checks confirm every recorded palette value exists
+  in the audited `main` styling files and the locked Tailwind version is 3.4.19.
+- [x] **Complete** — WCAG contrast calculations cover primary/secondary/accent/error and
+  dark coffee pairs; low-contrast tan/amber/green are explicitly restricted from small text.
+- [x] **Complete** — Markdown structure, docs-only changed-file scope, whitespace, branch,
+  clean-reference, and staged-diff checks pass before the focused commit.
+
+Known limitations: Phase 13A is a source audit and implementation plan, not a redesign.
+The website provides a complete light workspace vocabulary and a dark authentication
+showcase, but not a fully specified dark IDE component system. Phase 13B must not invent
+missing dark states. Visual parity, responsive interaction, and Monaco token tuning require
+implementation and screenshot QA in Phases 13B–13D.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1408,6 +1448,17 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-03 — Phase 13A desktop visual audit and planning complete
+
+- Audited the original `main` website through read-only Git object commands while staying
+  on `desktop-ide-foundation`; no branch switch or website working-tree change occurred.
+- Added `docs/DESIGN_SYSTEM_PLAN.md` with exact source-linked colors, typography, spacing,
+  radii, borders, shadows, interaction states, semantic tokens, full desktop surface
+  mapping, accessibility/contrast constraints, responsive behavior, staged implementation,
+  and visual QA requirements.
+- Kept all application source and behavior unchanged. Phase 13B is deliberately deferred
+  until explicit approval.
 
 ### 2026-09-03 — Phase 12B safe documentation update suggestions complete
 
@@ -2752,7 +2803,15 @@ Verification:
 | 2026-09-03 | Phase 12A builds/privacy checks | Complete | Desktop strict TypeScript/Electron build, root tests/lint/Next.js build, extension tests/type/build, secret/privacy scans, and whitespace validation passed. |
 | 2026-09-03 | Phase 12B documentation-update tests | Complete | 160/160 desktop tests passed across explicit generation, all supported actions, stale/range/path/Markdown protections, writable preflight, review, checkpoint, rollback, and prior regressions. |
 | 2026-09-03 | Phase 12B builds/privacy checks | Complete | Desktop strict TypeScript/Electron build, root tests/lint/Next.js build, extension tests/type/build, generated secret and request/analytics privacy scans, and whitespace validation passed. |
+| 2026-09-03 | Phase 13A website visual audit | Complete | Read-only `main` tree/show/grep inspection captured exact palette, typography, Tailwind 3.4.19 primitives, component states, and responsive patterns without switching branches. |
+| 2026-09-03 | Phase 13A documentation checks | Complete | Branch, exact-token provenance, WCAG contrast, Markdown structure, docs-only scope, whitespace, and staged-diff checks passed; no application source changed. |
 
 ## Recommended next task
 
-**Phase 13 — UI/UX Redesign Planning and Coffee-Cream Design System.**
+**Phase 13B — Desktop Theme Foundation and Shell Migration.**
+
+Implement centralized source-exact theme variables, bundled website fonts, shared
+interaction primitives,
+coffee-cream authentication, application shell/title/status bars, pane boundaries,
+activity/sidebar navigation, and a source-exact Monaco light-theme foundation without
+changing application behavior.
