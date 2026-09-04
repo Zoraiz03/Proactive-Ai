@@ -475,10 +475,10 @@ export default function Explorer({
 
       {dialog && (
         <div className="dialog-backdrop explorer-dialog-backdrop" role="presentation">
-          <section className="unsaved-dialog operation-dialog" role="dialog" aria-modal="true">
+          <section className="unsaved-dialog operation-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-operation-title" tabIndex={-1}>
             {dialog.kind === "delete" ? (
               <>
-                <h2>Delete {dialog.entry.kind}?</h2>
+                <h2 id="workspace-operation-title">Delete {dialog.entry.kind}?</h2>
                 <p>
                   Permanently delete <strong>{dialog.entry.relativePath}</strong>? Non-empty
                   folders will be refused.
@@ -495,7 +495,7 @@ export default function Explorer({
               </>
             ) : (
               <>
-                <h2>{dialog.kind === "rename" ? "Rename item" : dialog.kind === "create-file" ? "New file" : "New folder"}</h2>
+                <h2 id="workspace-operation-title">{dialog.kind === "rename" ? "Rename item" : dialog.kind === "create-file" ? "New file" : "New folder"}</h2>
                 <p>
                   {dialog.kind === "rename"
                     ? `Enter a new name for ${dialog.entry.relativePath}.`
@@ -516,7 +516,7 @@ export default function Explorer({
             )}
             {dialogError && <div className="dialog-error" role="alert">{dialogError}</div>}
             <div className="dialog-actions">
-              <button type="button" onClick={closeDialog} disabled={dialogBusy}>Cancel</button>
+              <button type="button" data-dialog-dismiss onClick={closeDialog} disabled={dialogBusy}>Cancel</button>
               <button
                 type="button"
                 className={dialog.kind === "delete" ? "danger" : "primary"}

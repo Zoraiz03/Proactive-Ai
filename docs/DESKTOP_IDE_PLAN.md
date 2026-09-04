@@ -47,6 +47,7 @@ implementation and its verification evidence in the changelog.
 | Phase 13A | Complete | Read-only website visual audit and centralized desktop design-system plan |
 | Phase 13B | Complete | Source-exact coffee-and-cream desktop foundation and complete visible shell migration |
 | Phase 13C1 | Complete | Observer and Context Tray visual refinement with preserved privacy and action flows |
+| Phase 13D | Complete | Final desktop UI polish, responsive containment, accessibility, and verification |
 
 ## Recommended folder structure
 
@@ -1225,6 +1226,66 @@ visual QA because that would transmit active project context to the configured e
 provider. Deterministic authenticated client tests cover response/error outcomes, while the
 live pass covers the explicit pre-send and local Context Tray interaction boundary.
 
+### Phase 13D — Final UI/UX polish and verification
+
+- [x] **Complete** — Normalized flex/grid minimum sizing, wrapping, dialog bounds, action
+  wrapping, and compact-window row limits so long paths, labels, context, code, and empty
+  states remain contained at the supported `760 × 560` minimum and at wider panel sizes.
+- [x] **Complete** — Added one shared topmost-modal focus manager that traps forward and
+  reverse Tab navigation, handles Escape through each dialog's existing dismiss action,
+  restores the previously focused control, and gives programmatically focused dialogs the
+  approved bronze focus treatment.
+- [x] **Complete** — Added missing dialog labels and icon-button accessible names to file
+  operations, Context Preview, and documentation-update surfaces without replacing icons or
+  changing control colors.
+- [x] **Complete** — Converted modern semantic alpha-color syntax to Monaco-compatible
+  eight-digit hexadecimal at the editor boundary. This preserves the exact approved palette
+  while preventing saturated fallback colors in Git and documentation diffs.
+- [x] **Complete** — Suppressed page-level overflow, kept compact Observer content internally
+  scrollable, respected reduced-motion for the shared loading spinner, and replaced the stale
+  Phase 11A status-bar copy with product-neutral workspace status.
+
+Verification:
+
+- [x] **Passed** — `desktop-ide-foundation` was confirmed before editing; `main` was never
+  checked out. The actual Phase 13B theme/token/Monaco/xterm/resizer implementation and Phase
+  13C1 Observer/Context Tray implementation were inspected before Phase 13D changes.
+- [x] **Passed** — Desktop strict TypeScript/Electron production build and all `164/164`
+  desktop tests pass, including focused dialog wrap/entry tests and semantic alpha-color
+  serialization tests. Root tests, lint, and Next.js production build pass. Chrome extension
+  `11/11` tests, strict TypeScript, Manifest V3 validation, and production build pass.
+- [x] **Passed** — Live Electron on macOS logged `contextIsolation=true`,
+  `nodeIntegration=false`, and `sandbox=true`. Keyboard-only checks covered visible focus,
+  forward/reverse dialog wrapping, Escape dismissal, focus restoration, the command palette,
+  tabs, sidebar actions, and Observer controls.
+- [x] **Passed** — Live sizes covered approximately `1197 × 661`, `964 × 665`, and the
+  supported `762 × 560` window, plus pointer panel resizing. The minimum window kept the
+  status bar pinned and scrolled focused Observer controls into view without body overflow.
+- [x] **Passed** — A disposable `/tmp/proactive-phase13d-fixture` repository covered long
+  nested names, Markdown/code blocks, an empty file, editor save, project search, terminal
+  input/output, JavaScript Run success, diagnostics/output presentation, Git status/diff,
+  Markdown preview, Settings, Context Tray add/remove, and the Observer Context Preview.
+- [ ] **Not run** — No live provider request was sent because it would transmit workspace
+  context. The explicit local pre-send path was exercised and authenticated response/error
+  behavior remains covered by deterministic tests.
+- [ ] **Not run** — The complete Chrome pairing/Add/Reject/restart/revoke acceptance flow
+  remains tracked under Phase 11B2; this pass verified its disabled/unavailable desktop state.
+- [ ] **Not run** — Windows-specific rendering and keyboard behavior were not tested. Phase
+  13D visual verification was performed on macOS only.
+
+Screenshots:
+
+- `docs/screenshots/phase-13d-main-workspace.jpg`
+- `docs/screenshots/phase-13d-settings.jpg`
+- `docs/screenshots/phase-13d-git-diff.jpg`
+- `docs/screenshots/phase-13d-minimum-window.jpg`
+
+Unresolved palette conflict (reported, not changed): the approved green `#7bb662` and amber
+status hues do not meet WCAG AA for small text on cream/card backgrounds (approximately
+`2.25:1` and `1.72:1`). Existing adjacent labels/icons preserve meaning, but any future use
+as standalone small text needs explicit design approval for a token adjustment. This is an
+optional future color review; Phase 13D makes no icon replacement or approved color change.
+
 ## Architecture decisions
 
 1. **Keep two applications in one repository.** The existing Next.js application
@@ -1527,6 +1588,17 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-09-04 — Phase 13D final UI/UX polish complete
+
+- Added responsive containment for compact windows, long paths and code, dialogs, action
+  rows, the editor, terminal/output, Observer, diagnostics, diffs, and empty states.
+- Added shared modal keyboard containment, Escape handling, focus restoration, missing
+  accessible names, reduced-motion spinner behavior, and focused accessibility regression
+  tests without changing product behavior.
+- Preserved the approved coffee-and-cream design while correcting Monaco's parsing of its
+  semantic alpha colors, completed macOS Electron smoke checks with a disposable fixture,
+  and captured the four review screenshots listed in the Phase 13D evidence.
 
 ### 2026-09-03 — Phase 13C1 Observer and Context Tray redesign complete
 
@@ -2910,12 +2982,12 @@ Verification:
 | 2026-09-03 | Phase 13B visual QA | Complete | Development and production Electron windows showed a coherent cream/card/sand/bronze shell with a source-approved ink/coffee terminal and no visible black, navy, violet, or purple surfaces. |
 | 2026-09-03 | Phase 13C1 Observer and Context Tray regressions | Complete | Strict TypeScript, 160/160 desktop tests with loopback permission, root tests/lint/build, Electron production build, and token/whitespace scans passed. |
 | 2026-09-03 | Phase 13C1 live visual QA | Complete | Electron verified exact computed theme colors, visible bronze focus, local Tray add/remove/clear and collapse/expand, long-preview containment, and 230px/380px Observer widths; populated screenshot saved under docs/screenshots. |
+| 2026-09-04 | Phase 13D automated regressions | Complete | Desktop 164/164 tests and production build, root tests/lint/build, extension 11/11 tests/type/build/manifest, focused focus/color tests, and whitespace validation passed. |
+| 2026-09-04 | Phase 13D live macOS UI/accessibility QA | Complete | Safe fixture smoke covered edit/save, search, terminal, Run/output, Git/diff, Markdown/empty files, Settings, Observer pre-send, Context Tray, keyboard focus/trapping/Escape/restoration, pointer panel resizing, and 1197px/964px/762px window widths. |
+| 2026-09-04 | Phase 13D Windows QA | Not run | No Windows environment was available; no Windows testing is claimed. |
 
 ## Recommended next task
 
-**Phase 13C2 — Remaining feature-surface visual refinement.**
-
-Polish Context Preview and incoming web-context review, Git/diff, Markdown presentation,
-Settings and insights, documentation and multi-file workspaces, dialogs, menus, banners,
-notifications, and detailed empty/loading/error states against the centralized Phase 13B
-tokens without changing their behavior. Observer and Context Tray work is complete in 13C1.
+Phase 13D is complete. No later implementation phase is selected here; stop after Phase 13D.
+The existing Phase 11B2 live pairing acceptance item and the optional approved-palette review
+remain separately tracked and are not expanded into this phase.

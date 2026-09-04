@@ -15,7 +15,7 @@ export default function ContextPreview({ request, onChange, onCancel, onSend }: 
   if (!context) return null;
   const unresolved = context.items.filter((item) => item.staleState === "stale" || item.staleState === "unavailable");
   return <div className="dialog-backdrop context-preview-backdrop" role="presentation">
-    <section className="context-preview" role="dialog" aria-modal="true" aria-labelledby="context-preview-title">
+    <section className="context-preview" role="dialog" aria-modal="true" aria-labelledby="context-preview-title" tabIndex={-1}>
       <header><div><h2 id="context-preview-title">Context Preview</h2><p>Review the exact focused package before it leaves this device.</p></div><button type="button" onClick={onCancel} aria-label="Close Context Preview">×</button></header>
       <div className="context-preview-summary"><strong>{context.intent.instruction}</strong><span>{context.items.length} items · {context.totalCharacters.toLocaleString()} characters · ~{context.estimatedTokens.toLocaleString()} tokens</span></div>
       <div className="context-preview-items">
@@ -29,7 +29,7 @@ export default function ContextPreview({ request, onChange, onCancel, onSend }: 
       </div>
       {context.omitted.length > 0 && <details className="context-omitted"><summary>{context.omitted.length} omitted or truncated candidate{context.omitted.length === 1 ? "" : "s"}</summary>{context.omitted.map((item, index) => <p key={`${item.type}-${index}`}><strong>{item.source ?? itemLabel(item.type)}</strong> — {item.reason}</p>)}</details>}
       {unresolved.length > 0 && <p className="context-preview-warning" role="alert">Resolve or remove {unresolved.length} stale/unavailable tray item{unresolved.length === 1 ? "" : "s"} before sending.</p>}
-      <footer><span>Limit: {context.limits.maximumTotalCharacters.toLocaleString()} chars · {context.limits.maximumRelatedFiles} related files · {context.limits.maximumCharactersPerFile.toLocaleString()} chars/file</span><div><button type="button" onClick={onCancel}>Cancel</button><button type="button" className="primary" onClick={onSend} disabled={unresolved.length > 0}>Send to Observer</button></div></footer>
+      <footer><span>Limit: {context.limits.maximumTotalCharacters.toLocaleString()} chars · {context.limits.maximumRelatedFiles} related files · {context.limits.maximumCharactersPerFile.toLocaleString()} chars/file</span><div><button type="button" data-dialog-dismiss onClick={onCancel}>Cancel</button><button type="button" className="primary" onClick={onSend} disabled={unresolved.length > 0}>Send to Observer</button></div></footer>
     </section>
   </div>;
 }

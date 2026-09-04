@@ -2848,6 +2848,19 @@ textarea:disabled {
   .observer-panel { border-top: var(--border-solid); }
 }
 
+@media (max-width: 1023px) {
+  .observer-workspace {
+    display: block;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .observer-scroll-region {
+    overflow: visible;
+  }
+}
+
 @media (max-width: 767px) {
   .phase-label { display: none; }
   .ide-layout {
@@ -4335,5 +4348,249 @@ textarea:disabled {
 
   .context-tray-chevron {
     transition: none;
+  }
+}
+
+/* Phase 13D: final sizing, overflow, focus, and responsive resilience. */
+html,
+body,
+#root {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.top-bar > *,
+.editor-pane > *,
+.observer-panel > *,
+.output-panel > *,
+.settings-center > *,
+.context-preview > *,
+.documentation-update-dialog > *,
+.observer-edit-review > *,
+.multi-file-plan > *,
+.multi-file-review > *,
+.multi-file-applied > * {
+  min-width: 0;
+}
+
+.top-bar h1,
+.top-bar .user-menu,
+.user-menu summary,
+.user-menu summary > span:last-child {
+  min-width: 0;
+}
+
+.top-bar h1,
+.user-menu summary > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[role="dialog"][aria-modal="true"] {
+  min-width: 0;
+  outline: none;
+}
+
+[role="dialog"][aria-modal="true"]:focus-visible {
+  outline: var(--focus-width) solid var(--desktop-focus);
+  outline-offset: calc(var(--focus-width) * -1);
+}
+
+.unsaved-dialog,
+.operation-dialog {
+  width: min(440px, calc(100vw - var(--space-8)));
+  overflow-wrap: anywhere;
+}
+
+.dialog-actions,
+.context-preview > footer,
+.context-preview > footer > div,
+.documentation-update-dialog > footer,
+.documentation-update-dialog > footer > div,
+.documentation-update-actions,
+.observer-review-actions,
+.multi-file-plan > header > div:last-child,
+.multi-file-review > header > div:last-child,
+.applied-actions {
+  flex-wrap: wrap;
+}
+
+.context-preview > header,
+.documentation-update-dialog > header,
+.observer-edit-review > header,
+.multi-file-plan > header,
+.multi-file-review > header,
+.git-diff-toolbar {
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.context-preview > header > div,
+.documentation-update-dialog > header > div,
+.git-diff-toolbar > div,
+.observer-review-meta,
+.multi-file-meta,
+.multi-file-plan-body,
+.documentation-update-body,
+.documentation-review-meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-preview-items,
+.documentation-update-body,
+.documentation-review-meta,
+.multi-file-plan-body,
+.multi-file-review-body,
+.multi-file-review-body > main,
+.observer-review-meta {
+  min-height: 0;
+}
+
+.observer-suggestion pre,
+.observer-result pre,
+.context-item pre,
+.documentation-context-review pre,
+.documentation-proposed-edit textarea,
+.markdown-preview pre,
+.output-messages pre,
+.multi-file-plan code,
+.multi-file-review code,
+.multi-file-applied code {
+  max-width: 100%;
+  overflow: auto;
+  overflow-wrap: normal;
+  white-space: pre-wrap;
+}
+
+.context-item-heading,
+.context-item-source,
+.context-preview-summary,
+.observer-review-labels,
+.git-diff-labels {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.context-item-heading strong,
+.context-item-source code,
+.context-preview-summary strong,
+.git-diff-toolbar strong,
+.multi-file-meta strong,
+.documentation-update-body dd,
+.documentation-review-meta,
+.observer-review-meta p,
+.observer-review-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.empty-state,
+.editor-empty,
+.explorer-empty,
+.observer-empty,
+.terminal-empty,
+.output-empty,
+.source-control-state,
+.documentation-impact-state,
+.git-diff-unavailable {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.ui-spinner {
+  margin-inline-end: var(--space-1);
+}
+
+@media (max-width: 900px) {
+  .phase-label {
+    display: none;
+  }
+
+  .top-bar {
+    gap: var(--space-1-5);
+    padding-inline: var(--space-2);
+  }
+
+  .settings-button {
+    white-space: nowrap;
+  }
+
+  .observer-edit-review > header,
+  .multi-file-plan > header,
+  .multi-file-review > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .observer-review-actions,
+  .multi-file-plan > header > div:last-child,
+  .multi-file-review > header > div:last-child {
+    width: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  .settings-button {
+    width: var(--space-9);
+    padding-inline: 0;
+    overflow: hidden;
+    color: transparent;
+    white-space: nowrap;
+  }
+
+  .settings-button::first-letter {
+    color: var(--desktop-text-muted);
+  }
+
+  .context-preview-backdrop,
+  .dialog-backdrop,
+  .documentation-update-backdrop,
+  .settings-backdrop,
+  .command-palette-backdrop {
+    padding: var(--space-2);
+  }
+
+  .context-preview,
+  .documentation-update-dialog,
+  .settings-center,
+  .command-palette,
+  .unsaved-dialog,
+  .operation-dialog {
+    width: calc(100vw - var(--space-4));
+    max-width: calc(100vw - var(--space-4));
+    max-height: calc(100vh - var(--space-4));
+  }
+}
+
+@media (max-width: 1023px) and (max-height: 640px) {
+  .ide-layout {
+    grid-template-rows: minmax(120px, 1fr) var(--pane-handle-size) minmax(100px, 140px) minmax(120px, 140px);
+  }
+}
+
+@media (max-height: 640px) {
+  .settings-center,
+  .context-preview,
+  .documentation-update-dialog,
+  .command-palette,
+  .unsaved-dialog,
+  .operation-dialog {
+    max-height: calc(100vh - var(--space-4));
+  }
+
+  .settings-center > header,
+  .context-preview > header,
+  .documentation-update-dialog > header {
+    min-height: 0;
+    padding-block: var(--space-2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-spinner {
+    animation: none;
   }
 }

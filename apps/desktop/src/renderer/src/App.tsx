@@ -107,6 +107,7 @@ import IncomingWebContextReview from "./IncomingWebContextReview";
 import DocumentationImpactPanel from "./DocumentationImpactPanel";
 import type { ChangedCodeSource, DocumentationRelationship, RelationshipDecision } from "../../shared/documentation-impact";
 import DocumentationUpdateWorkspace, { type DocumentationUpdateView } from "./DocumentationUpdateWorkspace";
+import ModalFocusManager from "./ModalFocusManager";
 import { validateDocumentationEdit, type DocumentationUpdateContext } from "../../shared/documentation-update";
 import { MONACO_CREAM_THEME } from "./theme";
 
@@ -2425,6 +2426,7 @@ export default function App({ user, onSignOut }: AppProps) {
 
   return (
     <div className="app-shell">
+      <ModalFocusManager />
       <header className="top-bar">
         <div className="brand-mark" aria-hidden="true"><span /></div>
         <h1>Proactive·AI <span>IDE</span></h1>
@@ -2679,7 +2681,7 @@ export default function App({ user, onSignOut }: AppProps) {
       </div>
 
       <footer className="status-bar">
-        <span>Phase 11A Privacy-safe Context Tray</span>
+        <span>Local-first secure workspace</span>
         <span>{hasDirtyTabs ? "Unsaved changes" : `${tabs.length} open file${tabs.length === 1 ? "" : "s"}`}</span>
       </footer>
 
@@ -2689,7 +2691,7 @@ export default function App({ user, onSignOut }: AppProps) {
             <h2 id="unsaved-dialog-title">{unsavedPrompt.title}</h2>
             <p>{unsavedPrompt.message}</p>
             <div className="dialog-actions">
-              <button type="button" onClick={() => answerUnsavedPrompt("cancel")}>Cancel</button>
+              <button type="button" data-dialog-dismiss onClick={() => answerUnsavedPrompt("cancel")}>Cancel</button>
               {unsavedPrompt.allowDiscard !== false && (
                 <button type="button" onClick={() => answerUnsavedPrompt("discard")}>Discard</button>
               )}
