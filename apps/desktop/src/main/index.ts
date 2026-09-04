@@ -13,10 +13,12 @@ import { registerVerificationTaskIpc } from "./verification-task-ipc";
 import { registerProactiveInsightsIpc } from "./proactive-insights-ipc";
 import { registerWebContextIpc } from "./web-context-ipc";
 import { DESKTOP_WINDOW_BACKGROUND } from "../shared/desktop-theme";
+import { registerAutomaticRunIpc } from "./automatic-run-ipc";
 
 declare const __DESKTOP_API_BASE_URL__: string;
 
 let mainWindow: BrowserWindow | null = null;
+let automaticRunIpc: ReturnType<typeof registerAutomaticRunIpc> | null = null;
 
 function createMainWindow(): BrowserWindow {
   const webPreferences: WebPreferences = {
@@ -38,6 +40,8 @@ function createMainWindow(): BrowserWindow {
   });
 
   mainWindow = window;
+  window.webContents.on("did-start-loading", () => automaticRunIpc?.reset());
+  window.webContents.once("destroyed", () => automaticRunIpc?.clearWorkspace());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== window.webContents.getURL()) event.preventDefault();
@@ -87,9 +91,11 @@ app.whenReady().then(() => {
     if (state.status !== "signed_out" && state.status !== "configuration_error") return;
     terminalIpc?.controller.clearWorkspace();
     runIpc?.controller.clearWorkspace();
+    automaticRunIpc?.clearWorkspace();
     void workspaceIpc?.clearWorkspace();
   });
   const getAuthenticatedWindow = () => authIpc.controller.isAuthenticated() ? mainWindow : null;
+  automaticRunIpc = registerAutomaticRunIpc(getAuthenticatedWindow, app.getPath("userData"), () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim());
   const observerIpc = registerObserverIpc(
     getAuthenticatedWindow,
     () => authIpc.controller.getAccessToken(),
@@ -108,9 +114,10 @@ app.whenReady().then(() => {
   const proactiveInsightsIpc = registerProactiveInsightsIpc(getAuthenticatedWindow, app.getPath("userData"));
   const webContextIpc = registerWebContextIpc(getAuthenticatedWindow, app.getPath("userData"));
   terminalIpc = registerTerminalIpc(getAuthenticatedWindow);
-  runIpc = registerRunIpc(getAuthenticatedWindow);
+  runIpc = registerRunIpc(getAuthenticatedWindow, automaticRunIpc.controller);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
     onWorkspaceOpened: (rootPath, webContentsId) => {
+      automaticRunIpc?.setWorkspace(rootPath, webContentsId);
       terminalIpc?.controller.setWorkspace(rootPath, webContentsId);
       runIpc?.controller.setWorkspace(rootPath, webContentsId);
       gitIpc.controller.setWorkspace(rootPath, webContentsId);
@@ -121,6 +128,7 @@ app.whenReady().then(() => {
       webContextIpc.controller.setWorkspace(webContentsId);
     },
     onWorkspaceClosed: (webContentsId) => {
+      automaticRunIpc?.clearWorkspace();
       terminalIpc?.controller.clearWorkspace(webContentsId);
       runIpc?.controller.clearWorkspace(webContentsId);
       gitIpc.controller.clearWorkspace(webContentsId);
@@ -130,9 +138,10 @@ app.whenReady().then(() => {
       verificationTaskIpc.controller.clearWorkspace(webContentsId);
       webContextIpc.controller.clearWorkspace(webContentsId);
     },
-    onWorkspaceChanged: () => observerIpc.controller.invalidate(),
+    onWorkspaceChanged: () => { observerIpc.controller.invalidate(); automaticRunIpc?.controller.invalidateFiles(); },
   }, app.getPath("userData"));
   app.once("will-quit", () => {
+    automaticRunIpc?.cleanup();
     observerIpc.cleanup();
     settingsIpc.cleanup();
     gitIpc.cleanup();

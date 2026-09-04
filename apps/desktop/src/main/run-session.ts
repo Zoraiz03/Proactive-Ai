@@ -11,6 +11,7 @@ import type { IpcResult } from "../shared/workspace";
 import { createTerminalEnvironment } from "./terminal-environment.ts";
 import { parseRunDiagnostics } from "./run-diagnostics.ts";
 import { readWorkspaceTextFile, resolveWorkspacePath } from "./workspace-files.ts";
+import type { AutomaticRunSnapshot } from "./automatic-run.ts";
 
 const MAX_REQUEST_PATH = 4_096;
 const MAX_OUTPUT_CHUNK = 64 * 1024;
@@ -37,6 +38,8 @@ interface ActiveRun {
 interface RunSink {
   output: (webContentsId: number, event: RunOutputEvent) => void;
   complete: (webContentsId: number, event: RunCompleteEvent) => void;
+  startedEvidence?: (webContentsId: number, snapshot: AutomaticRunSnapshot) => void;
+  completedEvidence?: (webContentsId: number, event: RunCompleteEvent, stderr: string) => void;
 }
 
 export function commandForRunFile(
@@ -109,7 +112,7 @@ export class RunSessionController {
     const rootPath = this.workspace.rootPath;
     const relativePath = (request as RunStartRequest).relativePath;
     try {
-      await readWorkspaceTextFile(rootPath, relativePath);
+      const sourceFile = await readWorkspaceTextFile(rootPath, relativePath);
       const resolved = await resolveWorkspacePath(rootPath, relativePath);
       const command = commandForRunFile(process.platform, resolved.realPath);
       if ("error" in command) throw new Error(command.error);
@@ -132,6 +135,8 @@ export class RunSessionController {
         stdout: "", stderr: "", stopped: false,
       };
       this.active = active;
+      // Evidence stays in main; never broadcast source content to the renderer.
+      this.sink.startedEvidence?.(webContentsId, { runId: active.runId, relativePath: active.relativePath, language: active.language, content: sourceFile.content });
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
       child.stdout.on("data", (data: string) => this.handleOutput(active, "stdout", data));
@@ -188,13 +193,15 @@ export class RunSessionController {
     if (this.active !== active) return;
     this.active = null;
     const status = active.stopped ? "stopped" : exitCode === 0 ? "succeeded" : "failed";
-    this.sink.complete(active.webContentsId, {
+    const completion: RunCompleteEvent = {
       runId: active.runId,
       status,
       exitCode,
       durationMs: Math.max(0, Date.now() - active.startedAt),
       diagnostics: parseRunDiagnostics(this.workspace?.rootPath ?? "", active.language, active.stderr),
-    });
+    };
+    this.sink.completedEvidence?.(active.webContentsId, completion, active.stderr);
+    this.sink.complete(active.webContentsId, completion);
   }
 
   private stopActive(notify: boolean): void {

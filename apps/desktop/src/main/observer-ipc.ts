@@ -35,6 +35,8 @@ export function registerObserverIpc(
   });
 
   ipcMain.handle(OBSERVER_CHANNELS.ask, async (event, value: unknown) => {
+    // Automatic requests are built only by the consent-gated main-process runner.
+    if (value && typeof value === "object" && "automaticRun" in value) return { ok: false, error: "Use the dedicated automatic failed-run control." };
     if (!isTrustedSender(event, getMainWindow)) {
       return { ok: false, error: "Observer request was rejected." };
     }

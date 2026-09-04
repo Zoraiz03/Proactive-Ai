@@ -2,6 +2,11 @@
 
 ## Document purpose
 
+**2026-09-04 amendment:** Experiment A1 permits automatic failed-run explanations
+after explicit session-level consent. Its narrow scope and verification status
+are recorded in `AUTOMATIC_RUN_EXPLANATIONS.md`. This supersedes only the earlier
+blanket ban on automatic AI requests, not edit/command approval requirements.
+
 This document defines the product direction for the pivot from the original
 browser-based **Proactive AI Workspace** and Chrome extension concept to a
 desktop-first product named **Proactive AI IDE**. It is a product-direction
@@ -87,7 +92,8 @@ The following are not first-release commitments:
 - A new Chrome extension or browser-activity monitoring.
 - Cursor-movement, keystroke-pattern, repeated-typing, attention, emotion, or
   productivity surveillance.
-- Unprompted AI calls, automatic code changes, or autonomous command execution.
+- AI calls without explicit consent, automatic code changes, or autonomous command
+  execution. Experiment A1 permits bounded failed-run requests after session opt-in.
 - Proactive alerts for style preferences, speculative improvements, or general
   conversation unrelated to an observed technical failure.
 - Support for every programming language, shell, operating system, package
@@ -165,11 +171,12 @@ Cursor movement and repeated typing are not meaningful technical failures and
 must not be detected or used as triggers. The product will not infer that a user
 is stuck from keystroke patterns, inactivity, navigation, or repeated edits.
 
-Even when an eligible event occurs, it may only produce a local, non-disruptive
-offer of help. **No AI request is sent automatically.** The user must approve the
-request and its context before any project material is transmitted to the
-backend or an AI provider. Proactive features must be independently configurable
-and easy to disable.
+Existing Assist nudges remain local and require Context Preview before an AI call.
+Experiment A1 additionally allows automatic explanations of failed Python and
+JavaScript runs after explicit session-level opt-in, without per-request clicks.
+Only bounded error/source context is eligible; no edits or commands happen
+automatically. This exception must remain independently configurable, clearly
+disclosed and easy to disable. It is still awaiting interactive/user evaluation.
 
 ## 9. Architecture overview
 
@@ -191,7 +198,8 @@ The system remains a two-application architecture in one product ecosystem:
 
 Local project files remain local by default. The desktop authorizes one selected
 workspace, validates every privileged request in the main process, and transmits
-only context explicitly approved for a particular Observer request.
+only context explicitly approved for a manual request or within the bounded,
+explicitly enabled automatic failed-run experiment.
 
 Markdown remains source text owned by the existing Monaco tab/save/conflict model.
 `.md` and `.mdx` previews are inert, sanitized GitHub-flavored Markdown: raw HTML and
@@ -215,9 +223,10 @@ and multi-file collection are reserved for a separately approved future phase.
    outcome persistence under RLS, and undoable suggestion application.
 5. **Markdown documentation** — Add Markdown editing, sanitized preview,
    navigation, and explicit Observer context across related code and documents.
-6. **Optional technical-event assistance** — Prototype only the approved event
-   triggers, require user permission before every AI request, add controls and
-   noise limits, and evaluate usefulness and privacy.
+6. **Optional technical-event assistance** — Prototype only approved triggers,
+   require per-request permission for existing nudges or session permission for
+   the bounded failed-run experiment, enforce noise limits, and evaluate usefulness
+   and privacy.
 7. **Release readiness** — Package native dependencies, choose supported targets,
    sign installers, secure updates, and complete clean-machine, security, privacy,
    and regression checks.

@@ -1,4 +1,19 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { AUTOMATIC_RUN_CHANNELS, type AutomaticRunBridge, type AutomaticRunActivity, type AutomaticRunState } from "../shared/automatic-run";
+import type { ObserverProvider } from "../shared/observer";
+
+const automaticRunBridge: AutomaticRunBridge = Object.freeze({
+  configure: (enabled: boolean, provider: ObserverProvider) => ipcRenderer.invoke(AUTOMATIC_RUN_CHANNELS.configure, enabled, provider),
+  activity: (activity: AutomaticRunActivity) => ipcRenderer.send(AUTOMATIC_RUN_CHANNELS.activity, activity),
+  dismiss: () => ipcRenderer.send(AUTOMATIC_RUN_CHANNELS.dismiss),
+  getState: () => ipcRenderer.invoke(AUTOMATIC_RUN_CHANNELS.getState),
+  onState: (listener: (state: AutomaticRunState) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: AutomaticRunState) => listener(state);
+    ipcRenderer.on(AUTOMATIC_RUN_CHANNELS.state, wrapped);
+    return () => ipcRenderer.removeListener(AUTOMATIC_RUN_CHANNELS.state, wrapped);
+  },
+});
+contextBridge.exposeInMainWorld("automaticRun", automaticRunBridge);
 import {
   WORKSPACE_CHANNELS,
   type FileWriteRequest,

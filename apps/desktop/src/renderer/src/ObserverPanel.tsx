@@ -8,7 +8,7 @@ import {
   OBSERVER_PROVIDERS,
   OBSERVER_PROVIDER_LABELS,
 } from "../../shared/observer";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { ProactiveAction, ProactiveNudge } from "../../shared/proactive-observer";
 import type { UsefulnessFeedback } from "../../shared/proactive-insights";
 import type { ContextTrayItem } from "../../shared/context-tray";
@@ -25,6 +25,8 @@ const OBSERVER_STATUS_LABELS: Record<ObserverStatus, string> = {
 };
 
 interface ObserverPanelProps {
+  automaticRunEnabled: boolean;
+  automaticRunCard: ReactNode;
   mode: ObserverMode;
   modes: readonly ObserverMode[];
   provider: ObserverProvider;
@@ -63,6 +65,8 @@ interface ObserverPanelProps {
 }
 
 export default function ObserverPanel({
+  automaticRunEnabled,
+  automaticRunCard,
   mode,
   modes,
   provider,
@@ -175,6 +179,7 @@ export default function ObserverPanel({
       </section>
 
       <div className="observer-scroll-region">
+        {automaticRunCard}
         <ContextTray
           items={contextTrayItems}
           maximumCharacters={maximumContextCharacters}
@@ -227,7 +232,7 @@ export default function ObserverPanel({
             <div className="observer-empty">
               <span className="observer-state-emblem" aria-hidden="true"><span /></span>
               <strong>Ready when you are</strong>
-              <p>Observer sends nothing until you explicitly ask.</p>
+              <p>{automaticRunEnabled ? "Auto-explain is enabled for failed runs. Ask Observer remains available for manual help." : "Ask Observer for help, or explicitly enable Auto-explain for failed runs."}</p>
             </div>
           )}
           {status === "thinking" && (
@@ -274,7 +279,7 @@ export default function ObserverPanel({
       </div>
 
       <div className="observer-privacy-note">
-        Context is built locally and shown before sending. No project-wide upload, indexing, or automatic request occurs.
+        Manual requests show Context Preview. Auto-explain, when explicitly enabled, sends bounded failed-run context without another preview. No project-wide upload or automatic edits.
       </div>
     </div>
   );

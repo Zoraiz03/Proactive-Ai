@@ -1,13 +1,14 @@
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { RUNNER_CHANNELS, type RunStartRequest, type RunStopRequest } from "../shared/runner";
 import { RunSessionController } from "./run-session";
+import type { AutomaticRunController } from "./automatic-run";
 
 function isTrustedSender(event: IpcMainInvokeEvent, getMainWindow: () => BrowserWindow | null): boolean {
   const window = getMainWindow();
   return Boolean(window && !window.isDestroyed() && BrowserWindow.fromWebContents(event.sender) === window);
 }
 
-export function registerRunIpc(getMainWindow: () => BrowserWindow | null): {
+export function registerRunIpc(getMainWindow: () => BrowserWindow | null, automaticRun?: AutomaticRunController): {
   controller: RunSessionController;
   cleanup: () => void;
 } {
@@ -18,6 +19,8 @@ export function registerRunIpc(getMainWindow: () => BrowserWindow | null): {
     }
   };
   const controller = new RunSessionController({
+    startedEvidence: (_id, snapshot) => automaticRun?.runStarted(snapshot),
+    completedEvidence: (_id, event, stderr) => automaticRun?.runCompleted(event, stderr),
     output: (id, event) => send(RUNNER_CHANNELS.output, id, event),
     complete: (id, event) => send(RUNNER_CHANNELS.complete, id, event),
   });

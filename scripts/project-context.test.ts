@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./automatic-run.test.ts";
 import { ProjectContextSchema, formatUntrustedProjectContext, safeProjectContextMetadata } from "../src/lib/server/project-context.ts";
 import { buildPrompt, parseModelJson } from "../src/lib/server/providers.ts";
 import { EditBaseSchema, StructuredEditSchema, validateModelEdit } from "../src/lib/server/ai-edit.ts";

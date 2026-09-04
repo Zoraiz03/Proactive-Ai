@@ -48,6 +48,7 @@ implementation and its verification evidence in the changelog.
 | Phase 13B | Complete | Source-exact coffee-and-cream desktop foundation and complete visible shell migration |
 | Phase 13C1 | Complete | Observer and Context Tray visual refinement with preserved privacy and action flows |
 | Phase 13D | Complete | Final desktop UI polish, responsive containment, accessibility, and verification |
+| Experiment A1 | In Progress | Automatic failed-run explanations implemented; 183 desktop tests and backend/build checks pass; interactive/provider acceptance pending |
 
 ## Recommended folder structure
 
@@ -2988,6 +2989,12 @@ Verification:
 
 ## Recommended next task
 
-Phase 13D is complete. No later implementation phase is selected here; stop after Phase 13D.
+Phase 13D is complete. Experiment A1 — automatic failed-run explanations — was
+authorized on 2026-09-04 and implemented after that phase. Automated verification
+passed; interactive/provider acceptance remains In Progress. See
+[`AUTOMATIC_RUN_EXPLANATIONS.md`](./AUTOMATIC_RUN_EXPLANATIONS.md) for behavior,
+privacy changes, evidence, and a safe fixture-based try-out checklist.
+
+Next: try the experiment interactively before expanding proactive triggers.
 The existing Phase 11B2 live pairing acceptance item and the optional approved-palette review
 remain separately tracked and are not expanded into this phase.

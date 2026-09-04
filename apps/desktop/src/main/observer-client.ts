@@ -70,11 +70,14 @@ export class ObserverApiClient {
     return this.baseUrl !== null;
   }
 
-  async ask(request: ObserverRequest): Promise<IpcResult<ObserverAskResult>> {
+  async ask(request: ObserverRequest, signal?: AbortSignal): Promise<IpcResult<ObserverAskResult>> {
     if (!this.baseUrl) return { ok: false, error: "Observer backend is not configured." };
     const accessToken = await this.getAccessToken().catch(() => null);
     if (!accessToken) return { ok: false, error: "Sign in before asking Observer." };
+    if (signal?.aborted) return { ok: false, error: "Observer request cancelled." };
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     const timeout = setTimeout(() => controller.abort(), 45_000);
     try {
       const response = await this.fetchImplementation(`${this.baseUrl}/api/suggest`, {
@@ -109,6 +112,7 @@ export class ObserverApiClient {
       return { ok: false, error: publicRequestError(error) };
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
     }
   }
 

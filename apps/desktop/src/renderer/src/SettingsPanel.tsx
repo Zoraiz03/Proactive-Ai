@@ -176,7 +176,7 @@ export default function SettingsPanel(props: Props) {
             </div>
           </>}
           {active === "Privacy" && <>
-            <h3>Privacy</h3><p>Local project files are never uploaded automatically. Observer sends focused context only after you ask.</p>
+            <h3>Privacy</h3><p>Manual Observer requests show focused context before sending. The separate, session-only Auto-explain switch in Observer can send bounded failed-run code and errors automatically after explicit consent. It never includes Context Tray items or edits files.</p>
             <Toggle label="Never send .env files" checked disabled onChange={() => undefined} />
             <Toggle label="Never send credentials, private keys, tokens, or secret files" checked disabled onChange={() => undefined} />
             <div className="mandatory-exclusions"><strong>Permanent secret exclusions</strong><code>{MANDATORY_SECRET_EXCLUSIONS.join(", ")}</code></div>

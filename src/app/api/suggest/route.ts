@@ -29,6 +29,7 @@ const WebBody = z.object({
 });
 
 const DesktopBody = z.object({
+  automaticRun: z.object({ trigger: z.literal("failed_run"), runId: z.string().uuid() }).strict().optional(),
   client: z.literal("desktop"),
   provider: ProviderSchema,
   model: z.string().min(1).max(100).optional(),
@@ -53,6 +54,19 @@ const DesktopBody = z.object({
   contextPackage: ProjectContextSchema,
   editBase: EditBaseSchema.optional(),
 }).superRefine((body, context) => {
+  const automaticContextInvalid = body.mode !== "explain" || body.kind !== "code" ||
+    !["python", "javascript"].includes(body.language) || body.editBase || body.storeHistory ||
+    body.contextPackage.totalCharacters > 9_000 || body.contextPackage.items.length !== 3 ||
+    !body.contextPackage.items.some((item) => item.type === "controlled_run_error") ||
+    !body.contextPackage.items.some((item) => item.type === "nearby_code") ||
+    body.contextPackage.items.some((item) =>
+      !["user_instruction", "controlled_run_error", "nearby_code"].includes(item.type) ||
+      (item.source.relativePath && item.source.relativePath !== body.contextPackage.activeFile.relativePath) ||
+      (item.type === "nearby_code" && item.content.length > 6_000) ||
+      (item.type === "controlled_run_error" && item.content.length > 2_000));
+  if (body.automaticRun && automaticContextInvalid) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Automatic explanations require bounded failed-run context, explanation-only mode, and disabled history." });
+  }
   if (body.model && body.model !== ModelForProvider[body.provider]) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "The requested model is not supported for this provider." });
   }
@@ -174,6 +188,7 @@ export async function POST(req: Request) {
       kind,
       content,
       context,
+      ...(desktop?.automaticRun ? { automaticRun: true } : {}),
       ...(desktop ? { projectContext: desktop.contextPackage } : {}),
       ...(desktop?.editBase ? { editBase: desktop.editBase } : {}),
     }, desktop?.model);

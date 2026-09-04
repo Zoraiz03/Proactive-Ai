@@ -83,6 +83,7 @@ export interface ObserverDiagnosticContext {
 }
 
 export interface ObserverRequest {
+  automaticRun?: { trigger: "failed_run"; runId: string };
   provider: ObserverProvider;
   model?: string;
   storeHistory?: boolean;

@@ -1,4 +1,6 @@
 import Editor from "@monaco-editor/react";
+import { AUTOMATIC_RUN_CONFIG, AUTOMATIC_RUN_OFF, type AutomaticRunState } from "../../shared/automatic-run";
+import AutomaticRunCard from "./AutomaticRunCard";
 import type { editor as MonacoEditor } from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { monacoLanguageForFile } from "../../shared/languages";
@@ -592,6 +594,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [observerMode, setObserverMode] = useState<ObserverMode>("explain");
   const [observerProvider, setObserverProvider] = useState<ObserverProvider>("gemini");
   const [observerStatus, setObserverStatus] = useState<ObserverStatus>("idle");
+  const [automaticRunState, setAutomaticRunState] = useState<AutomaticRunState>({ ...AUTOMATIC_RUN_OFF });
   const [observerSnapshot, setObserverSnapshot] = useState<EditorObserverSnapshot | null>(null);
   const [observerSuggestion, setObserverSuggestion] = useState<ObserverSuggestion | null>(null);
   const [observerError, setObserverError] = useState<string | null>(null);
@@ -774,6 +777,40 @@ export default function App({ user, onSignOut }: AppProps) {
     [activePath, tabs]
   );
   const activeIsMarkdown = Boolean(activeTab && isMarkdownFile(activeTab.file.name));
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = window.automaticRun.onState((state) => { if (active) setAutomaticRunState(state); });
+    void window.automaticRun.getState().then((state) => { if (active) setAutomaticRunState(state); });
+    return () => { active = false; unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    const report = () => window.automaticRun.activity({
+      relativePath: activePath,
+      dirty: Boolean(activeTab && (isDirty(activeTab) || activeTab.externalConflict || activeTab.availability !== "available")),
+      blocked: Boolean(!settingsLoaded || !syncedSettings.observerEnabled || settingsOpen || unsavedPrompt || contextPreviewRequest || observerEditReview || observerStatus !== "idle" || observerSuggestion || multiFileBusy || multiFilePlan || multiFileChangeSet || multiFileApplied || documentationUpdateView || gitDiff || signingOut || incomingWebContext || document.querySelector('[role="dialog"], dialog[open]')),
+      focused: document.hasFocus() && document.visibilityState === "visible",
+    });
+    report();
+    const interval = window.setInterval(report, AUTOMATIC_RUN_CONFIG.heartbeatMs);
+    window.addEventListener("blur", report); window.addEventListener("focus", report); document.addEventListener("visibilitychange", report);
+    return () => { window.clearInterval(interval); window.removeEventListener("blur", report); window.removeEventListener("focus", report); document.removeEventListener("visibilitychange", report); };
+  }, [activePath, activeTab, settingsLoaded, syncedSettings.observerEnabled, settingsOpen, unsavedPrompt, contextPreviewRequest, observerEditReview, observerStatus, observerSuggestion, multiFileBusy, multiFilePlan, multiFileChangeSet, multiFileApplied, documentationUpdateView, gitDiff, signingOut, incomingWebContext]);
+
+  useEffect(() => {
+    if (settingsLoaded && !syncedSettings.observerEnabled && automaticRunState.enabled) void window.automaticRun.configure(false, observerProvider).then((result) => { if (result.ok) setAutomaticRunState(result.value); });
+  }, [settingsLoaded, syncedSettings.observerEnabled, automaticRunState.enabled, observerProvider]);
+
+  useEffect(() => {
+    if (!automaticRunState.enabled || !["waiting", "thinking", "ready", "error", "skipped"].includes(automaticRunState.status)) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || settingsOpen || unsavedPrompt || contextPreviewRequest || observerEditReview || observerSuggestion || document.querySelector('[role="dialog"], dialog[open]')) return;
+      window.automaticRun.dismiss();
+      setAutomaticRunState((current) => ({ enabled: current.enabled, provider: current.provider, status: "armed", message: "Dismissed. No repeat explanation for this unchanged failure." }));
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [automaticRunState.enabled, automaticRunState.status, settingsOpen, unsavedPrompt, contextPreviewRequest, observerEditReview, observerSuggestion]);
   const activeMarkdownViewMode = activePath ? markdownViewModes[activePath] ?? "edit" : "edit";
   const observerModes = activeIsMarkdown ? DOCUMENT_OBSERVER_MODES : CODE_OBSERVER_MODES;
   const activeObserverMode: ObserverMode = observerModes.some((mode) => mode === observerMode)
@@ -783,7 +820,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const proactiveSettings = useMemo<ProactiveSettingsSnapshot>(() => ({
     mode: localSettings.proactiveObserverMode,
     persistentDiagnostics: localSettings.proactivePersistentDiagnostics,
-    failedRuns: localSettings.proactiveFailedRuns,
+    failedRuns: localSettings.proactiveFailedRuns && !automaticRunState.enabled,
     failedTests: localSettings.proactiveFailedTests,
     failedBuilds: localSettings.proactiveFailedBuilds,
     cooldownMinutes: localSettings.proactiveCooldownMinutes,
@@ -795,7 +832,7 @@ export default function App({ user, onSignOut }: AppProps) {
     mutedErrors: localSettings.proactiveMutedErrors,
     mutedFiles: localSettings.proactiveMutedFiles,
     mutedProjects: localSettings.proactiveMutedProjects,
-  }), [localSettings]);
+  }), [localSettings, automaticRunState.enabled]);
 
   const observerRequest = useMemo<ObserverPrepareRequest | null>(() => {
     if (!syncedSettings.observerEnabled || !activeTab || activeTab.availability !== "available" || activeTab.externalConflict || isExcludedFromAiContext(activeTab.file.relativePath, localSettings.aiContextExclusions)) return null;
@@ -2364,6 +2401,8 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [hasDirtyTabs]);
 
   const updateDraft = (relativePath: string, content: string) => {
+    // Immediate invalidation, including edits later undone before the next render.
+    window.automaticRun.activity({ relativePath, dirty: true, blocked: true, focused: document.hasFocus() });
     setContextTrayItems((current) => markContextTrayPathStale(current, relativePath));
     setTabs((current) =>
       current.map((tab) =>
@@ -2613,6 +2652,8 @@ export default function App({ user, onSignOut }: AppProps) {
 
         <aside className="panel observer-panel">
           <ObserverPanel
+            automaticRunEnabled={automaticRunState.enabled}
+            automaticRunCard={<AutomaticRunCard state={automaticRunState} provider={observerProvider} available={workspaceOpen && settingsLoaded && syncedSettings.observerEnabled} onState={setAutomaticRunState} />}
             mode={activeObserverMode}
             modes={observerModes}
             provider={observerProvider}
@@ -2638,7 +2679,7 @@ export default function App({ user, onSignOut }: AppProps) {
             focusToken={observerFocusToken}
             multiFileDescription={multiFileDescription}
             onMultiFileDescriptionChange={setMultiFileDescription}
-            proactiveNudge={proactiveNudge}
+            proactiveNudge={automaticRunState.enabled && proactiveNudge?.event.detectorType === "failed_run" ? null : proactiveNudge}
             onProactiveAction={(action) => void handleProactiveAction(action)}
             onProactiveNotNow={() => { const event = finishProactiveNudge("not_now"); if (event) queueUsefulnessPrompt(event); }}
             onProactiveMute={muteProactiveNudge}
