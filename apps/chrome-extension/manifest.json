@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Proactive AI IDE — Selected Text Preview",
+  "version": "0.1.0",
+  "description": "Select text on websites you enable, review it, and send it to Proactive AI IDE.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "action": {
+    "default_title": "Proactive AI selection tools",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; connect-src http://127.0.0.1:*"
+  }
+}

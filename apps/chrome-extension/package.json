@@ -1,0 +1,18 @@
+{
+  "name": "@proactive-ai/chrome-selection",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Explicit selected-text preview extension for Proactive AI IDE",
+  "type": "module",
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "test": "node --test --experimental-strip-types src/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "validate:manifest": "node scripts/validate-manifest.mjs",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs && npm run validate:manifest"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "7.0.2"
+  }
+}

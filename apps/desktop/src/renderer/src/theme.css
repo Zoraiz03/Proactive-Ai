@@ -1,0 +1,140 @@
+@font-face {
+  font-family: "Geist Sans";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../../../../../src/app/fonts/GeistVF.woff") format("woff");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../../../../../src/app/fonts/GeistMonoVF.woff") format("woff");
+}
+
+:root {
+  color-scheme: light;
+
+  /* Source-exact website palette. */
+  --cream: #faf7f0;
+  --cream-deep: #f3ecdf;
+  --card: #fdfbf6;
+  --ink: #2b2118;
+  --ink-soft: #5c4d3d;
+  --bronze: #8a5a34;
+  --bronze-deep: #6f4e2e;
+  --ember: #b4552d;
+  --sand: #e8dfd0;
+  --tan: #b9a68f;
+  --brand-input: #fffdf5;
+  --canvas-white: #ffffff;
+  --window-close: #e5654f;
+  --window-warn: #e8b84f;
+  --window-success: #7bb662;
+  --google-blue: #4285f4;
+  --coffee-highlight: #4a3626;
+  --coffee-mid: #2c2015;
+  --coffee-deep: #1e150d;
+  --coffee-star: #d8c3a5;
+  --coffee-orbit: #5c4630;
+  --coffee-emblem: #f5efe3;
+  --coffee-eyebrow: #c9a876;
+  --coffee-text: #f0e8da;
+  --coffee-accent: #e0b877;
+
+  /* Source-backed derived colors. */
+  --bronze-15: rgb(138 90 52 / 15%);
+  --bronze-40: rgb(138 90 52 / 40%);
+  --ember-5: rgb(180 85 45 / 5%);
+  --ember-10: rgb(180 85 45 / 10%);
+  --ember-30: rgb(180 85 45 / 30%);
+  --sand-50: rgb(232 223 208 / 50%);
+  --ink-10: rgb(43 33 24 / 10%);
+  --ink-15: rgb(43 33 24 / 15%);
+  --ink-25: rgb(43 33 24 / 25%);
+  --ink-50: rgb(43 33 24 / 50%);
+
+  /* Semantic desktop colors. */
+  --desktop-background: var(--cream);
+  --desktop-surface: var(--card);
+  --desktop-surface-subtle: var(--cream-deep);
+  --desktop-canvas: var(--canvas-white);
+  --desktop-input: var(--brand-input);
+  --desktop-border: var(--sand);
+  --desktop-border-strong: var(--tan);
+  --desktop-text: var(--ink);
+  --desktop-text-muted: var(--ink-soft);
+  --desktop-text-subtle: var(--tan);
+  --desktop-accent: var(--bronze-deep);
+  --desktop-accent-hover: var(--bronze);
+  --desktop-accent-text: var(--cream);
+  --desktop-focus: var(--bronze);
+  --desktop-hover: var(--cream);
+  --desktop-hover-strong: var(--sand);
+  --desktop-selected: var(--cream-deep);
+  --desktop-success: var(--window-success);
+  --desktop-warning: var(--window-warn);
+  --desktop-error: var(--ember);
+  --desktop-error-border: var(--ember-30);
+  --desktop-error-surface: var(--ember-5);
+  --desktop-overlay: var(--ink-25);
+  --desktop-terminal: var(--ink);
+  --desktop-terminal-text: var(--cream);
+
+  /* Typography. */
+  --font-ui: "Geist Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  --font-display: Georgia, "Times New Roman", serif;
+  --text-compact: 10px;
+  --text-meta: 11px;
+  --text-navigation: 12px;
+  --text-ui: 14px;
+  --text-emphasis: 15px;
+  --line-body: 1.5;
+  --line-document: 1.75;
+
+  /* Tailwind 3.4.19 source spacing scale. */
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-14: 56px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  /* Shape and elevation. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+  --border-width: 1px;
+  --border-solid: var(--border-width) solid var(--desktop-border);
+  --border-dashed: var(--border-width) dashed var(--desktop-border-strong);
+  --focus-width: 2px;
+  --focus-offset: 2px;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 5%);
+  --shadow-default: 0 1px 3px 0 rgb(0 0 0 / 10%), 0 1px 2px -1px rgb(0 0 0 / 10%);
+  --shadow-preview: 0 24px 60px -20px var(--desktop-overlay);
+
+  /* Shell geometry. */
+  --titlebar-height: 48px;
+  --statusbar-height: 24px;
+  --activitybar-width: 48px;
+  --sidebar-width: 230px;
+  --observer-width: 290px;
+  --bottom-panel-height: 220px;
+  --pane-handle-size: 6px;
+}

@@ -1,0 +1,14 @@
+:root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { width: 340px; margin: 0; background: Canvas; color: CanvasText; }
+main { display: grid; gap: 11px; padding: 14px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 9px; border-bottom: 1px solid color-mix(in srgb, CanvasText 20%, transparent); }
+header div, .site-card, .desktop-card { display: grid; gap: 6px; } header div span, section > span, section p { opacity: .72; font-size: 12px; }
+#site-badge { padding: 3px 7px; border-radius: 999px; background: color-mix(in srgb, CanvasText 10%, transparent); font-size: 11px; font-weight: 700; }
+#site-badge.on { background: #216e42; color: white; opacity: 1; }
+.site-card, .desktop-card, .privacy { padding: 10px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 7px; }
+section p, .privacy { margin: 0; line-height: 1.45; }
+button, input { box-sizing: border-box; min-height: 32px; border: 1px solid color-mix(in srgb, CanvasText 28%, transparent); border-radius: 6px; background: Canvas; color: CanvasText; }
+button { padding: 6px 9px; cursor: pointer; font-weight: 650; } button:disabled { opacity: .5; cursor: default; }
+#site-toggle { justify-self: start; }
+.pair-row { display: grid; gap: 5px; }.pair-row label { font-size: 11px; }.pair-row > div { display: flex; gap: 6px; }.pair-row input { width: 100%; padding: 6px 8px; letter-spacing: 1px; }
+.privacy { font-size: 11px; opacity: .75; }

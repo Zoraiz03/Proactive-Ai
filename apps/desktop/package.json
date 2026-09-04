@@ -1,0 +1,41 @@
+{
+  "name": "@proactive-ai/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Secure Electron shell for Proactive AI IDE",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "postinstall": "electron-rebuild -f -w node-pty",
+    "rebuild:native": "electron-rebuild -f -w node-pty",
+    "test": "node --test src/main/automatic-run.test.ts src/main/workspace-files.test.ts src/main/recent-projects.test.ts src/main/settings.test.ts src/main/git-service.test.ts src/main/project-context.test.ts src/main/context-tray.test.ts src/main/web-context-bridge.test.ts src/main/ai-edit.test.ts src/main/checkpoint-store.test.ts src/main/multi-file-change.test.ts src/main/proactive-observer.test.ts src/main/proactive-insights.test.ts src/main/documentation-impact.test.ts src/main/documentation-update.test.ts src/renderer/src/command-palette.test.ts src/renderer/src/dialog-focus.test.ts src/renderer/src/theme-color.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "electron-vite preview"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@supabase/supabase-js": "2.110.1",
+    "@vscode/ripgrep": "1.18.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "chokidar": "^5.0.0",
+    "monaco-editor": "^0.56.0",
+    "node-pty": "^1.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/node": "^26.2.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.4.1",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
+  }
+}

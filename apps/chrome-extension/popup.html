@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Proactive AI</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header><div><strong>Proactive AI IDE</strong><span>Selected-text tools</span></div><span id="site-badge">Off</span></header>
+      <section class="site-card" aria-labelledby="site-title">
+        <strong id="site-title">Current website</strong>
+        <span id="site-name">Open a normal webpage</span>
+        <p id="site-status">This feature is off.</p>
+        <button id="site-toggle" type="button" disabled>Turn on for this website</button>
+      </section>
+      <section class="desktop-card" aria-labelledby="desktop-title">
+        <strong id="desktop-title">Desktop connection</strong>
+        <p id="desktop-status">Checking this browser session…</p>
+        <div class="pair-row">
+          <label for="pairing-code">Pairing code from the IDE</label>
+          <div><input id="pairing-code" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="8-digit code"><button id="pair" type="button">Connect</button></div>
+        </div>
+        <button id="disconnect" type="button" hidden>Disconnect / Forget</button>
+      </section>
+      <aside class="privacy">When this website is on, highlighting normal page text shows a small P icon. Text stays on the page until you click the icon, review it, and choose Send to IDE.</aside>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
