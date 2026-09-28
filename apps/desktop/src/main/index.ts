@@ -1,3 +1,4 @@
+import { registerLiveObserverIpc } from "./live-observer-ipc";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, session, type WebPreferences } from "electron";
 import { registerWorkspaceIpc } from "./workspace-ipc";
@@ -18,6 +19,7 @@ import { registerAutomaticRunIpc } from "./automatic-run-ipc";
 declare const __DESKTOP_API_BASE_URL__: string;
 
 let mainWindow: BrowserWindow | null = null;
+let liveObserverIpc: ReturnType<typeof registerLiveObserverIpc> | null = null;
 let automaticRunIpc: ReturnType<typeof registerAutomaticRunIpc> | null = null;
 
 function createMainWindow(): BrowserWindow {
@@ -40,8 +42,8 @@ function createMainWindow(): BrowserWindow {
   });
 
   mainWindow = window;
-  window.webContents.on("did-start-loading", () => automaticRunIpc?.reset());
-  window.webContents.once("destroyed", () => automaticRunIpc?.clearWorkspace());
+  window.webContents.on("did-start-loading", () => { automaticRunIpc?.reset(); liveObserverIpc?.reset(); });
+  window.webContents.once("destroyed", () => { automaticRunIpc?.clearWorkspace(); liveObserverIpc?.clearWorkspace(); });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== window.webContents.getURL()) event.preventDefault();
@@ -92,14 +94,18 @@ app.whenReady().then(() => {
     terminalIpc?.controller.clearWorkspace();
     runIpc?.controller.clearWorkspace();
     automaticRunIpc?.clearWorkspace();
+    liveObserverIpc?.clearWorkspace();
     void workspaceIpc?.clearWorkspace();
   });
   const getAuthenticatedWindow = () => authIpc.controller.isAuthenticated() ? mainWindow : null;
   automaticRunIpc = registerAutomaticRunIpc(getAuthenticatedWindow, app.getPath("userData"), () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim());
+  liveObserverIpc = registerLiveObserverIpc(getAuthenticatedWindow, app.getPath("userData"), () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim(), () => ["waiting", "thinking", "ready"].includes(automaticRunIpc?.controller.getState().status ?? "off"));
   const observerIpc = registerObserverIpc(
     getAuthenticatedWindow,
     () => authIpc.controller.getAccessToken(),
-    __DESKTOP_API_BASE_URL__.trim()
+    __DESKTOP_API_BASE_URL__.trim(),
+    () => liveObserverIpc?.controller.pause('Paused: manual Observer has priority. Make a new edit when it finishes.'),
+    app.getPath("userData")
   );
   const settingsIpc = registerSettingsIpc(
     getAuthenticatedWindow,
@@ -118,6 +124,7 @@ app.whenReady().then(() => {
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
     onWorkspaceOpened: (rootPath, webContentsId) => {
       automaticRunIpc?.setWorkspace(rootPath, webContentsId);
+      liveObserverIpc?.setWorkspace(rootPath, webContentsId);
       terminalIpc?.controller.setWorkspace(rootPath, webContentsId);
       runIpc?.controller.setWorkspace(rootPath, webContentsId);
       gitIpc.controller.setWorkspace(rootPath, webContentsId);
@@ -129,6 +136,7 @@ app.whenReady().then(() => {
     },
     onWorkspaceClosed: (webContentsId) => {
       automaticRunIpc?.clearWorkspace();
+      liveObserverIpc?.clearWorkspace();
       terminalIpc?.controller.clearWorkspace(webContentsId);
       runIpc?.controller.clearWorkspace(webContentsId);
       gitIpc.controller.clearWorkspace(webContentsId);
@@ -142,6 +150,7 @@ app.whenReady().then(() => {
   }, app.getPath("userData"));
   app.once("will-quit", () => {
     automaticRunIpc?.cleanup();
+    liveObserverIpc?.cleanup();
     observerIpc.cleanup();
     settingsIpc.cleanup();
     gitIpc.cleanup();

@@ -4594,3 +4594,22 @@ body,
     animation: none;
   }
 }
+
+.live-suggestion { padding: 10px; border: var(--border-solid); border-radius: 8px; background: var(--desktop-surface); color: var(--desktop-text); font-size: 12px; overflow-wrap: anywhere; }
+.live-suggestion p { margin: 6px 0; max-height: 100px; overflow: auto; }
+.live-suggestion small { display: block; color: var(--desktop-text-muted); }
+.live-suggestion button { margin: 6px 6px 0 0; padding: 4px 8px; border: var(--border-solid); border-radius: 6px; color: var(--desktop-accent); background: var(--desktop-surface); cursor: pointer; }
+.live-suggestion button:hover { background: var(--desktop-hover); }
+.live-inline { width: 340px; max-width: 80%; box-shadow: 0 4px 12px var(--ink-15); }
+
+/* Manual Explain reuses the Observer coffee/cream surfaces. */
+.explanation-conversation { min-width: 0; }
+.explanation-messages { max-height: 55vh; overflow: auto; overflow-wrap: anywhere; }
+.explanation-messages article { margin-block: 1rem; }
+.explanation-messages pre { overflow: auto; white-space: pre; padding: .75rem; background: var(--desktop-terminal); border-radius: .5rem; }
+.explanation-conversation textarea { display: block; width: 100%; box-sizing: border-box; margin-block: .5rem; font: inherit; color: inherit; background: transparent; }
+.explanation-conversation button { padding: var(--space-1-5) var(--space-2); border: var(--border-solid); border-radius: var(--radius-md); background: var(--desktop-surface); color: var(--desktop-text-muted); font-size: var(--text-meta); cursor: pointer; }
+.explanation-conversation button:hover:not(:disabled) { border-color: var(--desktop-border-strong); }
+.explanation-conversation button:disabled { opacity: .6; cursor: not-allowed; }
+.explanation-conversation textarea { padding: var(--space-2); border: var(--border-solid); border-radius: var(--radius-md); background: var(--desktop-input); resize: vertical; }
+.explanation-conversation button:focus-visible, .explanation-conversation textarea:focus-visible { outline: var(--focus-width) solid var(--desktop-focus); outline-offset: var(--focus-offset); }

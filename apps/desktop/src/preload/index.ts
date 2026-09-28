@@ -1,3 +1,12 @@
+import { LIVE_CHANNELS, type LiveBridge, type LiveEdit, type LiveActivity, type LiveState } from "../shared/live-observer";
+const liveBridge: LiveBridge = Object.freeze({
+ configure: (enabled: boolean, provider: ObserverProvider, pause: number) => ipcRenderer.invoke(LIVE_CHANNELS.configure, enabled, provider, pause),
+ edit: (edit: LiveEdit) => ipcRenderer.send(LIVE_CHANNELS.edit, edit),
+ activity: (activity: LiveActivity) => ipcRenderer.send(LIVE_CHANNELS.activity, activity),
+ cancel: () => ipcRenderer.send(LIVE_CHANNELS.cancel),
+ onState: (listener: (state: LiveState) => void) => { const wrapped = (_event: Electron.IpcRendererEvent, state: LiveState) => listener(state); ipcRenderer.on(LIVE_CHANNELS.state, wrapped); return () => ipcRenderer.removeListener(LIVE_CHANNELS.state, wrapped); },
+});
+contextBridge.exposeInMainWorld("liveObserver", liveBridge);
 import { contextBridge, ipcRenderer } from "electron";
 import { AUTOMATIC_RUN_CHANNELS, type AutomaticRunBridge, type AutomaticRunActivity, type AutomaticRunState } from "../shared/automatic-run";
 import type { ObserverProvider } from "../shared/observer";
@@ -173,6 +182,10 @@ const authBridge: DesktopAuthBridge = Object.freeze({
 contextBridge.exposeInMainWorld("desktopAuth", authBridge);
 
 const observerBridge: ObserverBridge = Object.freeze({
+  explain: (id: string, request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.explain, id, request),
+  followup: (id: string, question: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.followup, id, question),
+  cancelExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.cancelExplanation),
+  clearExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.clearExplanation),
   prepare: (request: ObserverPrepareRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.prepare, request),
   ask: (request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.ask, request),
   recordOutcome: (request: ObserverOutcomeRequest) =>

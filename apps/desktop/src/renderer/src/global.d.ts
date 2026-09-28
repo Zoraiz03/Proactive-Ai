@@ -1,3 +1,4 @@
+import type { LiveBridge } from "../../shared/live-observer";
 import type { WorkspaceBridge } from "../../shared/workspace";
 import type { AutomaticRunBridge } from "../../shared/automatic-run";
 import type { TerminalBridge } from "../../shared/terminal";
@@ -15,6 +16,7 @@ import type { WebContextBridge } from "../../shared/web-context-bridge";
 
 declare global {
   interface Window {
+    liveObserver: LiveBridge;
     automaticRun: AutomaticRunBridge;
     workspace: WorkspaceBridge;
     terminal: TerminalBridge;

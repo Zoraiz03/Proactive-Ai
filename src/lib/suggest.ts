@@ -16,7 +16,8 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
 };
 
 export interface Suggestion {
-  id: string;
+  historyWarning?: string;
+  id?: string;
   explanation: string;
   snippet: string;
   reason: string;

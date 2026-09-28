@@ -103,3 +103,6 @@ Finish the interactive checks on macOS and Windows. Then compare this feature
 with raw errors and manual Ask Observer using student tasks. Improve context and
 timing from observed failures before broadening triggers. Keep this experiment
 separate from the remaining Phase 14 usability/release-readiness work.
+
+
+
