@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { guardedRunArgs } from "./fix-code-run.ts";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { extname } from "node:path";
 import type {
@@ -24,6 +26,9 @@ interface RunCommand {
 }
 
 interface ActiveRun {
+  sourceHash: string;
+  rootPath: string;
+  verifiedHash: string;
   runId: string;
   webContentsId: number;
   relativePath: string;
@@ -109,11 +114,17 @@ export class RunSessionController {
       (request as RunStartRequest).relativePath.length > MAX_REQUEST_PATH
     ) return { ok: false, error: "The run request was rejected." };
 
-    const rootPath = this.workspace.rootPath;
+    const workspace = this.workspace;
+    const rootPath = workspace.rootPath;
     const relativePath = (request as RunStartRequest).relativePath;
     try {
       const sourceFile = await readWorkspaceTextFile(rootPath, relativePath);
+      const sourceHash = createHash('sha256').update(sourceFile.content).digest('hex');
+      const expected = (request as RunStartRequest).expectedContentHash;
+      if (expected !== undefined && (!/^[a-f0-9]{64}$/.test(expected) || expected !== sourceHash)) return {ok:false,error:'The saved file differs from the version selected for verification. Review it and try again.'};
+      if (!this.workspace || this.workspace.rootPath !== rootPath || this.workspace.webContentsId !== webContentsId) return {ok:false,error:'Workspace changed before running.'};
       const resolved = await resolveWorkspacePath(rootPath, relativePath);
+      if(expected && this.workspace !== workspace) return {ok:false,error:"Workspace changed before verification."};
       const command = commandForRunFile(process.platform, resolved.realPath);
       if ("error" in command) throw new Error(command.error);
       const environment: NodeJS.ProcessEnv = {
@@ -123,18 +134,21 @@ export class RunSessionController {
       environment.NO_COLOR = "1";
       environment.FORCE_COLOR = "0";
       environment.PYTHONIOENCODING = "utf-8";
-      const child = spawn(command.command, command.args, {
+      const child = spawn(command.command, expected ? guardedRunArgs(command.language,resolved.realPath,expected) : command.args, {
         cwd: rootPath,
         env: environment,
         shell: false,
         windowsHide: true,
-      });
+        stdio: expected ? ["pipe", "pipe", "pipe", "pipe"] : "pipe",
+      }) as ChildProcessWithoutNullStreams;
       const active: ActiveRun = {
+        sourceHash, rootPath, verifiedHash: "",
         runId: (request as RunStartRequest).runId, webContentsId, relativePath: resolved.relativePath,
         language: command.language, startedAt: Date.now(), process: child,
         stdout: "", stderr: "", stopped: false,
       };
       this.active = active;
+      if(expected) child.stdio[3]?.on("data", (chunk: Buffer) => { active.verifiedHash = (active.verifiedHash + chunk.toString("ascii")).slice(0, 128); });
       // Evidence stays in main; never broadcast source content to the renderer.
       this.sink.startedEvidence?.(webContentsId, { runId: active.runId, relativePath: active.relativePath, language: active.language, content: sourceFile.content });
       child.stdout.setEncoding("utf8");
@@ -144,10 +158,10 @@ export class RunSessionController {
       child.once("error", (error) => {
         this.handleOutput(active, "stderr", `${error.message}\n`);
       });
-      child.once("close", (exitCode) => this.finish(active, exitCode));
+      child.once("close", (exitCode) => { void this.finish(active, exitCode); });
       return {
         ok: true,
-        value: { runId: active.runId, language: active.language, relativePath: active.relativePath },
+        value: { sourceHash, runId: active.runId, language: active.language, relativePath: active.relativePath },
       };
     } catch (error) {
       return { ok: false, error: publicStartError(error) };
@@ -189,11 +203,15 @@ export class RunSessionController {
     this.sink.output(active.webContentsId, { runId: active.runId, stream, data: safeData });
   }
 
-  private finish(active: ActiveRun, exitCode: number | null): void {
+  private async finish(active: ActiveRun, exitCode: number | null): Promise<void> {
     if (this.active !== active) return;
+    let sourceUnchanged = false;
+    try { const latest=await readWorkspaceTextFile(active.rootPath,active.relativePath); sourceUnchanged=createHash('sha256').update(latest.content).digest('hex')===active.sourceHash; } catch { /* Unavailable source is not verified. */ }
+    if(this.active!==active)return;
     this.active = null;
     const status = active.stopped ? "stopped" : exitCode === 0 ? "succeeded" : "failed";
     const completion: RunCompleteEvent = {
+      sourceHash:active.sourceHash, sourceUnchanged, snapshotVerified:active.verifiedHash===active.sourceHash,
       runId: active.runId,
       status,
       exitCode,

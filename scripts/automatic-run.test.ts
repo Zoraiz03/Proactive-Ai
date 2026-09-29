@@ -1,3 +1,4 @@
+import { validFixContext } from "../apps/desktop/src/shared/fix-code.ts";
 import { EXPLANATION_LIMITS, validExplanationInput } from "../apps/desktop/src/shared/explanation.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -44,6 +45,7 @@ const moduleExports: { POST?: (request: Request) => Promise<Response> } = {};
 const source = readFileSync(new URL("../src/app/api/suggest/route.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const requireStub = (name: string) => {
+  if (name.endsWith("/shared/fix-code.ts")) return { validFixContext };
   if (name.endsWith("/shared/explanation.ts")) return { EXPLANATION_LIMITS, validExplanationInput };
   if (name === "next/server") return { NextResponse: { json: (body: unknown, init?: ResponseInit) => Response.json(body, init) } };
   if (name === "zod") return { z };
@@ -154,3 +156,19 @@ console.log("manual history-failure regression harness: all assertions passed");
   assert.equal((await api.GET!(new Request("http://localhost/api/desktop-settings"))).status, 200);
 }
 console.log("settings availability regression harness: all assertions passed");
+
+// Manual Fix Code has its own authenticated contract and never writes conversations.
+{
+ const {buildFixCodeContext}=await import('../apps/desktop/src/main/fix-code-context.ts');
+ const {fixSelectionRange}=await import('../apps/desktop/src/shared/fix-code.ts');
+ const {createHash}=await import('node:crypto');
+ const content='function add(a,b) { return a + b; }';
+ const contextPackage=buildFixCodeContext({mode:'fix_error',kind:'code',activeRelativePath:'main.js',fileName:'main.js',language:'javascript',content,cursorLine:1,cursorColumn:1,maximumTotalCharacters:9000,maximumCharactersPerFile:6000,maximumRelatedFiles:0,exclusions:[]});
+ const input={client:'desktop',provider:'demo',mode:'fix_error',kind:'code',fileName:'main.js',language:'javascript',source:'cursor',cursorLine:1,cursorColumn:1,storeHistory:false,contextPackage,editBase:{targetRelativePath:'main.js',originalContentHash:createHash('sha256').update(content).digest('hex'),contentLength:content.length,basedOnUnsavedContent:true},fixCode:{scope:'file',range:fixSelectionRange(content),clarifications:[]}};
+ const before=historyCalls;
+ const response=await send(input);assert.equal(response.status,200,JSON.stringify(await response.clone().json()));assert.equal((await response.json()).suggestion.fixOutcome,'no_problem');
+ assert.equal((await send({...input,fixCode:{...input.fixCode,clarifications:[{question:'What should this do?',answer:'Add two numbers.'}]}})).status,200);
+ for(const bad of [{...input,fixCode:undefined},{...input,storeHistory:true},{...input,mode:'improve_code'},{...input,fixCode:{...input.fixCode,clarifications:[{question:'Intent?',answer:'password="fixture-sensitive-value"'}]}},{...input,contextPackage:{...contextPackage,items:contextPackage.items.map(i=>i.source.relativePath?{...i,source:{...i.source,relativePath:'other.js'}}:i)}}])assert.equal((await send(bad)).status,400);
+ authenticated=false;assert.equal((await send(input)).status,401);authenticated=true;assert.equal(historyCalls,before);
+ console.log('Fix Code route: no-diagnostic requests, clarification, authentication, scope/isolation, secret checks and no transcript writes passed');
+}

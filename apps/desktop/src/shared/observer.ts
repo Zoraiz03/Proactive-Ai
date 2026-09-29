@@ -1,3 +1,4 @@
+import { validFixContext, type FixCodeContext, type FixCodeOutcome, type FixCodeResult } from "./fix-code.ts";
 import { validExplanationInput, type ExplanationInput, type ExplanationResult } from "./explanation.ts";
 import type { IpcResult } from "./workspace";
 import { validateProjectContextPackage, type ProjectContextPackage, type ProjectContextSeed } from "./project-context.ts";
@@ -34,6 +35,9 @@ export const OBSERVER_PROVIDERS = [
 
 export const OBSERVER_CHANNELS = {
   prepare: "observer:prepare",
+  fixStart: "observer:fix-start",
+  fixClarify: "observer:fix-clarify",
+  fixClear: "observer:fix-clear",
   explain: "observer:explain",
   followup: "observer:followup",
   cancelExplanation: "observer:cancel-explanation",
@@ -51,7 +55,7 @@ export type ObserverKind = "code" | "doc";
 
 export const OBSERVER_MODE_LABELS: Readonly<Record<ObserverMode, string>> = {
   explain: "Explain",
-  fix_error: "Fix Error",
+  fix_error: "Fix Code",
   improve_code: "Improve Code",
   continue_code: "Continue Code",
   generate_tests: "Generate Tests",
@@ -88,6 +92,7 @@ export interface ObserverDiagnosticContext {
 }
 
 export interface ObserverRequest {
+  fixCode?: FixCodeContext;
   explanation?: ExplanationInput;
   liveObserver?: boolean;
   automaticRun?: { trigger: "failed_run"; runId: string };
@@ -118,6 +123,9 @@ export interface ObserverPrepareRequest {
 }
 
 export interface ObserverSuggestion {
+  fixOutcome?: FixCodeOutcome;
+  clarificationQuestion?: string;
+  verification?: string;
   historyWarning?: string;
   id?: string;
   explanation: string;
@@ -137,6 +145,9 @@ export interface ObserverOutcomeRequest {
 }
 
 export interface ObserverBridge {
+  fixStart: (id: string, request: ObserverRequest) => Promise<IpcResult<FixCodeResult>>;
+  fixClarify: (id: string, answer: string, sourceHash: string) => Promise<IpcResult<FixCodeResult>>;
+  fixClear: () => Promise<void>;
   explain: (id: string, request: ObserverRequest) => Promise<IpcResult<ExplanationResult>>;
   followup: (id: string, question: string) => Promise<IpcResult<ExplanationResult>>;
   cancelExplanation: () => Promise<void>;
@@ -192,7 +203,7 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
   if (!OBSERVER_MODES.includes(input.mode) || !OBSERVER_PROVIDERS.includes(input.provider)) return null;
   if (containsLikelySecret(input.selectedCode) || containsLikelySecret(input.nearbyCode) || containsLikelySecret(input.content) || containsLikelySecret(input.runError)) return null;
   if (!isObserverModeForKind(input.mode, input.kind)) return null;
-  if (input.mode === "fix_error" && !input.diagnostic) return null;
+
   const cursorLine = Math.max(1, Math.trunc(input.cursorLine));
   const cursorColumn = Math.max(1, Math.trunc(input.cursorColumn));
   const requestedLimit = Math.max(1_000, Math.min(OBSERVER_LIMITS.activeFile, Math.trunc(input.maximumContextChars ?? OBSERVER_LIMITS.selectedCode)));
@@ -314,9 +325,12 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
   const request = value as Partial<ObserverPrepareRequest>;
   if (!OBSERVER_PROVIDERS.includes(request.provider as ObserverProvider) || !request.seed || typeof request.seed !== "object") return null;
   const seed = request.seed as Partial<ProjectContextSeed>;
-  if (!OBSERVER_MODES.includes(seed.mode as ObserverMode) || !["code", "doc"].includes(seed.kind ?? "") || typeof seed.activeRelativePath !== "string" || !seed.activeRelativePath || seed.activeRelativePath.length > 4096 || typeof seed.fileName !== "string" || typeof seed.language !== "string" || typeof seed.content !== "string" || seed.content.length > OBSERVER_LIMITS.activeFile) return null;
+  if (!OBSERVER_MODES.includes(seed.mode as ObserverMode) || !["code", "doc"].includes(seed.kind ?? "") || typeof seed.activeRelativePath !== "string" || !seed.activeRelativePath || seed.activeRelativePath.length > 4096 || typeof seed.fileName !== "string" || typeof seed.language !== "string" || typeof seed.content !== "string" || seed.content.length > (seed.mode === "fix_error" ? 2 * 1024 * 1024 : OBSERVER_LIMITS.activeFile)) return null;
   if (!isPositiveInteger(seed.cursorLine) || !isPositiveInteger(seed.cursorColumn) || !Array.isArray(seed.exclusions) || seed.exclusions.some((item) => typeof item !== "string")) return null;
   if (!isPositiveInteger(seed.maximumTotalCharacters) || !isPositiveInteger(seed.maximumRelatedFiles) || !isPositiveInteger(seed.maximumCharactersPerFile)) return null;
+  if (seed.fixDiagnostics !== undefined && (!Array.isArray(seed.fixDiagnostics) || seed.fixDiagnostics.length > 10 || seed.fixDiagnostics.some(d => !d || !isPositiveInteger(d.line) || !isPositiveInteger(d.column) || typeof d.message !== 'string' || d.message.length > 2000))) return null;
+  if (seed.fixRunEvidence !== undefined && (!seed.fixRunEvidence || typeof seed.fixRunEvidence.output !== 'string' || seed.fixRunEvidence.output.length > 8000 || (seed.fixRunEvidence.sourceHash !== undefined && !/^[a-f0-9]{64}$/.test(seed.fixRunEvidence.sourceHash)) || (seed.fixRunEvidence.sourceUnchanged !== undefined && typeof seed.fixRunEvidence.sourceUnchanged !== 'boolean'))) return null;
+  if (seed.selectionRange !== undefined && !validFixContext({scope:'selection',range:seed.selectionRange,clarifications:[]})) return null;
   if (seed.userRequest !== undefined && (typeof seed.userRequest !== "string" || !seed.userRequest.trim() || seed.userRequest.length > 500)) return null;
   if (seed.trayItems !== undefined && (!Array.isArray(seed.trayItems) || seed.trayItems.length > CONTEXT_TRAY_MAX_ITEMS || seed.trayItems.some((item) => !validateContextTrayItem(item)))) return null;
   if (seed.mode === "plan_multi_file" && !seed.userRequest) return null;
@@ -328,6 +342,7 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
 export function validateObserverRequest(value: unknown): ObserverRequest | null {
   if (typeof value !== "object" || value === null) return null;
   const request = value as Partial<ObserverRequest>;
+  if (request.fixCode !== undefined && (!validFixContext(request.fixCode) || request.mode !== "fix_error" || request.kind !== "code" || !request.editBase || !request.contextPackage || request.explanation || request.liveObserver || request.automaticRun)) return null;
   if (request.explanation !== undefined && (!validExplanationInput(request.explanation) || request.mode !== "explain" || request.kind !== "code" || request.storeHistory !== false || request.editBase || request.liveObserver || request.automaticRun)) return null;
   const contextPackage = request.contextPackage === undefined ? undefined : validateProjectContextPackage(request.contextPackage);
   if (
@@ -352,7 +367,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
   if (!contextPackage && !request.selectedCode && !request.nearbyCode && !request.activeFile && !request.diagnostic) return null;
   if (contextPackage && (contextPackage.intent.mode !== request.mode || contextPackage.activeFile.fileName !== request.fileName || contextPackage.activeFile.language !== request.language || contextPackage.activeFile.kind !== request.kind || contextPackage.cursor.line !== request.cursorLine || contextPackage.cursor.column !== request.cursorColumn)) return null;
   if (request.activeFile && !["generate_tests", "explain_document", "summarize", "generate_readme_section"].includes(request.mode as string)) return null;
-  if (!contextPackage && request.mode === "fix_error" && !request.diagnostic) return null;
+
   if (!contextPackage && request.runError && !request.diagnostic) return null;
   if (!contextPackage && request.source === "selection" && !request.selectedCode) return null;
   if (!contextPackage && request.source === "diagnostic" && (!request.diagnostic || request.mode !== "fix_error")) return null;
@@ -368,6 +383,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
     ) return null;
   }
   return {
+    ...(request.fixCode ? { fixCode: request.fixCode } : {}),
     ...(request.explanation ? { explanation: request.explanation } : {}),
     provider: request.provider as ObserverProvider,
     ...(request.model ? { model: request.model } : {}),

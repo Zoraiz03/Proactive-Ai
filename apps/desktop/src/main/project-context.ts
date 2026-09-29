@@ -1,3 +1,4 @@
+import { buildFixCodeContext } from "./fix-code-context.ts";
 import { EXPLANATION_LIMITS } from "../shared/explanation.ts";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -130,11 +131,12 @@ export class ProjectContextEngine {
     const seed = validateSeed(rawSeed);
     const focusedExplain = seed.mode === "explain" && seed.kind === "code";
     if (focusedExplain) { seed.trayItems = []; seed.maximumTotalCharacters = Math.min(seed.maximumTotalCharacters, EXPLANATION_LIMITS.contextCharacters); }
-    if (seed.mode === "fix_error" && !seed.diagnostic) throw new Error("Fix Error requires a selected diagnostic.");
+
     if (seed.mode === "plan_multi_file" && !seed.userRequest) throw new Error("Describe the requested multi-file change before continuing.");
     const gitignore = await this.gitignorePatterns();
     if (isIgnored(seed.activeRelativePath, seed.exclusions, gitignore)) throw new Error("The active file is excluded from AI context.");
     await resolveWorkspacePath(this.rootPath, seed.activeRelativePath);
+    if (seed.mode === "fix_error") return buildFixCodeContext(seed);
     const items: ProjectContextItem[] = [];
     const omitted: OmittedProjectContextItem[] = [];
     let sequence = 0;
@@ -198,12 +200,11 @@ export class ProjectContextEngine {
     }
     const trayContains = (content: string | undefined) => Boolean(content && trayItems.some((item) => item.content === content));
     if (seed.selectedCode && !trayContains(seed.selectedCode)) add("selected_code", 2, seed.selectedCode, "editor_selection", "The user explicitly selected this content.", { relativePath: seed.activeRelativePath, ...(seed.selectedLineStart ? { lineStart: seed.selectedLineStart } : {}), ...(seed.selectedLineEnd ? { lineEnd: seed.selectedLineEnd } : {}) });
-    if (seed.mode === "fix_error" && seed.diagnostic) add("diagnostic", 3, `${seed.diagnostic.fileName}:${seed.diagnostic.line}:${seed.diagnostic.column}\n${seed.diagnostic.message}`, "diagnostics", "The selected error is required to diagnose Fix Error.", { relativePath: seed.activeRelativePath, lineStart: seed.diagnostic.line, lineEnd: seed.diagnostic.line });
     const symbol = detectCurrentSymbol(seed.content, seed.cursorLine);
     const wantsSymbol = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments", "plan_multi_file"].includes(seed.mode);
     if (seed.mode === "add_comments" && !seed.selectedCode) throw new Error("Select code before asking Observer to add comments or documentation.");
     if (wantsSymbol && symbol && !(focusedExplain && seed.selectedCode) && !trayContains(symbol.content)) add("current_symbol", 4, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
-    if ((!seed.selectedCode || seed.mode === "fix_error" || seed.mode === "continue_code") && !(focusedExplain && symbol)) add("nearby_code", 5, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
+    if ((!seed.selectedCode || seed.mode === "continue_code") && !(focusedExplain && symbol)) add("nearby_code", 5, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
 
     if (seed.kind === "code" && !focusedExplain) {
       const candidates = await this.discover(seed, gitignore);
@@ -218,7 +219,6 @@ export class ProjectContextEngine {
     } else if (!seed.selectedCode && ["explain_document", "summarize", "generate_readme_section"].includes(seed.mode)) {
       add("attached_markdown", 2, seed.content, "editor_selection", "The active Markdown document was explicitly requested for this documentation action.", { relativePath: seed.activeRelativePath, lineStart: 1, lineEnd: seed.content.split(/\r?\n/).length }, false, true);
     }
-    if (seed.mode === "fix_error") add("terminal_error", 8, seed.runError, "run_output", "Run output directly matches the selected diagnostic.", {}, true);
 
     if (focusedExplain) for (const item of items) {
       if (item.type !== "user_instruction") {

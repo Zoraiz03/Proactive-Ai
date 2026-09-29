@@ -1,3 +1,5 @@
+import { FixCodeSession } from "./fix-code-session";
+import { fixSelectionRange } from "../shared/fix-code";
 import { ExplanationSession } from './explanation-session';
 import { SettingsApiClient } from './settings-client';
 import { LocalSettingsStore } from './settings-store';
@@ -31,16 +33,32 @@ export function registerObserverIpc(
   const client = new ObserverApiClient(apiBaseUrl, getAccessToken);
   const local = userData ? new LocalSettingsStore(userData) : null;
   const settings = new SettingsApiClient(apiBaseUrl, getAccessToken, (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10000) }));
-  const explanation = new ExplanationSession({
-    policy: async () => {
+  const policy = async () => {
       const [synced, stored] = await Promise.all([settings.getSynced(), local?.get()]);
       if (!synced.ok || !stored) throw new Error(`Privacy settings unavailable: ${!synced.ok ? synced.error : 'local settings unavailable'}. Nothing was sent.`);
-      return { enabled: synced.value.observerEnabled, exclusions: stored.aiContextExclusions, maximumCharacters: synced.value.maximumContextChars, maximumFileCharacters: stored.contextMaximumFileCharacters, confirmCompleteFile: synced.value.confirmCompleteFile };
-    },
+      return { enabled: synced.value.observerEnabled, exclusions: stored.aiContextExclusions, maximumCharacters: synced.value.maximumContextChars, maximumFileCharacters: stored.contextMaximumFileCharacters, confirmCompleteFile: synced.value.confirmCompleteFile, includeDiagnostics: synced.value.includeDiagnostics, includeTerminalError: synced.value.includeTerminalError };
+    };
+  const explanation = new ExplanationSession({ policy,
     confirm: async () => (await dialog.showMessageBox(getMainWindow()!, { message: 'This explanation includes a complete local file. Send the reviewed snapshot?', detail: 'Follow-up questions reuse this exact approved snapshot for this session. No other files are added.', buttons: ['Cancel', 'Send approved snapshot'], defaultId: 0, cancelId: 0 })).response === 1,
     ask: (request, signal) => client.ask(request, signal),
   });
-  const controller = new ObserverContextController(() => explanation.clear());
+  const fix = new FixCodeSession({ policy,
+    confirm: async () => (await dialog.showMessageBox(getMainWindow()!, {message:'Fix Code includes a complete local file. Send the reviewed snapshot?', detail:'Clarification answers reuse this approved snapshot. Changes require a separate diff review and explicit Apply.',buttons:['Cancel','Send approved snapshot'],defaultId:0,cancelId:0})).response===1,
+    ask: (request, signal) => client.ask(request, signal),
+  });
+  const controller = new ObserverContextController(() => { explanation.clear(); fix.clear(); });
+  ipcMain.handle(OBSERVER_CHANNELS.fixStart, async (event, id: string, value: unknown) => {
+    if (!isTrustedSender(event,getMainWindow)) return {ok:false,error:'Fix Code request rejected.'};
+    const request=validateObserverRequest(value);
+    const content=request && controller.authorizeFix(event.sender.id,request);
+    if(!request || content===false || content===null) return {ok:false,error:'Fix Code scope changed. Build a fresh preview.'};
+    cancelLive(); return fix.start(id,request,content);
+  });
+  ipcMain.handle(OBSERVER_CHANNELS.fixClarify, async (event,id:string,answer:string,hash:string) => {
+    if(!isTrustedSender(event,getMainWindow))return {ok:false,error:'Fix Code request rejected.'};
+    cancelLive(); return fix.send(id,answer,hash);
+  });
+  ipcMain.handle(OBSERVER_CHANNELS.fixClear,event=>{if(isTrustedSender(event,getMainWindow))fix.clear();});
   ipcMain.handle(OBSERVER_CHANNELS.explain, async (event, id: string, value: unknown) => {
     if (!isTrustedSender(event, getMainWindow)) return { ok: false, error: 'Explanation request rejected.' };
     const request = validateObserverRequest(value);
@@ -75,6 +93,7 @@ export function registerObserverIpc(
     if (value && typeof value === "object" && "explanation" in value) return { ok: false, error: "Use the approved Explain conversation." };
     const request = validateObserverRequest(value);
     if (!request) return { ok: false, error: "Observer context is invalid or unsafe." };
+    if (request.mode === "fix_error") return { ok: false, error: "Use Fix Code and its reviewed context." };
     if (request.contextPackage && !controller.authorize(event.sender.id, request.contextPackage)) {
       return { ok: false, error: "Observer context changed after preview. Build the preview again." };
     }
@@ -112,7 +131,7 @@ export function registerObserverIpc(
     controller,
     cleanup: () => {
       controller.clearWorkspace();
-      for (const channel of [OBSERVER_CHANNELS.explain, OBSERVER_CHANNELS.followup, OBSERVER_CHANNELS.cancelExplanation, OBSERVER_CHANNELS.clearExplanation]) ipcMain.removeHandler(channel);
+      for (const channel of [OBSERVER_CHANNELS.fixStart, OBSERVER_CHANNELS.fixClarify, OBSERVER_CHANNELS.fixClear, OBSERVER_CHANNELS.explain, OBSERVER_CHANNELS.followup, OBSERVER_CHANNELS.cancelExplanation, OBSERVER_CHANNELS.clearExplanation]) ipcMain.removeHandler(channel);
       ipcMain.removeHandler(OBSERVER_CHANNELS.prepare);
       ipcMain.removeHandler(OBSERVER_CHANNELS.ask);
       ipcMain.removeHandler(OBSERVER_CHANNELS.outcome);
@@ -125,17 +144,19 @@ export function registerObserverIpc(
 export class ObserverContextController {
   private workspace: { rootPath: string; webContentsId: number } | null = null;
   private prepared: ProjectContextPackage | null = null;
+  private fixPrepared: {content:string;request:ObserverRequest} | null = null;
   readonly engine = new ProjectContextEngine();
   constructor(private readonly onWorkspaceChange: () => void = () => {}) {}
-  setWorkspace(rootPath: string, webContentsId: number) { this.onWorkspaceChange(); this.workspace = { rootPath, webContentsId }; this.prepared = null; this.engine.setWorkspace(rootPath); }
-  clearWorkspace(webContentsId?: number) { if (webContentsId !== undefined && this.workspace?.webContentsId !== webContentsId) return; this.onWorkspaceChange(); this.workspace = null; this.prepared = null; this.engine.clearWorkspace(); }
-  invalidate() { this.prepared = null; this.engine.invalidate(); }
+  setWorkspace(rootPath: string, webContentsId: number) { this.onWorkspaceChange(); this.workspace = { rootPath, webContentsId }; this.prepared = null; this.fixPrepared = null; this.engine.setWorkspace(rootPath); }
+  clearWorkspace(webContentsId?: number) { if (webContentsId !== undefined && this.workspace?.webContentsId !== webContentsId) return; this.onWorkspaceChange(); this.workspace = null; this.prepared = null; this.fixPrepared = null; this.engine.clearWorkspace(); }
+  invalidate() { this.prepared = null; this.fixPrepared = null; this.engine.invalidate(); }
   async prepare(webContentsId: number, request: import("../shared/observer").ObserverPrepareRequest): Promise<ObserverRequest> {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId) throw new Error("Open a workspace before asking Observer.");
     const contextPackage = await this.engine.build(request.seed);
     this.prepared = contextPackage;
     const source = contextPackage.items.some((item) => item.type === "selected_code") ? "selection" : contextPackage.items.some((item) => item.type === "diagnostic") ? "diagnostic" : "cursor";
-    return {
+    const result: ObserverRequest = {
+      ...(request.seed.mode === "fix_error" ? {fixCode: {scope: request.seed.selectedCode ? "selection" : "file", range:fixSelectionRange(request.seed.content,request.seed.selectedCode,request.seed.selectionRange),clarifications:[]}} : {}),
       provider: request.provider,
       ...(request.model ? { model: request.model } : {}),
       ...(request.storeHistory === false ? { storeHistory: false } : {}),
@@ -154,6 +175,13 @@ export class ObserverContextController {
         basedOnUnsavedContent: Boolean(request.seed.activeContentDirty),
       } } : {}),
     };
+    this.fixPrepared = request.seed.mode === 'fix_error' ? {content:request.seed.content,request:structuredClone(result)} : null;
+    return result;
+  }
+  authorizeFix(webContentsId:number,request:ObserverRequest):string|false {
+    const prepared=this.fixPrepared;
+    if(!prepared || !request.contextPackage || !this.authorize(webContentsId,request.contextPackage) || JSON.stringify(request.fixCode)!==JSON.stringify(prepared.request.fixCode) || JSON.stringify(request.editBase)!==JSON.stringify(prepared.request.editBase))return false;
+    return prepared.content;
   }
   authorize(webContentsId: number, candidate: ProjectContextPackage): boolean {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId || !this.prepared) return false;

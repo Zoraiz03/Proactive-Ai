@@ -182,6 +182,9 @@ const authBridge: DesktopAuthBridge = Object.freeze({
 contextBridge.exposeInMainWorld("desktopAuth", authBridge);
 
 const observerBridge: ObserverBridge = Object.freeze({
+  fixStart: (id: string, request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.fixStart, id, request),
+  fixClarify: (id: string, answer: string, hash: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.fixClarify, id, answer, hash),
+  fixClear: () => ipcRenderer.invoke(OBSERVER_CHANNELS.fixClear),
   explain: (id: string, request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.explain, id, request),
   followup: (id: string, question: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.followup, id, question),
   cancelExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.cancelExplanation),
