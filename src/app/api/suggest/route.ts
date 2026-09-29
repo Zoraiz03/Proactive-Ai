@@ -1,3 +1,4 @@
+import {validImproveContext,type ImproveCodeContext} from "../../../../apps/desktop/src/shared/improve-code.ts";
 import { validFixContext, type FixCodeContext } from "../../../../apps/desktop/src/shared/fix-code.ts";
 import { EXPLANATION_LIMITS, validExplanationInput } from "../../../../apps/desktop/src/shared/explanation.ts";
 import { NextResponse } from "next/server";
@@ -31,6 +32,7 @@ const WebBody = z.object({
 });
 
 const DesktopBody = z.object({
+  improveCode:z.custom<ImproveCodeContext>(validImproveContext).optional(),
   fixCode: z.custom<FixCodeContext>(validFixContext).optional(),
   explanation: z.custom<import("../../../../apps/desktop/src/shared/explanation").ExplanationInput>(validExplanationInput).optional(),
   liveObserver: z.literal(true).optional(),
@@ -108,6 +110,12 @@ const DesktopBody = z.object({
   if (body.contextPackage.intent.mode !== body.mode || body.contextPackage.activeFile.fileName !== body.fileName || body.contextPackage.activeFile.language !== body.language || body.contextPackage.activeFile.kind !== body.kind || body.contextPackage.cursor.line !== body.cursorLine || body.contextPackage.cursor.column !== body.cursorColumn) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "Structured context does not match the Observer request." });
   }
+  if(body.mode==='improve_code' && !body.liveObserver && !body.improveCode)context.addIssue({code:z.ZodIssueCode.custom,message:'Manual Improve Code requires a reviewed scope and improvement goal.'});
+  if(body.improveCode && (body.mode!=='improve_code'||body.kind!=='code'||body.fixCode||body.explanation||body.automaticRun||body.liveObserver||body.storeHistory||!body.editBase||
+    body.contextPackage.totalCharacters+body.improveCode.clarifications.reduce((n,t)=>n+t.question.length+t.answer.length,0)>body.contextPackage.limits.maximumTotalCharacters||
+    body.contextPackage.items.some(i=> i.type==='project_rule' ? !['AGENTS.md','.proactive/rules.md','package.json','pyproject.toml','pytest.ini'].includes(i.source.relativePath??'')||!i.optional||i.truncated||i.redacted : !['user_instruction','selected_code','complete_file','nearby_code'].includes(i.type)||(i.source.relativePath&&i.source.relativePath!==body.contextPackage.activeFile.relativePath))||
+    !body.contextPackage.items.some(i=>i.type===(body.improveCode!.scope==='file'?'complete_file':'selected_code')&&!i.optional&&!i.truncated&&!i.redacted)||
+    body.improveCode.clarifications.some(t=>containsSecret(t.question)||containsSecret(t.answer))))context.addIssue({code:z.ZodIssueCode.custom,message:'Invalid or unsafe Improve Code context.'});
   if (body.mode === 'fix_error' && !body.fixCode) context.addIssue({code:z.ZodIssueCode.custom,message:'Fix Code requires an explicit reviewed scope.'});
   if (body.fixCode && (body.mode !== 'fix_error' || body.kind !== 'code' || body.liveObserver || body.automaticRun || body.explanation || body.storeHistory || !body.editBase ||
     body.contextPackage.totalCharacters + body.fixCode.clarifications.reduce((n,t)=>n+t.question.length+t.answer.length,0) > body.contextPackage.limits.maximumTotalCharacters ||
@@ -211,6 +219,7 @@ export async function POST(req: Request) {
       kind,
       content,
       context,
+      ...(desktop?.improveCode ? {improveCode:desktop.improveCode} : {}),
       ...(desktop?.fixCode ? {fixCode: desktop.fixCode} : {}),
       ...(desktop?.explanation ? { explanation: desktop.explanation } : {}),
       ...(desktop?.liveObserver ? { liveObserver: true } : {}),

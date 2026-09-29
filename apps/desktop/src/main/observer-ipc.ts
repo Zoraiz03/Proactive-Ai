@@ -1,3 +1,5 @@
+import {ImproveCodeSession} from "./improve-code-session";
+import {resolveImproveScope} from "./improve-scope";
 import { FixCodeSession } from "./fix-code-session";
 import { fixSelectionRange } from "../shared/fix-code";
 import { ExplanationSession } from './explanation-session';
@@ -46,7 +48,23 @@ export function registerObserverIpc(
     confirm: async () => (await dialog.showMessageBox(getMainWindow()!, {message:'Fix Code includes a complete local file. Send the reviewed snapshot?', detail:'Clarification answers reuse this approved snapshot. Changes require a separate diff review and explicit Apply.',buttons:['Cancel','Send approved snapshot'],defaultId:0,cancelId:0})).response===1,
     ask: (request, signal) => client.ask(request, signal),
   });
-  const controller = new ObserverContextController(() => { explanation.clear(); fix.clear(); });
+  const improve = new ImproveCodeSession({policy,
+    confirm:async()=>(await dialog.showMessageBox(getMainWindow()!,{message:'Improve Code includes complete local file context. Send the reviewed snapshot?',detail:'Clarifications reuse this approved context. Edits still require a separate diff and explicit approval.',buttons:['Cancel','Send approved snapshot'],defaultId:0,cancelId:0})).response===1,
+    ask:(request,signal)=>client.ask(request,signal),
+  });
+  const controller = new ObserverContextController(() => { explanation.clear(); fix.clear(); improve.clear(); });
+  ipcMain.handle(OBSERVER_CHANNELS.improveStart,async(event,id:string,value:unknown)=>{
+    if(!isTrustedSender(event,getMainWindow))return {ok:false,error:'Improve Code request rejected.'};
+    const request=validateObserverRequest(value);
+    const content=request && controller.authorizeImprove(event.sender.id,request);
+    if(!request || content===false || content===null)return {ok:false,error:'Improve Code scope changed. Build a fresh preview.'};
+    cancelLive();return improve.start(id,request,content);
+  });
+  ipcMain.handle(OBSERVER_CHANNELS.improveClarify,async(event,id:string,answer:string,hash:string)=>{
+    if(!isTrustedSender(event,getMainWindow))return {ok:false,error:'Improve Code request rejected.'};
+    cancelLive();return improve.send(id,answer,hash);
+  });
+  ipcMain.handle(OBSERVER_CHANNELS.improveClear,event=>{if(isTrustedSender(event,getMainWindow))improve.clear();});
   ipcMain.handle(OBSERVER_CHANNELS.fixStart, async (event, id: string, value: unknown) => {
     if (!isTrustedSender(event,getMainWindow)) return {ok:false,error:'Fix Code request rejected.'};
     const request=validateObserverRequest(value);
@@ -93,6 +111,7 @@ export function registerObserverIpc(
     if (value && typeof value === "object" && "explanation" in value) return { ok: false, error: "Use the approved Explain conversation." };
     const request = validateObserverRequest(value);
     if (!request) return { ok: false, error: "Observer context is invalid or unsafe." };
+    if (request.mode === "improve_code") return {ok:false,error:"Use Improve Code and its reviewed scope."};
     if (request.mode === "fix_error") return { ok: false, error: "Use Fix Code and its reviewed context." };
     if (request.contextPackage && !controller.authorize(event.sender.id, request.contextPackage)) {
       return { ok: false, error: "Observer context changed after preview. Build the preview again." };
@@ -131,7 +150,7 @@ export function registerObserverIpc(
     controller,
     cleanup: () => {
       controller.clearWorkspace();
-      for (const channel of [OBSERVER_CHANNELS.fixStart, OBSERVER_CHANNELS.fixClarify, OBSERVER_CHANNELS.fixClear, OBSERVER_CHANNELS.explain, OBSERVER_CHANNELS.followup, OBSERVER_CHANNELS.cancelExplanation, OBSERVER_CHANNELS.clearExplanation]) ipcMain.removeHandler(channel);
+      for (const channel of [OBSERVER_CHANNELS.improveStart, OBSERVER_CHANNELS.improveClarify, OBSERVER_CHANNELS.improveClear, OBSERVER_CHANNELS.fixStart, OBSERVER_CHANNELS.fixClarify, OBSERVER_CHANNELS.fixClear, OBSERVER_CHANNELS.explain, OBSERVER_CHANNELS.followup, OBSERVER_CHANNELS.cancelExplanation, OBSERVER_CHANNELS.clearExplanation]) ipcMain.removeHandler(channel);
       ipcMain.removeHandler(OBSERVER_CHANNELS.prepare);
       ipcMain.removeHandler(OBSERVER_CHANNELS.ask);
       ipcMain.removeHandler(OBSERVER_CHANNELS.outcome);
@@ -142,20 +161,25 @@ export function registerObserverIpc(
 }
 
 export class ObserverContextController {
+  private generation = 0;
   private workspace: { rootPath: string; webContentsId: number } | null = null;
   private prepared: ProjectContextPackage | null = null;
+  private improvePrepared: {content:string;request:ObserverRequest} | null = null;
   private fixPrepared: {content:string;request:ObserverRequest} | null = null;
   readonly engine = new ProjectContextEngine();
   constructor(private readonly onWorkspaceChange: () => void = () => {}) {}
-  setWorkspace(rootPath: string, webContentsId: number) { this.onWorkspaceChange(); this.workspace = { rootPath, webContentsId }; this.prepared = null; this.fixPrepared = null; this.engine.setWorkspace(rootPath); }
-  clearWorkspace(webContentsId?: number) { if (webContentsId !== undefined && this.workspace?.webContentsId !== webContentsId) return; this.onWorkspaceChange(); this.workspace = null; this.prepared = null; this.fixPrepared = null; this.engine.clearWorkspace(); }
-  invalidate() { this.prepared = null; this.fixPrepared = null; this.engine.invalidate(); }
+  setWorkspace(rootPath: string, webContentsId: number) { this.generation++; this.onWorkspaceChange(); this.workspace = { rootPath, webContentsId }; this.prepared = null; this.fixPrepared = null; this.improvePrepared = null; this.engine.setWorkspace(rootPath); }
+  clearWorkspace(webContentsId?: number) { if (webContentsId !== undefined && this.workspace?.webContentsId !== webContentsId) return; this.generation++; this.onWorkspaceChange(); this.workspace = null; this.prepared = null; this.fixPrepared = null; this.improvePrepared = null; this.engine.clearWorkspace(); }
+  invalidate() { this.generation++; this.prepared = null; this.fixPrepared = null; this.improvePrepared = null; this.engine.invalidate(); }
   async prepare(webContentsId: number, request: import("../shared/observer").ObserverPrepareRequest): Promise<ObserverRequest> {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId) throw new Error("Open a workspace before asking Observer.");
+    const generation=this.generation;
     const contextPackage = await this.engine.build(request.seed);
+    if(request.seed.mode === "improve_code" && generation!==this.generation)throw new Error("Improve Code context changed while preparing. Preview the current project again.");
     this.prepared = contextPackage;
     const source = contextPackage.items.some((item) => item.type === "selected_code") ? "selection" : contextPackage.items.some((item) => item.type === "diagnostic") ? "diagnostic" : "cursor";
     const result: ObserverRequest = {
+      ...(request.seed.mode === "improve_code" ? {improveCode:{...resolveImproveScope(request.seed),goal:request.seed.improveGoal ?? "readability",clarifications:[]}} : {}),
       ...(request.seed.mode === "fix_error" ? {fixCode: {scope: request.seed.selectedCode ? "selection" : "file", range:fixSelectionRange(request.seed.content,request.seed.selectedCode,request.seed.selectionRange),clarifications:[]}} : {}),
       provider: request.provider,
       ...(request.model ? { model: request.model } : {}),
@@ -175,8 +199,14 @@ export class ObserverContextController {
         basedOnUnsavedContent: Boolean(request.seed.activeContentDirty),
       } } : {}),
     };
+    this.improvePrepared = request.seed.mode === 'improve_code' ? {content:request.seed.content,request:structuredClone(result)} : null;
     this.fixPrepared = request.seed.mode === 'fix_error' ? {content:request.seed.content,request:structuredClone(result)} : null;
     return result;
+  }
+  authorizeImprove(webContentsId:number,request:ObserverRequest):string|false {
+    const prepared=this.improvePrepared;
+    if(!prepared || !request.contextPackage || !this.authorize(webContentsId,request.contextPackage) || JSON.stringify(request.improveCode)!==JSON.stringify(prepared.request.improveCode) || JSON.stringify(request.editBase)!==JSON.stringify(prepared.request.editBase))return false;
+    return prepared.content;
   }
   authorizeFix(webContentsId:number,request:ObserverRequest):string|false {
     const prepared=this.fixPrepared;

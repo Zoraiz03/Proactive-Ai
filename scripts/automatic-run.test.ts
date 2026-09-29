@@ -1,3 +1,4 @@
+import {validImproveContext} from "../apps/desktop/src/shared/improve-code.ts";
 import { validFixContext } from "../apps/desktop/src/shared/fix-code.ts";
 import { EXPLANATION_LIMITS, validExplanationInput } from "../apps/desktop/src/shared/explanation.ts";
 import assert from "node:assert/strict";
@@ -45,6 +46,7 @@ const moduleExports: { POST?: (request: Request) => Promise<Response> } = {};
 const source = readFileSync(new URL("../src/app/api/suggest/route.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const requireStub = (name: string) => {
+  if (name.endsWith("/shared/improve-code.ts")) return {validImproveContext};
   if (name.endsWith("/shared/fix-code.ts")) return { validFixContext };
   if (name.endsWith("/shared/explanation.ts")) return { EXPLANATION_LIMITS, validExplanationInput };
   if (name === "next/server") return { NextResponse: { json: (body: unknown, init?: ResponseInit) => Response.json(body, init) } };
@@ -171,4 +173,21 @@ console.log("settings availability regression harness: all assertions passed");
  for(const bad of [{...input,fixCode:undefined},{...input,storeHistory:true},{...input,mode:'improve_code'},{...input,fixCode:{...input.fixCode,clarifications:[{question:'Intent?',answer:'password="fixture-sensitive-value"'}]}},{...input,contextPackage:{...contextPackage,items:contextPackage.items.map(i=>i.source.relativePath?{...i,source:{...i.source,relativePath:'other.js'}}:i)}}])assert.equal((await send(bad)).status,400);
  authenticated=false;assert.equal((await send(input)).status,401);authenticated=true;assert.equal(historyCalls,before);
  console.log('Fix Code route: no-diagnostic requests, clarification, authentication, scope/isolation, secret checks and no transcript writes passed');
+}
+
+// Improve Code keeps a separate authenticated, scoped, session-only contract.
+{
+ const {buildImproveCodeContext}=await import('../apps/desktop/src/main/improve-code-context.ts');
+ const {resolveImproveScope}=await import('../apps/desktop/src/main/improve-scope.ts');
+ const {createHash}=await import('node:crypto');
+ const content='function f(x) { return x + 1; }';
+ const seed={mode:'improve_code' as const,kind:'code' as const,activeRelativePath:'main.js',fileName:'main.js',language:'javascript',content,cursorLine:1,cursorColumn:10,maximumTotalCharacters:9000,maximumCharactersPerFile:6000,maximumRelatedFiles:0,exclusions:[]};
+ const contextPackage=buildImproveCodeContext(seed);
+ const input={client:'desktop',provider:'demo',mode:'improve_code',kind:'code',fileName:'main.js',language:'javascript',source:'cursor',cursorLine:1,cursorColumn:10,storeHistory:false,contextPackage,editBase:{targetRelativePath:'main.js',originalContentHash:createHash('sha256').update(content).digest('hex'),contentLength:content.length,basedOnUnsavedContent:true},improveCode:{...resolveImproveScope(seed),goal:'performance',clarifications:[]}};
+ const before=historyCalls;
+ const response=await send(input);assert.equal(response.status,200,JSON.stringify(await response.clone().json()));assert.equal((await response.json()).suggestion.improveOutcome,'no_change');
+ assert.equal((await send({...input,improveCode:{...input.improveCode,clarifications:[{question:'Keep API?',answer:'Yes.'}]}})).status,200);
+ for(const bad of [{...input,improveCode:undefined},{...input,storeHistory:true},{...input,mode:'fix_error'},{...input,liveObserver:true},{...input,improveCode:{...input.improveCode,goal:'invented'}},{...input,improveCode:{...input.improveCode,clarifications:[{question:'What?',answer:'password="fixture-sensitive-value"'}]}},{...input,contextPackage:{...contextPackage,items:contextPackage.items.map(i=>i.source.relativePath?{...i,source:{...i.source,relativePath:'other.js'}}:i)}}])assert.equal((await send(bad)).status,400);
+ authenticated=false;assert.equal((await send(input)).status,401);authenticated=true;assert.equal(historyCalls,before);
+ console.log('Improve Code route: goal/scope/authentication, clarification, no transcript writes, privacy and action isolation passed');
 }

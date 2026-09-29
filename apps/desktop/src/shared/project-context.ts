@@ -83,6 +83,8 @@ export interface ProjectContextPackage {
 }
 
 export interface ProjectContextSeed {
+  improveGoal?: import("./improve-code").ImprovementGoal;
+  improveFullFile?: boolean;
   mode: ObserverMode;
   kind: ObserverKind;
   activeRelativePath: string;

@@ -1,3 +1,4 @@
+import {improveScopeLabel} from "../../shared/improve-code";
 import type { ObserverRequest } from "../../shared/observer";
 import { removeOptionalContextItem } from "../../shared/project-context";
 
@@ -18,6 +19,7 @@ export default function ContextPreview({ request, onChange, onCancel, onSend }: 
     <section className="context-preview" role="dialog" aria-modal="true" aria-labelledby="context-preview-title" tabIndex={-1}>
       <header><div><h2 id="context-preview-title">Context Preview</h2><p>Review the exact focused package before it leaves this device.</p></div><button type="button" onClick={onCancel} aria-label="Close Context Preview">×</button></header>
       <div className="context-preview-summary"><strong>{context.intent.instruction}</strong><span>{context.items.length} items · {context.totalCharacters.toLocaleString()} characters · ~{context.estimatedTokens.toLocaleString()} tokens</span></div>
+      {request.improveCode && <p className="context-preview-summary" aria-label="Approved improvement scope">{improveScopeLabel(request)}</p>}
       <div className="context-preview-items">
         {context.items.map((item) => <article key={item.id} className="context-item">
           <div className="context-item-heading"><strong>{item.title ?? itemLabel(item.type)}</strong><span>{item.attachmentProvenance === "user_attached" ? "Manually attached" : "Automatic"}</span><span>Priority {item.priority}</span>{item.optional && <button type="button" onClick={() => onChange({ ...request, contextPackage: removeOptionalContextItem(context, item.id) })}>Remove</button>}</div>

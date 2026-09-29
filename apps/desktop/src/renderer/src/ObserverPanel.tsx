@@ -25,6 +25,13 @@ const OBSERVER_STATUS_LABELS: Record<ObserverStatus, string> = {
 };
 
 interface ObserverPanelProps {
+  improveCard?: ReactNode;
+  improveGoal?: 'readability'|'performance';
+  improveInstruction?: string;
+  improveFullFile?: boolean;
+  onImproveGoalChange?: (value:'readability'|'performance')=>void;
+  onImproveInstructionChange?: (value:string)=>void;
+  onImproveFullFileChange?: (value:boolean)=>void;
   fixCard?: ReactNode;
   fixVerificationCard?: ReactNode;
   fixProblem?: string;
@@ -72,6 +79,7 @@ interface ObserverPanelProps {
 }
 
 export default function ObserverPanel({
+  improveCard, improveGoal="readability", improveInstruction="", improveFullFile=false, onImproveGoalChange, onImproveInstructionChange, onImproveFullFileChange,
   fixCard, fixVerificationCard, fixProblem = "", onFixProblemChange,
   explanationCard, explainQuestion = "", onExplainQuestionChange,
   automaticRunEnabled,
@@ -112,7 +120,7 @@ export default function ObserverPanel({
   onKeepOriginalContextItem,
   onTruncateContextItem,
 }: ObserverPanelProps) {
-  const conversationCard = explanationCard ?? fixCard;
+  const conversationCard = explanationCard ?? fixCard ?? improveCard;
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -163,6 +171,7 @@ export default function ObserverPanel({
           </label>
         </div>
         {mode === "explain" && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="Explain this for a beginner" /><small>Selected code, otherwise the current function or nearby lines. Preview before sending. Context Tray and other files are not included in Explain.</small></label>}
+        {mode === "improve_code" && onImproveGoalChange && <div className="observer-multi-file-request"><label>Improvement goal<select aria-label="Improvement goal" value={improveGoal} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveGoalChange(e.target.value as 'readability'|'performance')}><option value="readability">Readability &amp; maintainability</option><option value="performance">Performance</option></select></label><label>Optional instruction<textarea aria-label="Improvement instruction" rows={3} maxLength={500} value={improveInstruction} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveInstructionChange?.(e.target.value)} placeholder="Reduce duplication without changing the public API."/></label><label><input type="checkbox" aria-label="Approve active file scope" checked={improveFullFile} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveFullFileChange?.(e.target.checked)}/> Explicitly approve active-file scope when no code is selected</label><small>Selection first, otherwise the current function. If no function is found, select code or approve the file above. Exact code and optional read-only configuration are previewed; never silently truncated.</small></div>}
         {mode === "fix_error" && onFixProblemChange && <label className="observer-multi-file-request"><span>What should this code do, or what is going wrong?</span><textarea aria-label="Fix Code problem" rows={3} maxLength={500} value={fixProblem} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e=>onFixProblemChange(e.target.value)} placeholder="Optional: describe the expected behavior or problem" /><small>Selected code plus bounded surrounding lines, otherwise the entire active file including unsaved changes. Preview before sending. No Context Tray or other files.</small></label>}
         {mode === "plan_multi_file" && <label className="observer-multi-file-request">
           <span>Describe the change</span>
@@ -192,7 +201,7 @@ export default function ObserverPanel({
 
       <div className="observer-scroll-region">
         {automaticRunCard}
-        {mode !== "explain" && mode !== "fix_error" && <ContextTray
+        {mode !== "explain" && mode !== "fix_error" && mode !== "improve_code" && <ContextTray
           items={contextTrayItems}
           maximumCharacters={maximumContextCharacters}
           webContextStatus={webContextStatus}

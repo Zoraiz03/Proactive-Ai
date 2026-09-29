@@ -1,3 +1,4 @@
+import { validImproveContext, type ImproveCodeContext, type ImproveOutcome } from "./improve-code.ts";
 import { validFixContext, type FixCodeContext, type FixCodeOutcome, type FixCodeResult } from "./fix-code.ts";
 import { validExplanationInput, type ExplanationInput, type ExplanationResult } from "./explanation.ts";
 import type { IpcResult } from "./workspace";
@@ -35,6 +36,9 @@ export const OBSERVER_PROVIDERS = [
 
 export const OBSERVER_CHANNELS = {
   prepare: "observer:prepare",
+  improveStart: "observer:improve-start",
+  improveClarify: "observer:improve-clarify",
+  improveClear: "observer:improve-clear",
   fixStart: "observer:fix-start",
   fixClarify: "observer:fix-clarify",
   fixClear: "observer:fix-clear",
@@ -92,6 +96,7 @@ export interface ObserverDiagnosticContext {
 }
 
 export interface ObserverRequest {
+  improveCode?: ImproveCodeContext;
   fixCode?: FixCodeContext;
   explanation?: ExplanationInput;
   liveObserver?: boolean;
@@ -123,6 +128,8 @@ export interface ObserverPrepareRequest {
 }
 
 export interface ObserverSuggestion {
+  improveOutcome?: ImproveOutcome;
+  tradeoffs?: string;
   fixOutcome?: FixCodeOutcome;
   clarificationQuestion?: string;
   verification?: string;
@@ -145,6 +152,9 @@ export interface ObserverOutcomeRequest {
 }
 
 export interface ObserverBridge {
+  improveStart: (id: string, request: ObserverRequest) => Promise<IpcResult<FixCodeResult>>;
+  improveClarify: (id: string, answer: string, sourceHash: string) => Promise<IpcResult<FixCodeResult>>;
+  improveClear: () => Promise<void>;
   fixStart: (id: string, request: ObserverRequest) => Promise<IpcResult<FixCodeResult>>;
   fixClarify: (id: string, answer: string, sourceHash: string) => Promise<IpcResult<FixCodeResult>>;
   fixClear: () => Promise<void>;
@@ -325,9 +335,11 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
   const request = value as Partial<ObserverPrepareRequest>;
   if (!OBSERVER_PROVIDERS.includes(request.provider as ObserverProvider) || !request.seed || typeof request.seed !== "object") return null;
   const seed = request.seed as Partial<ProjectContextSeed>;
-  if (!OBSERVER_MODES.includes(seed.mode as ObserverMode) || !["code", "doc"].includes(seed.kind ?? "") || typeof seed.activeRelativePath !== "string" || !seed.activeRelativePath || seed.activeRelativePath.length > 4096 || typeof seed.fileName !== "string" || typeof seed.language !== "string" || typeof seed.content !== "string" || seed.content.length > (seed.mode === "fix_error" ? 2 * 1024 * 1024 : OBSERVER_LIMITS.activeFile)) return null;
+  if (!OBSERVER_MODES.includes(seed.mode as ObserverMode) || !["code", "doc"].includes(seed.kind ?? "") || typeof seed.activeRelativePath !== "string" || !seed.activeRelativePath || seed.activeRelativePath.length > 4096 || typeof seed.fileName !== "string" || typeof seed.language !== "string" || typeof seed.content !== "string" || seed.content.length > (["fix_error","improve_code"].includes(seed.mode ?? "") ? 2 * 1024 * 1024 : OBSERVER_LIMITS.activeFile)) return null;
   if (!isPositiveInteger(seed.cursorLine) || !isPositiveInteger(seed.cursorColumn) || !Array.isArray(seed.exclusions) || seed.exclusions.some((item) => typeof item !== "string")) return null;
   if (!isPositiveInteger(seed.maximumTotalCharacters) || !isPositiveInteger(seed.maximumRelatedFiles) || !isPositiveInteger(seed.maximumCharactersPerFile)) return null;
+  if (seed.improveGoal !== undefined && !["readability","performance"].includes(seed.improveGoal)) return null;
+  if (seed.improveFullFile !== undefined && typeof seed.improveFullFile !== "boolean") return null;
   if (seed.fixDiagnostics !== undefined && (!Array.isArray(seed.fixDiagnostics) || seed.fixDiagnostics.length > 10 || seed.fixDiagnostics.some(d => !d || !isPositiveInteger(d.line) || !isPositiveInteger(d.column) || typeof d.message !== 'string' || d.message.length > 2000))) return null;
   if (seed.fixRunEvidence !== undefined && (!seed.fixRunEvidence || typeof seed.fixRunEvidence.output !== 'string' || seed.fixRunEvidence.output.length > 8000 || (seed.fixRunEvidence.sourceHash !== undefined && !/^[a-f0-9]{64}$/.test(seed.fixRunEvidence.sourceHash)) || (seed.fixRunEvidence.sourceUnchanged !== undefined && typeof seed.fixRunEvidence.sourceUnchanged !== 'boolean'))) return null;
   if (seed.selectionRange !== undefined && !validFixContext({scope:'selection',range:seed.selectionRange,clarifications:[]})) return null;
@@ -342,6 +354,7 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
 export function validateObserverRequest(value: unknown): ObserverRequest | null {
   if (typeof value !== "object" || value === null) return null;
   const request = value as Partial<ObserverRequest>;
+  if (request.improveCode !== undefined && (!validImproveContext(request.improveCode) || request.mode !== "improve_code" || request.kind !== "code" || !request.editBase || !request.contextPackage || request.fixCode || request.explanation || request.liveObserver || request.automaticRun)) return null;
   if (request.fixCode !== undefined && (!validFixContext(request.fixCode) || request.mode !== "fix_error" || request.kind !== "code" || !request.editBase || !request.contextPackage || request.explanation || request.liveObserver || request.automaticRun)) return null;
   if (request.explanation !== undefined && (!validExplanationInput(request.explanation) || request.mode !== "explain" || request.kind !== "code" || request.storeHistory !== false || request.editBase || request.liveObserver || request.automaticRun)) return null;
   const contextPackage = request.contextPackage === undefined ? undefined : validateProjectContextPackage(request.contextPackage);
@@ -383,6 +396,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
     ) return null;
   }
   return {
+    ...(request.improveCode ? {improveCode:request.improveCode} : {}),
     ...(request.fixCode ? { fixCode: request.fixCode } : {}),
     ...(request.explanation ? { explanation: request.explanation } : {}),
     provider: request.provider as ObserverProvider,

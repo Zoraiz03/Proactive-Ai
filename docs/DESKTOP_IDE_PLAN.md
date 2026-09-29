@@ -3292,6 +3292,68 @@ execution. The earlier backend schema availability issue remains outside scope.
 The user explicitly requested a local commit for this iteration. No push is part
 of this task.
 
+## Manual Improve Code — implemented, provider acceptance pending (2026-09-29)
+
+The previous Fix Code iteration was rechecked, not assumed complete. Its unit,
+privacy, IPC, route, checkpoint and runner regressions pass. The Fix UI fixture
+initially exposed Monaco's “no diff result available” teardown race. Waiting for
+its computed diff before Apply made the fixture pass without hiding renderer
+errors. Signed-in/native and live-provider acceptance remain outstanding.
+
+Improve Code now offers Readability & maintainability (default) or Performance,
+plus optional instructions. Selection takes priority; otherwise the exact current
+function is previewed. No function means selection or explicit file approval is
+required. No mandatory code is silently truncated. Function resolution is isolated
+from other actions; conservative unsupported/ambiguous forms require selection.
+Optional bounded project conventions/test configuration is read-only, removable
+and privacy-screened in Context Preview. Context Tray/imported code is not added
+automatically for this action.
+
+A dedicated prompt and outcome contract distinguish one justified improvement,
+clarification, no worthwhile improvement, and a correctness issue requiring an
+explicit Fix Code handoff. Results explain rationale, assumptions/trade-offs and
+existing verification options. Performance claims must distinguish reasoning from
+measurements; no tests, benchmark results or behavior preservation are invented.
+Clarifications are bounded/session-only and recheck approved context, source and
+privacy. Authenticated backend/server keys, exclusions and complete-file consent
+remain intact; no transcripts or database changes were added.
+
+The existing cancellable session checks, structured edit validation, diff preview,
+explicit Accept Change, checkpoint/Undo and source-aware Run again controls are
+reused. Apply stays in memory, preserves unrelated unsaved code and is unverified.
+There is no automatic save, execution, installation or multi-file editing. The
+coffee/cream theme and other Observer/proactive contracts remain intact.
+
+Verification:
+
+- **279/279 desktop tests passed**, including 24 new Improve tests for exact
+  selection/function/file approval, long/oversized functions, goal/outcome handling,
+  clarification limits, secrets/consent/privacy, readonly configuration, stale or
+  invalid edits, cancellation/project isolation and checkpoint Undo.
+- Root tests passed: dedicated prompts, four outcomes, strict parsing/output-limit
+  errors, provider budgets with mocked fetch, authenticated route/no-history and
+  IPC preview/goal authorization, plus other-action regressions.
+- `test:improve-ui` passed with real Monaco selection events, preview, controls,
+  card/hook and diff; it covers goals/instructions, fallback approval, clarification,
+  no-change, explicit bug handoff/no send, Apply/Undo/no save, stale/invalid edits,
+  privacy, duplicate prevention and cancellation/project isolation. Main context,
+  session and checkpoint logic are real; provider/policy/consent/application and
+  handoff callbacks are controlled doubles. This is not full signed-in App testing.
+- `test:fix-ui`, `test:explain-ui` and `test:live-triggers` passed. Strict desktop
+  type checks, Electron and Next builds, root lint and focused module lint passed.
+  Broader desktop lint retains the same four unused-variable errors and three hook
+  warnings; unrelated lint cleanup is not included.
+
+[`IMPROVE_CODE.md`](./IMPROVE_CODE.md) records exact manual steps, scope/grammar
+limits, configuration/privacy behavior, and evaluations for duplication, nested
+conditions, already-clear code and a potentially behavior-changing performance
+proposal. Live-provider quality/cost/latency, native consent/save/run acceptance,
+backend settings availability, Windows and packaged startup footprint remain
+unverified. The existing TypeScript parser is bundled into main for exact JS/TS
+function ranges; no new dependency was installed. Mocked correctness tests are not
+AI accuracy or behavior-preservation evidence. No paid API calls or migrations
+were made. The user's final instruction authorizes a local commit; no push.
+
 ## Recommended next task
 
 Phase 13D is complete. Experiment A1 — automatic failed-run explanations — was
