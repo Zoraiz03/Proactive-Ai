@@ -25,6 +25,9 @@ const OBSERVER_STATUS_LABELS: Record<ObserverStatus, string> = {
 };
 
 interface ObserverPanelProps {
+  explanationCard?: ReactNode;
+  explainQuestion?: string;
+  onExplainQuestionChange?: (value: string) => void;
   automaticRunEnabled: boolean;
   automaticRunCard: ReactNode;
   mode: ObserverMode;
@@ -65,6 +68,7 @@ interface ObserverPanelProps {
 }
 
 export default function ObserverPanel({
+  explanationCard, explainQuestion = "", onExplainQuestionChange,
   automaticRunEnabled,
   automaticRunCard,
   mode,
@@ -121,7 +125,7 @@ export default function ObserverPanel({
         </div>
         <span className={`observer-status observer-status-${status}`} role="status">
           <span aria-hidden="true" />
-          {OBSERVER_STATUS_LABELS[status]}
+          {mode === "explain" && status === "ready" ? "Explanation ready" : OBSERVER_STATUS_LABELS[status]}
         </span>
       </header>
 
@@ -132,7 +136,7 @@ export default function ObserverPanel({
             <select
               value={mode}
               onChange={(event) => onModeChange(event.target.value as ObserverMode)}
-              disabled={status === "thinking"}
+              disabled={status === "thinking" || Boolean(explanationCard)}
             >
               {modes.map((value) => (
                 <option key={value} value={value}>{OBSERVER_MODE_LABELS[value]}</option>
@@ -144,7 +148,7 @@ export default function ObserverPanel({
             <select
               value={provider}
               onChange={(event) => onProviderChange(event.target.value as ObserverProvider)}
-              disabled={status === "thinking"}
+              disabled={status === "thinking" || Boolean(explanationCard)}
             >
               {OBSERVER_PROVIDERS.map((value) => (
                 <option key={value} value={value}>{OBSERVER_PROVIDER_LABELS[value]}</option>
@@ -152,6 +156,7 @@ export default function ObserverPanel({
             </select>
           </label>
         </div>
+        {mode === "explain" && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(explanationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="Explain this for a beginner" /><small>Selected code, otherwise the current function or nearby lines. Preview before sending. Context Tray and other files are not included in Explain.</small></label>}
         {mode === "plan_multi_file" && <label className="observer-multi-file-request">
           <span>Describe the change</span>
           <textarea value={multiFileDescription} maxLength={500} rows={5} disabled={status === "thinking"} onChange={(event) => onMultiFileDescriptionChange(event.target.value)} placeholder="Describe the outcome that may require coordinated changes across files." />
@@ -180,7 +185,7 @@ export default function ObserverPanel({
 
       <div className="observer-scroll-region">
         {automaticRunCard}
-        <ContextTray
+        {mode !== "explain" && <ContextTray
           items={contextTrayItems}
           maximumCharacters={maximumContextCharacters}
           webContextStatus={webContextStatus}
@@ -190,7 +195,7 @@ export default function ObserverPanel({
           onRefresh={onRefreshContextItem}
           onKeepOriginal={onKeepOriginalContextItem}
           onTruncate={onTruncateContextItem}
-        />
+        />}
 
         {proactiveNudge && (
           <article className="proactive-nudge" aria-label="Proactive Observer suggestion">
@@ -227,7 +232,8 @@ export default function ObserverPanel({
           </section>
         )}
 
-        <div className="observer-result" aria-live="polite">
+        {explanationCard}
+        {!explanationCard && <div className="observer-result" aria-live="polite">
           {status === "idle" && (
             <div className="observer-empty">
               <span className="observer-state-emblem" aria-hidden="true"><span /></span>
@@ -259,6 +265,7 @@ export default function ObserverPanel({
                 </div>
                 <button type="button" onClick={onDismiss} aria-label="Dismiss suggestion" title="Dismiss (Escape)">×</button>
               </div>
+              {suggestion.historyWarning && <p role="status" className="observer-reason">{suggestion.historyWarning}</p>}
               <p className="observer-explanation">{suggestion.explanation}</p>
               <section className="observer-reason-block" aria-label="Suggestion reason">
                 <span>Why this suggestion</span>
@@ -275,7 +282,7 @@ export default function ObserverPanel({
               </div>
             </article>
           )}
-        </div>
+        </div>}
       </div>
 
       <div className="observer-privacy-note">

@@ -1,3 +1,4 @@
+import { EXPLANATION_LIMITS, validExplanationInput } from "../../../../apps/desktop/src/shared/explanation.ts";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authenticateApiRequest } from "@/lib/supabase/request-auth";
@@ -29,6 +30,8 @@ const WebBody = z.object({
 });
 
 const DesktopBody = z.object({
+  explanation: z.custom<import("../../../../apps/desktop/src/shared/explanation").ExplanationInput>(validExplanationInput).optional(),
+  liveObserver: z.literal(true).optional(),
   automaticRun: z.object({ trigger: z.literal("failed_run"), runId: z.string().uuid() }).strict().optional(),
   client: z.literal("desktop"),
   provider: ProviderSchema,
@@ -54,6 +57,21 @@ const DesktopBody = z.object({
   contextPackage: ProjectContextSchema,
   editBase: EditBaseSchema.optional(),
 }).superRefine((body, context) => {
+  if (body.explanation && (body.mode !== 'explain' || body.kind !== 'code' || body.automaticRun || body.liveObserver || body.editBase || body.storeHistory || body.contextPackage.totalCharacters > EXPLANATION_LIMITS.contextCharacters ||
+    body.contextPackage.totalCharacters + body.explanation.question.length + body.explanation.messages.reduce((n, m) => n + m.content.length, 0) > body.contextPackage.limits.maximumTotalCharacters ||
+    body.contextPackage.items.some(item => !['user_instruction', 'selected_code', 'current_symbol', 'nearby_code'].includes(item.type) || (item.source.relativePath && item.source.relativePath !== body.contextPackage.activeFile.relativePath)) ||
+    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:api[_-]?key|password|access[_-]?token)\s*[:=]\s*["']?[A-Za-z0-9_./+\-=]{12,}/i.test(JSON.stringify(body.explanation)))) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid or unsafe explanation conversation.' });
+  const liveContextInvalid = body.automaticRun || body.mode !== "improve_code" || body.kind !== "code" ||
+    !["python", "javascript"].includes(body.language) || body.storeHistory || !body.editBase ||
+    body.contextPackage.totalCharacters > 9000 || body.contextPackage.items.length > 5 ||
+    !body.contextPackage.items.some(item => item.type === "nearby_code") ||
+    body.contextPackage.items.some(item =>
+      !["nearby_code", "diagnostic", "user_instruction"].includes(item.type) ||
+      item.source.relativePath !== body.contextPackage.activeFile.relativePath ||
+      item.content.length > (item.type === "nearby_code" ? 6000 : item.type === "diagnostic" ? 1000 : 500));
+  if (body.liveObserver && liveContextInvalid) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid bounded Live Observer context." });
+  }
   const automaticContextInvalid = body.mode !== "explain" || body.kind !== "code" ||
     !["python", "javascript"].includes(body.language) || body.editBase || body.storeHistory ||
     body.contextPackage.totalCharacters > 9_000 || body.contextPackage.items.length !== 3 ||
@@ -188,6 +206,8 @@ export async function POST(req: Request) {
       kind,
       content,
       context,
+      ...(desktop?.explanation ? { explanation: desktop.explanation } : {}),
+      ...(desktop?.liveObserver ? { liveObserver: true } : {}),
       ...(desktop?.automaticRun ? { automaticRun: true } : {}),
       ...(desktop ? { projectContext: desktop.contextPackage } : {}),
       ...(desktop?.editBase ? { editBase: desktop.editBase } : {}),
@@ -201,46 +221,54 @@ export async function POST(req: Request) {
     if (desktop && !desktop.storeHistory) {
       return NextResponse.json({ suggestion, provider });
     }
-    const { data: saved, error: saveError } = await supabase
-      .from("suggestions")
-      .insert({
-        user_id: user.id,
-        provider,
-        file_name: fileName,
-        detector_metadata: {
-          trigger: "manual",
-          client: desktop ? "desktop" : "web",
-          authMethod: method,
-          mode: context.mode,
-          kind,
-          contextSource: context.source ?? (context.selectedText ? "selection" : "cursor"),
-          language: context.language ?? null,
-          hasSelection: Boolean(context.selectedText),
-          cursorLine: context.cursorLine ?? null,
-          diagnosticLine: context.diagnostic?.line ?? null,
-          activeFileIncluded: Boolean(context.activeFileIncluded),
-          ...(desktop ? { projectContext: safeProjectContextMetadata(desktop.contextPackage) } : {}),
-          editProposed: Boolean(desktop?.editBase && suggestion.edit),
-          targetFileType: desktop?.language ?? kind,
-          responseLatencyMs: Math.max(0, Date.now() - requestStartedAt),
-        },
-        score: 0,
-        explanation: suggestion.explanation,
-        // Editable code stays only in the authenticated response and local checkpoint.
-        // Supabase receives metadata, not replacement code.
-        snippet: suggestion.edit ? "" : suggestion.snippet,
-        reason: suggestion.reason,
-      })
-      .select("id")
-      .single();
-    if (saveError) {
-      console.error("[suggest] persist:", saveError.message);
-      return NextResponse.json(
-        { error: "The suggestion was generated but could not be saved." },
-        { status: 500 }
-      );
+    // History is optional: a storage outage must not discard a paid-for answer.
+    let saved: { id: string } | null = null;
+    let historyFailed = false;
+    try {
+      const result = await supabase
+        .from("suggestions")
+        .insert({
+          user_id: user.id,
+          provider,
+          file_name: fileName,
+          detector_metadata: {
+            trigger: "manual",
+            client: desktop ? "desktop" : "web",
+            authMethod: method,
+            mode: context.mode,
+            kind,
+            contextSource: context.source ?? (context.selectedText ? "selection" : "cursor"),
+            language: context.language ?? null,
+            hasSelection: Boolean(context.selectedText),
+            cursorLine: context.cursorLine ?? null,
+            diagnosticLine: context.diagnostic?.line ?? null,
+            activeFileIncluded: Boolean(context.activeFileIncluded),
+            ...(desktop ? { projectContext: safeProjectContextMetadata(desktop.contextPackage) } : {}),
+            editProposed: Boolean(desktop?.editBase && suggestion.edit),
+            targetFileType: desktop?.language ?? kind,
+            responseLatencyMs: Math.max(0, Date.now() - requestStartedAt),
+          },
+          score: 0,
+          explanation: suggestion.explanation,
+          // Editable code stays only in the authenticated response and local checkpoint.
+          // Supabase receives metadata, not replacement code.
+          snippet: suggestion.edit ? "" : suggestion.snippet,
+          reason: suggestion.reason,
+        })
+        .select("id")
+        .single();
+      saved = result.data;
+      historyFailed = Boolean(result.error || !saved?.id);
+      if (result.error) console.error("[suggest] history unavailable:", result.error.code ?? "unknown");
+    } catch {
+      historyFailed = true;
+      console.error("[suggest] history transport unavailable");
     }
-    return NextResponse.json({ suggestion: { ...suggestion, id: saved.id }, provider });
+    return NextResponse.json({ suggestion: {
+      ...suggestion,
+      ...(!historyFailed && saved?.id ? { id: saved.id } : {}),
+      ...(historyFailed ? { historyWarning: "This suggestion is available, but was not saved to history. Check the backend database setup or connection." } : {}),
+    }, provider });
   } catch (err) {
     const pe = err as ProviderError;
     console.error(`[suggest] ${provider}:`, pe.message);

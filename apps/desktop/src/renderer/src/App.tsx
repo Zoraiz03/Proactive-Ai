@@ -1,3 +1,8 @@
+import { useExplanation } from "./useExplanation";
+import ExplanationConversation from "./ExplanationConversation";
+import { createLiveEditReporter, liveBlockReason } from "./live-editor-events";
+import { LIVE_CONFIG, LIVE_OFF, type LiveState, type LiveEdit } from "../../shared/live-observer";
+import LiveObserverCard from "./LiveObserverCard";
 import Editor from "@monaco-editor/react";
 import { AUTOMATIC_RUN_CONFIG, AUTOMATIC_RUN_OFF, type AutomaticRunState } from "../../shared/automatic-run";
 import AutomaticRunCard from "./AutomaticRunCard";
@@ -228,12 +233,15 @@ function Placeholder({ icon, children }: { icon: string; children: React.ReactNo
 }
 
 interface EditorWorkspaceProps {
+  onLiveEdit?: (edit: LiveEdit) => void;
+  liveState: LiveState;
+  onLiveReview: () => void;
   tabs: EditorTab[];
   activePath: string | null;
   surface: EditorSurface;
   onActivate: (relativePath: string) => void;
   onClose: (relativePath: string) => void;
-  onChange: (relativePath: string, content: string) => void;
+  onChange: (relativePath: string, content: string, context?: { line: number; column: number; diagnostics: DiagnosticSignal[] }) => void;
   onSave: (relativePath: string) => void;
   onRun: () => void;
   onStop: () => void;
@@ -250,7 +258,8 @@ interface EditorWorkspaceProps {
   editorTheme: string;
 }
 
-function EditorWorkspace({
+export function EditorWorkspace({
+  liveState, onLiveReview, onLiveEdit,
   tabs,
   activePath,
   surface,
@@ -274,9 +283,29 @@ function EditorWorkspace({
 }: EditorWorkspaceProps) {
   const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+  const liveDiagnostics = useRef<DiagnosticSignal[]>([]);
+  const liveEditCallback = useRef(onLiveEdit);
+  liveEditCallback.current = onLiveEdit;
+  const lastEditorContent = useRef(activeTab?.draft ?? "");
+  useEffect(() => { lastEditorContent.current = activeTab?.draft ?? ""; }, [activeTab?.draft]);
+  const liveReporter = useRef<ReturnType<typeof createLiveEditReporter> | null>(null);
   const activePathRef = useRef(activePath);
   const observerContextRef = useRef(onObserverContextChange);
   const editorDisposablesRef = useRef<Array<{ dispose: () => void }>>([]);
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !liveState.suggestion || liveState.request?.editBase?.targetRelativePath !== activePath) return;
+    const node = document.createElement("aside"); node.className = "live-suggestion live-inline"; node.setAttribute("aria-label", "Live Observer near code");
+    const heading = document.createElement("strong"); heading.textContent = `Live Observer · line ${liveState.request.cursorLine} · not tested`;
+    const explanation = document.createElement("p"); explanation.textContent = liveState.suggestion.explanation;
+    const reason = document.createElement("small"); reason.textContent = liveState.suggestion.reason;
+    node.append(heading, explanation, reason);
+    if (liveState.suggestion.edit) { const review = document.createElement("button"); review.textContent = "Review diff"; review.onclick = onLiveReview; node.append(review); }
+    const dismiss = document.createElement("button"); dismiss.textContent = "Dismiss"; dismiss.onclick = () => window.liveObserver.cancel(); node.append(dismiss);
+    const widget: MonacoEditor.IContentWidget = { getId: () => "live-observer", getDomNode: () => node, getPosition: () => ({ position: { lineNumber: liveState.request!.cursorLine, column: 1 }, preference: [2, 1] }), allowEditorOverflow: false, suppressMouseDown: true };
+    editor.addContentWidget(widget);
+    return () => editor.removeContentWidget(widget);
+  }, [liveState, activePath, onLiveReview]);
   activePathRef.current = activePath;
   observerContextRef.current = onObserverContextChange;
 
@@ -286,6 +315,7 @@ function EditorWorkspace({
   }, [activePath, onObserverContextChange]);
 
   useEffect(() => () => {
+    liveReporter.current?.cancel();
     editorDisposablesRef.current.forEach((disposable) => disposable.dispose());
     editorDisposablesRef.current = [];
   }, []);
@@ -485,6 +515,11 @@ function EditorWorkspace({
               theme={editorTheme}
               onMount={(instance) => {
                 editorRef.current = instance;
+                lastEditorContent.current = instance.getValue();
+                liveReporter.current = createLiveEditReporter(() => {
+                  const position = instance.getPosition(); const path = activePathRef.current;
+                  return position && path ? { relativePath: path, content: instance.getValue(), line: position.lineNumber, column: position.column, diagnostics: liveDiagnostics.current.slice(0, 100) } : null;
+                }, (edit) => liveEditCallback.current?.(edit));
                 editorDisposablesRef.current.forEach((disposable) => disposable.dispose());
                 const emitObserverContext = () => {
                   const model = instance.getModel();
@@ -514,7 +549,7 @@ function EditorWorkspace({
                 editorDisposablesRef.current = [
                   instance.onDidChangeCursorSelection(emitObserverContext),
                   instance.onDidChangeModelContent(emitObserverContext),
-                  instance.onDidChangeModel(emitObserverContext),
+                  instance.onDidChangeModel(() => { liveReporter.current?.cancel(); lastEditorContent.current = instance.getValue(); liveDiagnostics.current = []; emitObserverContext(); }),
                 ];
                 if (focusLocation?.relativePath === activeTab.file.relativePath) {
                   instance.setSelection({
@@ -528,13 +563,13 @@ function EditorWorkspace({
                 }
                 emitObserverContext();
               }}
-              onChange={(value) => onChange(activeTab.file.relativePath, value ?? "")}
-              onValidate={(markers) => onDiagnosticsChange(activeTab.file.relativePath, markers.map((marker) => ({
+              onChange={(value, event) => { const previous = lastEditorContent.current; lastEditorContent.current = value ?? ""; if (event.isFlush) { liveReporter.current?.cancel(); return; } liveReporter.current?.changed(activeTab.file.relativePath, previous); const position = editorRef.current?.getPosition(); onChange(activeTab.file.relativePath, value ?? "", { line: position?.lineNumber ?? 1, column: position?.column ?? 1, diagnostics: liveDiagnostics.current }); }}
+              onValidate={(markers) => { liveDiagnostics.current = markers.map((marker) => ({
                 severity: marker.severity === 8 ? "error" : marker.severity === 4 ? "warning" : marker.severity === 2 ? "info" : "hint",
                 message: marker.message,
                 line: marker.startLineNumber,
                 column: marker.startColumn,
-              })))}
+              })); onDiagnosticsChange(activeTab.file.relativePath, liveDiagnostics.current); }}
               loading={<Placeholder icon="⋯">Starting editor…</Placeholder>}
               saveViewState
               options={{
@@ -594,6 +629,13 @@ export default function App({ user, onSignOut }: AppProps) {
   const [observerMode, setObserverMode] = useState<ObserverMode>("explain");
   const [observerProvider, setObserverProvider] = useState<ObserverProvider>("gemini");
   const [observerStatus, setObserverStatus] = useState<ObserverStatus>("idle");
+  const [explainQuestion, setExplainQuestion] = useState("");
+  const explanation = useExplanation(openedWorkspace?.workspaceId, setObserverStatus);
+  const clearExplanation = explanation.clear;
+  const explanationPreparing = useRef(false);
+  const explanationPreviewSource = useRef<{ path: string; content: string } | null>(null);
+  const lastLiveEdit = useRef<{ path: string; content: string } | null>(null);
+  const [liveState, setLiveState] = useState<LiveState>({ ...LIVE_OFF });
   const [automaticRunState, setAutomaticRunState] = useState<AutomaticRunState>({ ...AUTOMATIC_RUN_OFF });
   const [observerSnapshot, setObserverSnapshot] = useState<EditorObserverSnapshot | null>(null);
   const [observerSuggestion, setObserverSuggestion] = useState<ObserverSuggestion | null>(null);
@@ -784,18 +826,40 @@ export default function App({ user, onSignOut }: AppProps) {
     return () => { active = false; unsubscribe(); };
   }, []);
 
+  useEffect(() => window.liveObserver.onState(setLiveState), []);
+  useEffect(() => {
+    if (lastLiveEdit.current?.path !== activePath || lastLiveEdit.current?.content !== activeTab?.draft) window.liveObserver.cancel();
+  }, [activePath, activeTab?.draft]);
+  useEffect(() => {
+    const report = () => {
+      const reason = liveBlockReason({
+        settingsLoaded, observerEnabled: syncedSettings.observerEnabled, workspaceUnavailable: signingOut,
+        reviewOpen: Boolean(contextPreviewRequest || observerEditReview || multiFilePlan || multiFileChangeSet || multiFileApplied || documentationUpdateView || gitDiff),
+        dialogOpen: Boolean(settingsOpen || unsavedPrompt || incomingWebContext || document.querySelector('[role="dialog"], dialog[open]')),
+        manualBusy: Boolean(observerStatus !== "idle" || observerSuggestion || multiFileBusy),
+        automaticBusy: Boolean(proactiveNudge || ["waiting", "thinking", "ready"].includes(automaticRunState.status)),
+        fileUnavailable: Boolean(!activeTab || activeTab.externalConflict || activeTab.availability !== "available"),
+      });
+      window.liveObserver.activity({ relativePath: activePath, focused: document.hasFocus() && document.visibilityState === "visible", blocked: Boolean(reason), reason });
+    };
+    report(); const timer = window.setInterval(report, 1000);
+    window.addEventListener("blur", report); window.addEventListener("focus", report); document.addEventListener("visibilitychange", report);
+    return () => { window.clearInterval(timer); window.removeEventListener("blur", report); window.removeEventListener("focus", report); document.removeEventListener("visibilitychange", report); };
+  }, [activePath, activeTab, settingsLoaded, syncedSettings.observerEnabled, settingsOpen, unsavedPrompt, contextPreviewRequest, observerEditReview, observerStatus, observerSuggestion, multiFileBusy, multiFilePlan, multiFileChangeSet, multiFileApplied, documentationUpdateView, gitDiff, signingOut, incomingWebContext, proactiveNudge, automaticRunState.status]);
+  useEffect(() => { void window.liveObserver.configure(false, observerProvider, LIVE_CONFIG.pauseMs).then(result => { if (result.ok) setLiveState(result.value); }); }, [observerProvider, openedWorkspace?.workspaceId]);
+
   useEffect(() => {
     const report = () => window.automaticRun.activity({
       relativePath: activePath,
       dirty: Boolean(activeTab && (isDirty(activeTab) || activeTab.externalConflict || activeTab.availability !== "available")),
-      blocked: Boolean(!settingsLoaded || !syncedSettings.observerEnabled || settingsOpen || unsavedPrompt || contextPreviewRequest || observerEditReview || observerStatus !== "idle" || observerSuggestion || multiFileBusy || multiFilePlan || multiFileChangeSet || multiFileApplied || documentationUpdateView || gitDiff || signingOut || incomingWebContext || document.querySelector('[role="dialog"], dialog[open]')),
+      blocked: Boolean(["waiting", "checking", "thinking", "ready"].includes(liveState.status) || !settingsLoaded || !syncedSettings.observerEnabled || settingsOpen || unsavedPrompt || contextPreviewRequest || observerEditReview || observerStatus !== "idle" || observerSuggestion || multiFileBusy || multiFilePlan || multiFileChangeSet || multiFileApplied || documentationUpdateView || gitDiff || signingOut || incomingWebContext || document.querySelector('[role="dialog"], dialog[open]')),
       focused: document.hasFocus() && document.visibilityState === "visible",
     });
     report();
     const interval = window.setInterval(report, AUTOMATIC_RUN_CONFIG.heartbeatMs);
     window.addEventListener("blur", report); window.addEventListener("focus", report); document.addEventListener("visibilitychange", report);
     return () => { window.clearInterval(interval); window.removeEventListener("blur", report); window.removeEventListener("focus", report); document.removeEventListener("visibilitychange", report); };
-  }, [activePath, activeTab, settingsLoaded, syncedSettings.observerEnabled, settingsOpen, unsavedPrompt, contextPreviewRequest, observerEditReview, observerStatus, observerSuggestion, multiFileBusy, multiFilePlan, multiFileChangeSet, multiFileApplied, documentationUpdateView, gitDiff, signingOut, incomingWebContext]);
+  }, [activePath, activeTab, settingsLoaded, syncedSettings.observerEnabled, settingsOpen, unsavedPrompt, contextPreviewRequest, observerEditReview, observerStatus, observerSuggestion, multiFileBusy, multiFilePlan, multiFileChangeSet, multiFileApplied, documentationUpdateView, gitDiff, signingOut, incomingWebContext, liveState.status]);
 
   useEffect(() => {
     if (settingsLoaded && !syncedSettings.observerEnabled && automaticRunState.enabled) void window.automaticRun.configure(false, observerProvider).then((result) => { if (result.ok) setAutomaticRunState(result.value); });
@@ -846,7 +910,7 @@ export default function App({ user, onSignOut }: AppProps) {
     return {
       provider: observerProvider,
       ...(observerProvider === syncedSettings.preferredProvider ? { model: syncedSettings.preferredModel } : {}),
-      storeHistory: syncedSettings.storeSuggestionHistory,
+      storeHistory: activeObserverMode === "explain" ? false : syncedSettings.storeSuggestionHistory,
       seed: {
         mode: activeObserverMode,
         kind: activeIsMarkdown ? "doc" : "code",
@@ -866,11 +930,12 @@ export default function App({ user, onSignOut }: AppProps) {
         maximumTotalCharacters: syncedSettings.maximumContextChars,
         maximumRelatedFiles: localSettings.contextMaximumRelatedFiles,
         maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
+        ...(activeObserverMode === "explain" && explainQuestion.trim() ? { userRequest: explainQuestion.trim() } : {}),
         ...(activeObserverMode === "plan_multi_file" ? { userRequest: multiFileDescription.trim() } : {}),
-        ...(contextTrayItems.length ? { trayItems: contextTrayItems } : {}),
+        ...(contextTrayItems.length && activeObserverMode !== "explain" ? { trayItems: contextTrayItems } : {}),
       },
     };
-  }, [activeIsMarkdown, activeObserverMode, activeTab, contextTrayItems, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+  }, [explainQuestion, activeIsMarkdown, activeObserverMode, activeTab, contextTrayItems, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
   const currentContextSummary = observerRequest ? "A focused project context package will be previewed before sending." : null;
 
   const attachTrayItem = useCallback(async (input: CreateContextTrayItemInput) => {
@@ -1144,6 +1209,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [askAboutUnsavedChanges, saveTab]);
 
   const clearWorkspaceTabs = useCallback((workspace: OpenWorkspace) => {
+    clearExplanation(); setExplainQuestion(""); explanationPreviewSource.current = null;
     requestSequence.current += 1;
     proactiveEngineRef.current = new ProactiveObserverEngine();
     proactiveDiagnosticsRef.current.clear();
@@ -1192,7 +1258,7 @@ export default function App({ user, onSignOut }: AppProps) {
         }
       });
     }
-  }, [appendOutput, localSettings.restoreOpenTabs, selectFile]);
+  }, [appendOutput, clearExplanation, localSettings.restoreOpenTabs, selectFile]);
 
   useEffect(() => {
     if (localSettings.proactiveObserverMode === "assist") return;
@@ -1654,6 +1720,11 @@ export default function App({ user, onSignOut }: AppProps) {
 
   const sendObserverRequest = useCallback(async (request: ObserverRequest) => {
     if (!activeTab || observerRequestInFlight.current || observerSuggestion || observerEditReview) return;
+    if (request.mode === "explain" && request.kind === "code") {
+      setContextPreviewRequest(null);
+      await explanation.start(request, explanationPreviewSource.current ?? { path: activeTab.file.relativePath, content: activeTab.draft });
+      return;
+    }
     if (request.contextPackage && requiresCompleteFileConfirmation(request.contextPackage, syncedSettings.confirmCompleteFile) &&
       !window.confirm("This package includes at least one complete local file. Send the reviewed package to Observer?")) { setObserverStatus("idle"); return; }
     observerRequestInFlight.current = true;
@@ -1701,17 +1772,37 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverSuggestion(result.value.suggestion);
     setObserverStatus("ready");
     appendOutput(`Observer returned a ${OBSERVER_MODE_LABELS[request.mode].toLowerCase()} suggestion.`, "success");
-  }, [activeTab, appendOutput, observerEditReview, observerSuggestion, queueUsefulnessPrompt, syncedSettings.confirmCompleteFile]);
+  }, [activeTab, appendOutput, explanation, observerEditReview, observerSuggestion, queueUsefulnessPrompt, syncedSettings.confirmCompleteFile]);
 
-  const askObserver = useCallback(async () => {
+  const reviewLiveSuggestion = useCallback(async () => {
+    const { request, suggestion } = liveState;
+    if (!request?.editBase || !suggestion?.edit) return;
+    const tab = tabsRef.current.find(tab => tab.file.relativePath === request.editBase!.targetRelativePath);
+    if (!tab) return;
+    const validated = validateAndBuildProposedEdit(suggestion.edit, request.editBase, tab.draft, await sha256Text(tab.draft));
+    window.liveObserver.cancel();
+    setObserverEditReview({ request, suggestion, originalContent: tab.draft, proposedContent: validated.ok ? validated.value.proposedContent : tab.draft, contextSummary: "Live Observer · bounded unsaved code · not tested", ...(!validated.ok ? { staleMessage: validated.message } : {}) });
+  }, [liveState]);
+
+  const askObserver = useCallback(async (refreshExplanation = false) => {
+    window.liveObserver.cancel();
     if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion || observerEditReview) return;
+    if (explanationPreparing.current || (explanation.request && !refreshExplanation)) return;
+    if (refreshExplanation) explanation.clear();
+    const token = explanation.epoch.current;
+    explanationPreviewSource.current = { path: activeTab.file.relativePath, content: activeTab.draft };
     setObserverStatus("thinking"); setObserverError(null);
-    const prepared = await window.observer.prepare(observerRequest);
+    explanationPreparing.current = true;
+    let prepared;
+    try { prepared = await window.observer.prepare(observerRequest); }
+    catch { prepared = { ok: false as const, error: "Context preview failed. Try again." }; }
+    finally { explanationPreparing.current = false; }
+    if (token !== explanation.epoch.current) return;
     if (!prepared.ok) { setObserverStatus("error"); setObserverError(prepared.error); appendOutput(`Observer: ${prepared.error}`, "error"); return; }
     setObserverStatus("idle");
     setMultiFilePreviewPhase(prepared.value.mode === "plan_multi_file" ? "plan" : null);
     setContextPreviewRequest(prepared.value);
-  }, [activeTab, appendOutput, observerEditReview, observerRequest, observerSuggestion]);
+  }, [activeTab, appendOutput, explanation, observerEditReview, observerRequest, observerSuggestion]);
 
   const finishProactiveNudge = useCallback((outcome: Exclude<ProactiveOutcome, "shown" | "resolved">) => {
     const event = proactiveEngineRef.current.dismiss(outcome);
@@ -1888,6 +1979,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [activeTab, appendOutput, openedWorkspace]);
 
   const dismissObserver = useCallback(() => {
+    if (explanation.request) { explanation.clear(); return; }
     const suggestionId = observerSuggestion?.id;
     setObserverSuggestion(null);
     setObserverError(null);
@@ -1899,7 +1991,7 @@ export default function App({ user, onSignOut }: AppProps) {
     if (suggestionId) {
       void window.observer.recordOutcome({ suggestionId, outcome: "dismissed" });
     }
-  }, [observerSuggestion]);
+  }, [explanation, observerSuggestion]);
 
   const copySnippet = useCallback(async () => {
     const snippet = observerSuggestion?.snippet;
@@ -1968,6 +2060,7 @@ export default function App({ user, onSignOut }: AppProps) {
 
   const signOut = useCallback(async () => {
     if (!(await canOpenWorkspace())) return;
+    clearExplanation(); setExplainQuestion("");
     setSigningOut(true);
     setAccountError(null);
     const error = await onSignOut();
@@ -1975,7 +2068,7 @@ export default function App({ user, onSignOut }: AppProps) {
       setAccountError(error);
       setSigningOut(false);
     }
-  }, [canOpenWorkspace, onSignOut]);
+  }, [canOpenWorkspace, clearExplanation, onSignOut]);
 
   const saveAll = useCallback(async () => {
     for (const tab of tabsRef.current.filter(isDirty)) {
@@ -2003,6 +2096,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setSurface({ status: "idle" });
     setExternalChanges(null);
     externalReadSequence.current.clear();
+    clearExplanation(); setExplainQuestion(""); explanationPreviewSource.current = null;
     setWorkspaceOpen(false);
     setOpenedWorkspace(null);
     setWorkspaceVersion((current) => current + 1);
@@ -2029,7 +2123,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setMarkdownViewModes({});
     setSidebarView("explorer");
     appendOutput("Workspace closed. Welcome screen opened.");
-  }, [appendOutput, canOpenWorkspace, workspaceOpen]);
+  }, [appendOutput, canOpenWorkspace, clearExplanation, workspaceOpen]);
 
   const saveLocalSettings = useCallback(async (settings: LocalSettings) => {
     const result = await window.settings.updateLocal(settings);
@@ -2401,6 +2495,12 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [hasDirtyTabs]);
 
   const updateDraft = (relativePath: string, content: string) => {
+    const previous = tabsRef.current.find(tab => tab.file.relativePath === relativePath);
+    if (liveState.enabled && previous && previous.draft !== content && relativePath === activePath) {
+      lastLiveEdit.current = { path: relativePath, content };
+
+    }
+
     // Immediate invalidation, including edits later undone before the next render.
     window.automaticRun.activity({ relativePath, dirty: true, blocked: true, focused: document.hasFocus() });
     setContextTrayItems((current) => markContextTrayPathStale(current, relativePath));
@@ -2616,6 +2716,9 @@ export default function App({ user, onSignOut }: AppProps) {
             />
           ) : (
           <EditorWorkspace
+            onLiveEdit={(edit) => { if (liveState.enabled && edit.relativePath === activePath) window.liveObserver.edit(edit); }}
+            liveState={liveState}
+            onLiveReview={() => void reviewLiveSuggestion()}
             tabs={tabs}
             activePath={activePath}
             surface={surface}
@@ -2652,8 +2755,15 @@ export default function App({ user, onSignOut }: AppProps) {
 
         <aside className="panel observer-panel">
           <ObserverPanel
+            explainQuestion={explainQuestion}
+            onExplainQuestionChange={setExplainQuestion}
+            explanationCard={explanation.request && <ExplanationConversation request={explanation.request} result={explanation.result} busy={explanation.busy} error={explanation.error}
+              stale={!tabs.some(tab => tab.file.relativePath === explanation.snapshot?.path && tab.draft === explanation.snapshot.content && tab.availability === "available" && !tab.externalConflict)}
+              onFollowup={explanation.followup} onClear={explanation.clear} onCancel={explanation.cancel}
+              onRefresh={activePath === explanation.snapshot?.path && activeObserverMode === "explain" && observerRequest ? () => void askObserver(true) : undefined} />}
+
             automaticRunEnabled={automaticRunState.enabled}
-            automaticRunCard={<AutomaticRunCard state={automaticRunState} provider={observerProvider} available={workspaceOpen && settingsLoaded && syncedSettings.observerEnabled} onState={setAutomaticRunState} />}
+            automaticRunCard={<><LiveObserverCard onAsk={() => void askObserver()} canAsk={!explanation.request && syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest} state={liveState} provider={observerProvider} available={workspaceOpen && settingsLoaded} onState={setLiveState} onReview={() => void reviewLiveSuggestion()} /><AutomaticRunCard state={automaticRunState} provider={observerProvider} available={workspaceOpen && settingsLoaded && syncedSettings.observerEnabled} onState={setAutomaticRunState} /></>}
             mode={activeObserverMode}
             modes={observerModes}
             provider={observerProvider}
@@ -2662,7 +2772,7 @@ export default function App({ user, onSignOut }: AppProps) {
             suggestion={observerSuggestion}
             error={observerError}
             copyStatus={copyStatus}
-            canAsk={syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest}
+            canAsk={!explanation.request && syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest}
             onModeChange={(mode) => {
               setObserverMode(mode);
               if (observerStatus === "error") dismissObserver();

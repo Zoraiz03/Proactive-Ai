@@ -2987,6 +2987,244 @@ Verification:
 | 2026-09-04 | Phase 13D live macOS UI/accessibility QA | Complete | Safe fixture smoke covered edit/save, search, terminal, Run/output, Git/diff, Markdown/empty files, Settings, Observer pre-send, Context Tray, keyboard focus/trapping/Escape/restoration, pointer panel resizing, and 1197px/964px/762px window widths. |
 | 2026-09-04 | Phase 13D Windows QA | Not run | No Windows environment was available; no Windows testing is claimed. |
 
+## Live Observer · experimental — 2026-09-24
+
+Implemented as one focused iteration alongside manual Ask Observer and automatic
+failed-run help. No database migration or document support was added.
+
+- Separate session-only switch, off by default. Open a project, select a provider,
+  then turn on **Live Observer · experimental** in the Observer panel and accept
+  the native disclosure. It explicitly includes unsaved code. Changing provider,
+  project, signing out, or reloading disables the experiment.
+- Python and JavaScript (`.py`, `.js`, `.mjs`, `.jsx`) active-editor changes only.
+  Opening files, cursor movement, or inactivity without an edit do not request AI.
+  Pause is selectable before enabling (2/4/8 seconds). Defaults and limits live in
+  `apps/desktop/src/shared/live-observer.ts`: 4 seconds, 30-second cooldown,
+  10 requests/hour. Limits survive toggling the switch.
+- Main-process policy checks preserve Observer enablement, AI context exclusions,
+  secret screening, diagnostics preference, context budgets, and complete-file
+  confirmation. With **Confirm complete files** enabled, a nearby excerpt covering
+  the whole file is blocked with a specific explanation; use manual preview.
+  Context contains at most 6,000 nearby code characters, source line ranges,
+  cursor location, and up to three permitted nearby diagnostics. No Context Tray,
+  related files, terminal output, history storage, or raw keystrokes are included.
+- One compact Monaco content widget and Observer-panel fallback; Dismiss/Escape,
+  cancellation on editing/context/focus changes, and generation checks for late
+  replies. Explicit requests and existing error help take priority. Dismissed or
+  already considered unchanged code is not requested again. The provider contract
+  allows `NO_SUGGESTION`, treats source/comments as untrusted, and prohibits claims
+  of testing or fixes. Demo deliberately returns no suggestion.
+- Proposed edits require **Review diff**, then the existing **Accept Change** action
+  (explicit Apply). Exact text/hash checks, checkpoint creation, and Undo Observer
+  Change are reused. Applied content remains unsaved with auto-save blocked.
+  A UI-discovered Monaco diff teardown error was fixed by detaching models before
+  disposing them; the rest of the review workflow is unchanged.
+
+Verification:
+
+- Desktop suite: 195/195 tests passed, including 12 deterministic Live Observer
+  tests covering timing, cooldown/hourly budgets, cancellation/late replies,
+  no-suggestion, exclusions/privacy, dismissal, and explicit-review handoff.
+- Backend harness: existing suites plus actual route dispatch with mocked provider
+  responses, no-history validation, invalid live contexts, and no-suggestion passed.
+- `npm --prefix apps/desktop run test:live-ui`: Electron interactions passed using
+  the actual React controls, Monaco editor/content widget, and Monaco diff. Checks
+  include off default, toggle, pause selector, opening/cursor versus content edits,
+  focus preservation, Dismiss/Escape, stale disabled Apply, and explicit-only Apply.
+  The fixture mocks consent/provider/application callbacks; existing checkpoint
+  tests verify persistence/Undo. No live workspace or provider is used.
+- Desktop strict type checks and production build, root tests/lint and Next.js
+  production build passed. New Live Observer files and the touched review component
+  pass scoped ESLint. Broad desktop lint still reports three errors and three warnings
+  in `App.tsx`, confirmed unchanged against HEAD (unused variables and existing hook
+  dependencies). Loopback-dependent tests require sandbox permission.
+- Remaining: signed-in native consent/end-to-end provider acceptance, real-provider
+  usefulness/accuracy/noise/latency/cost evaluation, and Windows UI acceptance.
+  Mocked tests establish control flow, **not model accuracy**. The rapid Electron
+  fixture still logs a Monaco SuggestModel disposal warning; no uncaught renderer
+  exception remains after the diff cleanup fix. Assess it in live-provider QA.
+
+## Observer repair and functional audit — 2026-09-28
+
+**Local fixes verified; deployed database setup remains blocked.**
+
+A read-only check against the Supabase backend configured in `.env.local` returned
+`PGRST205` for `suggestions`, `suggestion_outcomes`, and `desktop_user_settings`.
+No user records or credentials were printed. This establishes missing backend
+schema as the cause of the reported history-save and privacy-settings errors.
+
+- Manual Explain and other suggestion responses now survive optional history
+  storage failure: return the generated answer with a visible history warning,
+  omit its ID, and do not retry the provider. Both desktop and web display the
+  warning; ID-less answers do not send outcome writes. Normal saved IDs and
+  automatic no-history requests remain intact.
+- Settings errors distinguish missing schema, permission failures, and connection
+  problems. Live Observer preserves the actionable error instead of replacing it
+  with a generic message. It still sends nothing when privacy settings cannot be
+  loaded; no unsafe fallback or privacy override was introduced.
+- The expanded UI regression caught an asynchronous Monaco diff teardown race.
+  Text-model disposal now follows the queued diff cancellation; the uncaught
+  `no diff result available` error no longer occurs in the fixture. A separate
+  nonfatal upstream SuggestModel disposal warning is still observable.
+- Added `npm run check:observer-backend`: read-only, zero-row checks of required
+  tables/columns, with references to the existing migrations. It currently fails
+  correctly for the three absent tables. It does not modify or migrate databases.
+
+Verification: **196/196 desktop tests passed**, covering automatic failed-run
+help, Live Observer, settings, edits/checkpoints, and existing regression suites.
+Backend tests now exercise both desktop and web history success/failure, thrown
+storage errors, no duplicate provider generation, no-history requests, and
+missing/denied settings. The real Electron/Monaco UI fixture passes Live toggle,
+edit versus cursor events, inline/fallback cards, Dismiss/Escape, focus retention,
+diff preview, stale Apply rejection, explicit-only Apply, and the manual Explain
+history-warning display/dismissal. Desktop type checks/build, Next.js build,
+root lint and scoped changed-file lint pass. Provider responses and application
+callbacks in automated tests are mocked; no model-accuracy claim is made.
+
+Remaining database repair: review/apply the existing repository migrations to the
+**same project configured in `.env.local`**, preserving their ownership RLS/grants.
+The history schema is in `supabase/migrations/20260820100515_add_stuck_suggestion_feedback.sql`;
+desktop privacy settings are in `supabase/migrations/20260831061842_add_desktop_user_settings.sql`.
+Check already-applied migrations first; do not reset the database or blindly rerun
+CREATE statements against partially installed schema. No new migration was added.
+
+No database administration connection is configured here. Automatic approval
+review rejected inspecting an unspecified Chrome session because of unrelated
+private tabs. An explicitly authorized Supabase SQL Editor session (or an approved
+database administration connection) is needed to finish setup. Afterward rerun
+`npm run check:observer-backend`, restart/reload the backend and Electron, and
+verify signed-in settings save/load, history/outcomes, and a consented live-provider
+request. Until then, automatic features remain deliberately blocked.
+
+## Live Observer trigger reliability and status repair — 2026-09-28
+
+**Implemented and verified locally; live-provider acceptance remains pending.**
+Code inspection confirmed that whitespace events cleared pending meaningful edits,
+rate-limit branches discarded candidates, and generic activity statuses concealed
+the reason Live Observer was paused. The renderer also captured the cursor before
+Monaco had finished processing a content event.
+
+- Meaningful edits followed by Enter or trailing spaces retain their pending
+  suggestion. Every content change restarts the typing pause and captures the
+  latest buffer/cursor after Monaco updates. Whitespace-only changes without a
+  pending edit do not start requests; indentation changes on Python code lines
+  remain meaningful. Content changes abort in-flight work and invalidate replies.
+- Latest candidates survive cooldown/hourly waits, subject to the same active,
+  focused, permitted file and current activity. Separate statuses explain typing
+  pause, cooldown, hourly cap, privacy checking, and elapsed provider response
+  time. Requests are not retried automatically after errors or no-suggestion.
+  Defaults remain configurable: 4-second pause, 30-second cooldown, 10/hour.
+- Blockers identify complete-file confirmation, excluded/protected paths,
+  suspected secrets, and context limits. Eligible size/complete-file blockers
+  offer **Review with Ask Observer**, using the existing manual Context Preview
+  without sending or asserting consent. Privacy settings are not weakened.
+- Manual Observer, automatic error help, reviews, and dialogs have specific paused
+  messages. Disabling, file switches, focus loss, and competing activity cancel
+  queued/in-flight work. A new edit is required after these interruptions.
+- Manual action logic, provider prompts, supported languages, theme, and existing
+  diff/hash/checkpoint/Undo workflows are unchanged in this repair. No migrations,
+  automatic edits, saves, execution, commits, or pushes were performed.
+
+Verification:
+
+- **219/219 desktop tests passed**, including **36 Live Observer tests** covering
+  code→Enter→pause, trailing whitespace, whitespace-only edits, Python indentation,
+  cooldown/latest-pause queuing, hourly budgets, disable/file/focus cancellation,
+  late responses, no suggestion, dismissals, privacy blockers, competing activity,
+  and renderer content-event/cursor snapshot handling.
+- `npm --prefix apps/desktop run test:live-triggers` passed with the actual
+  EditorWorkspace/Monaco, Live Observer controls, Context Preview, and real
+  controller using deterministic time and mocked policy/provider responses.
+  Visible status transitions, latest cursor, manual-preview-only handoff,
+  competing activity, stale responses, and disable were exercised.
+- Existing `test:live-ui` passed, including suggestion dismissal, diff preview,
+  stale Apply rejection, and explicit-only application. Its known nonfatal Monaco
+  SuggestModel disposal warning remains; no uncaught renderer exception occurred.
+- Desktop type checks and production build, root tests/lint and Next.js production
+  build passed. Scoped lint for the new Live Observer modules/fixtures passed.
+  `App.tsx` retains its pre-existing three unused-variable errors and three hook
+  dependency warnings; these unrelated issues were not changed.
+
+Manual acceptance: restart the desktop build, open a permitted Python/JavaScript
+file, and enable Live Observer after reading its session consent. Make a code edit,
+press Enter or add trailing spaces, and stop typing: the pause should restart and
+then advance to privacy checking/provider wait. Make another meaningful edit
+during cooldown: the latest edit should remain queued until both waits expire.
+Whitespace alone must not request help. With **Confirm complete files** enabled,
+a short file should show its exact blocker; **Review with Ask Observer** must open
+Context Preview and wait for explicit sending. Check that manual requests,
+reviews/dialogs, blur, file switches, and Off cancel work. Demo returning no
+suggestion is expected.
+
+Remaining: signed-in native consent and real backend/provider acceptance,
+real-provider latency/usefulness/noise/cost, and Windows UI testing. The previously
+reported backend schema availability issue was not repaired or rechecked in this
+iteration; unavailable privacy settings must still block automatic sending.
+Mocked responses verify control flow and UI behavior, **not AI accuracy**.
+
+## Manual code Explain and follow-up conversation — 2026-09-29
+
+**Implemented locally; live-provider quality and signed-in acceptance pending.**
+The previous Live Observer status was reverified before changes: 219/219 desktop
+checks and the real Monaco Live trigger fixture passed. This iteration changes
+manual code Explain only; Live Observer, automatic error help, document actions,
+editable modes, and multi-file provider contracts retain their behavior.
+
+- Explain has its own read-only prompt: overview, important logic, inputs/outputs,
+  assumptions, pitfalls, and useful examples, with detail scaled to complexity.
+  The old 1–3 sentence restriction is removed. Provider output budgets allow 6,000
+  tokens; strict parsing reports limit/incomplete/invalid responses instead of
+  silently accepting truncation. Explain cannot return edit proposals.
+- Optional guidance is previewed with selected code, otherwise the current
+  symbol/nearby lines. Automatic imports and Context Tray attachments are excluded
+  from this focused action, with that scope explained in the UI. Full-file
+  selections/functions retain complete-file consent requirements.
+- Session-only, bounded follow-ups reuse exactly the originally approved context.
+  Privacy, exclusions, secrets and size limits are checked on every send; no
+  transcript is stored in the database. Old complete turns are omitted explicitly.
+  Changed/unavailable sources get an older-snapshot label and explicit refresh
+  through Context Preview. Project change/clear/cancel invalidates late replies.
+- Safe Markdown/code blocks, scroll, copy, loading/cancel, duplicate-send guards,
+  actionable errors, and New explanation/Clear controls reuse the existing theme.
+  Remote images/active HTML and executable links are not rendered.
+
+Configuration, exact manual steps and a four-case evaluation checklist are in
+[`MANUAL_EXPLAIN.md`](./MANUAL_EXPLAIN.md). Evaluation covers simple functions,
+branching, async behavior and missing dependencies; no provider quality score or
+accuracy claim is inferred from mocked tests. No paid provider calls, migrations,
+commits or pushes were performed.
+
+Verification:
+
+- **231/231 desktop tests passed**, including 11 new session/privacy/cancellation
+  tests and focused Explain scope/complete-file-consent assertions. Existing
+  context-tray regression assertions run against Improve Code, whose attachment
+  behavior remains intact; Explain separately tests its narrower active-file scope.
+- Root tests passed: Explain-specific prompts, each provider's output budget using
+  mocked fetch, strict read-only parsing/limit errors, bounded conversation route
+  validation, authentication/no-history dispatch, IPC preview authorization and
+  project isolation. Existing manual/automatic/Live contracts remain covered.
+- `test:explain-ui` passed using real React Observer controls, Context Preview and
+  the production conversation hook/component with a mocked provider and policy.
+  It exercises guidance, safe Markdown/fences, copy, original-snapshot followups,
+  stale source labels, explicit refresh, history omission, cancellation, duplicate
+  prevention, privacy errors, and late responses after clear/project switching.
+  Visual review checked the coffee/cream layout and corrected code-block contrast.
+- Existing `test:live-ui` passed, including Monaco content widgets, diff review,
+  stale Apply rejection, explicit-only application and history-warning handling.
+  Its previously documented nonfatal upstream Monaco disposal warning remains.
+- Desktop strict type checks and production build, Next.js production build,
+  root lint, and scoped lint for new/changed Explain modules passed. Broader
+  desktop lint still reports pre-existing issues: three unused variables and three
+  hook warnings in `App.tsx`, plus the unused `lineNumberAt` helper in
+  `project-context.ts` (confirmed present in HEAD). They were not changed here.
+
+Remaining checks: signed-in native complete-file consent, real backend settings
+availability, live-provider quality/latency/cost and Windows UI acceptance. The
+prior missing-backend-schema issue is not repaired/rechecked in this iteration;
+unavailable privacy settings still block sends with an actionable message.
+Automated correctness is established for the tested flows; AI accuracy is not.
+
 ## Recommended next task
 
 Phase 13D is complete. Experiment A1 — automatic failed-run explanations — was
@@ -2995,6 +3233,6 @@ passed; interactive/provider acceptance remains In Progress. See
 [`AUTOMATIC_RUN_EXPLANATIONS.md`](./AUTOMATIC_RUN_EXPLANATIONS.md) for behavior,
 privacy changes, evidence, and a safe fixture-based try-out checklist.
 
-Next: try the experiment interactively before expanding proactive triggers.
+Next: evaluate both experiments with a live provider and safe code fixtures before expanding proactive triggers.
 The existing Phase 11B2 live pairing acceptance item and the optional approved-palette review
 remain separately tracked and are not expanded into this phase.

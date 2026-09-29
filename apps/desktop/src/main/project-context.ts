@@ -1,3 +1,4 @@
+import { EXPLANATION_LIMITS } from "../shared/explanation.ts";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, extname, posix } from "node:path";
@@ -127,6 +128,8 @@ export class ProjectContextEngine {
   async build(rawSeed: ProjectContextSeed): Promise<ProjectContextPackage> {
     if (!this.rootPath) throw new Error("Open a workspace before building Observer context.");
     const seed = validateSeed(rawSeed);
+    const focusedExplain = seed.mode === "explain" && seed.kind === "code";
+    if (focusedExplain) { seed.trayItems = []; seed.maximumTotalCharacters = Math.min(seed.maximumTotalCharacters, EXPLANATION_LIMITS.contextCharacters); }
     if (seed.mode === "fix_error" && !seed.diagnostic) throw new Error("Fix Error requires a selected diagnostic.");
     if (seed.mode === "plan_multi_file" && !seed.userRequest) throw new Error("Describe the requested multi-file change before continuing.");
     const gitignore = await this.gitignorePatterns();
@@ -143,7 +146,7 @@ export class ProjectContextEngine {
       items.push({ id: `ctx-${++sequence}`, type, priority, content: bounded, source: { provenance, ...details }, reason, ...cost, optional, completeFile: completeFile && bounded.length === content.length, truncated: bounded.length < safe.content.length, redacted: safe.redacted, attachmentProvenance: "automatic", staleState: "fresh", ...(relevanceScore === undefined ? {} : { relevanceScore }) });
     };
 
-    const instruction = seed.mode === "plan_multi_file" ? `${OBSERVER_MODE_LABELS[seed.mode]}: ${seed.userRequest}` : OBSERVER_MODE_LABELS[seed.mode];
+    const instruction = focusedExplain && seed.userRequest ? seed.userRequest : seed.mode === "plan_multi_file" ? `${OBSERVER_MODE_LABELS[seed.mode]}: ${seed.userRequest}` : OBSERVER_MODE_LABELS[seed.mode];
     add("user_instruction", 1, instruction, "user", "The explicitly selected Observer action.");
     const trayItems: ContextTrayItem[] = [];
     for (const raw of seed.trayItems ?? []) {
@@ -199,10 +202,10 @@ export class ProjectContextEngine {
     const symbol = detectCurrentSymbol(seed.content, seed.cursorLine);
     const wantsSymbol = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments", "plan_multi_file"].includes(seed.mode);
     if (seed.mode === "add_comments" && !seed.selectedCode) throw new Error("Select code before asking Observer to add comments or documentation.");
-    if (wantsSymbol && symbol && !trayContains(symbol.content)) add("current_symbol", 4, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
-    if (!seed.selectedCode || seed.mode === "fix_error" || seed.mode === "continue_code") add("nearby_code", 5, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
+    if (wantsSymbol && symbol && !(focusedExplain && seed.selectedCode) && !trayContains(symbol.content)) add("current_symbol", 4, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
+    if ((!seed.selectedCode || seed.mode === "fix_error" || seed.mode === "continue_code") && !(focusedExplain && symbol)) add("nearby_code", 5, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
 
-    if (seed.kind === "code") {
+    if (seed.kind === "code" && !focusedExplain) {
       const candidates = await this.discover(seed, gitignore);
       let related = 0;
       for (const candidate of candidates) {
@@ -217,6 +220,13 @@ export class ProjectContextEngine {
     }
     if (seed.mode === "fix_error") add("terminal_error", 8, seed.runError, "run_output", "Run output directly matches the selected diagnostic.", {}, true);
 
+    if (focusedExplain) for (const item of items) {
+      if (item.type !== "user_instruction") {
+        // Complete selections/functions must retain the existing consent requirement.
+        item.completeFile = item.content.trim() === redactProjectSecrets(seed.content).content.trim();
+        if (item.type === "nearby_code") item.source.lineEnd = Math.min(seed.content.split(/\r?\n/).length, item.source.lineEnd ?? seed.cursorLine);
+      }
+    }
     items.sort((left, right) => left.priority - right.priority || (right.relevanceScore ?? 0) - (left.relevanceScore ?? 0) || left.id.localeCompare(right.id));
     const selected: ProjectContextItem[] = []; let used = 0;
     for (const item of items) {

@@ -1,3 +1,4 @@
+import { validExplanationInput, type ExplanationInput, type ExplanationResult } from "./explanation.ts";
 import type { IpcResult } from "./workspace";
 import { validateProjectContextPackage, type ProjectContextPackage, type ProjectContextSeed } from "./project-context.ts";
 import type { ObserverEditBase, StructuredObserverEdit } from "./ai-edit.ts";
@@ -33,6 +34,10 @@ export const OBSERVER_PROVIDERS = [
 
 export const OBSERVER_CHANNELS = {
   prepare: "observer:prepare",
+  explain: "observer:explain",
+  followup: "observer:followup",
+  cancelExplanation: "observer:cancel-explanation",
+  clearExplanation: "observer:clear-explanation",
   ask: "observer:ask",
   outcome: "observer:outcome",
   copy: "observer:copy",
@@ -83,6 +88,8 @@ export interface ObserverDiagnosticContext {
 }
 
 export interface ObserverRequest {
+  explanation?: ExplanationInput;
+  liveObserver?: boolean;
   automaticRun?: { trigger: "failed_run"; runId: string };
   provider: ObserverProvider;
   model?: string;
@@ -111,6 +118,7 @@ export interface ObserverPrepareRequest {
 }
 
 export interface ObserverSuggestion {
+  historyWarning?: string;
   id?: string;
   explanation: string;
   snippet: string;
@@ -129,6 +137,10 @@ export interface ObserverOutcomeRequest {
 }
 
 export interface ObserverBridge {
+  explain: (id: string, request: ObserverRequest) => Promise<IpcResult<ExplanationResult>>;
+  followup: (id: string, question: string) => Promise<IpcResult<ExplanationResult>>;
+  cancelExplanation: () => Promise<void>;
+  clearExplanation: () => Promise<void>;
   prepare: (request: ObserverPrepareRequest) => Promise<IpcResult<ObserverRequest>>;
   ask: (request: ObserverRequest) => Promise<IpcResult<ObserverAskResult>>;
   recordOutcome: (request: ObserverOutcomeRequest) => Promise<IpcResult<void>>;
@@ -316,6 +328,7 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
 export function validateObserverRequest(value: unknown): ObserverRequest | null {
   if (typeof value !== "object" || value === null) return null;
   const request = value as Partial<ObserverRequest>;
+  if (request.explanation !== undefined && (!validExplanationInput(request.explanation) || request.mode !== "explain" || request.kind !== "code" || request.storeHistory !== false || request.editBase || request.liveObserver || request.automaticRun)) return null;
   const contextPackage = request.contextPackage === undefined ? undefined : validateProjectContextPackage(request.contextPackage);
   if (
     !OBSERVER_PROVIDERS.includes(request.provider as ObserverProvider) ||
@@ -355,6 +368,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
     ) return null;
   }
   return {
+    ...(request.explanation ? { explanation: request.explanation } : {}),
     provider: request.provider as ObserverProvider,
     ...(request.model ? { model: request.model } : {}),
     ...(request.storeHistory === false ? { storeHistory: false } : {}),

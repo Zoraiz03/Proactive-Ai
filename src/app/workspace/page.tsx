@@ -159,7 +159,7 @@ export default function WorkspacePage() {
 
   const acceptSuggestion = () => {
     if (!activeFile || !suggestion?.snippet) return;
-    void recordSuggestionOutcome(suggestion.id, "accepted");
+    if (suggestion.id) void recordSuggestionOutcome(suggestion.id, "accepted");
     const next =
       kindOf(activeFile.name) === "code"
         ? `${activeFile.content.replace(/\n$/, "")}\n\n${suggestion.snippet}\n`

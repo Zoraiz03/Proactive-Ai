@@ -1,4 +1,7 @@
-import { BrowserWindow, clipboard, ipcMain, type IpcMainInvokeEvent } from "electron";
+import { ExplanationSession } from './explanation-session';
+import { SettingsApiClient } from './settings-client';
+import { LocalSettingsStore } from './settings-store';
+import { BrowserWindow, clipboard, ipcMain, dialog, type IpcMainInvokeEvent } from "electron";
 import {
   OBSERVER_CHANNELS,
   validateObserverPrepareRequest,
@@ -21,13 +24,40 @@ function isTrustedSender(event: IpcMainInvokeEvent, getMainWindow: () => Browser
 export function registerObserverIpc(
   getMainWindow: () => BrowserWindow | null,
   getAccessToken: () => Promise<string | null>,
-  apiBaseUrl: string
+  apiBaseUrl: string,
+  cancelLive: () => void = () => {},
+  userData?: string
 ): { controller: ObserverContextController; cleanup: () => void } {
   const client = new ObserverApiClient(apiBaseUrl, getAccessToken);
-  const controller = new ObserverContextController();
+  const local = userData ? new LocalSettingsStore(userData) : null;
+  const settings = new SettingsApiClient(apiBaseUrl, getAccessToken, (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10000) }));
+  const explanation = new ExplanationSession({
+    policy: async () => {
+      const [synced, stored] = await Promise.all([settings.getSynced(), local?.get()]);
+      if (!synced.ok || !stored) throw new Error(`Privacy settings unavailable: ${!synced.ok ? synced.error : 'local settings unavailable'}. Nothing was sent.`);
+      return { enabled: synced.value.observerEnabled, exclusions: stored.aiContextExclusions, maximumCharacters: synced.value.maximumContextChars, maximumFileCharacters: stored.contextMaximumFileCharacters, confirmCompleteFile: synced.value.confirmCompleteFile };
+    },
+    confirm: async () => (await dialog.showMessageBox(getMainWindow()!, { message: 'This explanation includes a complete local file. Send the reviewed snapshot?', detail: 'Follow-up questions reuse this exact approved snapshot for this session. No other files are added.', buttons: ['Cancel', 'Send approved snapshot'], defaultId: 0, cancelId: 0 })).response === 1,
+    ask: (request, signal) => client.ask(request, signal),
+  });
+  const controller = new ObserverContextController(() => explanation.clear());
+  ipcMain.handle(OBSERVER_CHANNELS.explain, async (event, id: string, value: unknown) => {
+    if (!isTrustedSender(event, getMainWindow)) return { ok: false, error: 'Explanation request rejected.' };
+    const request = validateObserverRequest(value);
+    if (!request?.contextPackage || !controller.authorize(event.sender.id, request.contextPackage)) return { ok: false, error: 'Context changed. Review the preview again.' };
+    cancelLive();
+    return explanation.start(id, request);
+  });
+  ipcMain.handle(OBSERVER_CHANNELS.followup, async (event, id: string, question: string) => {
+    if (!isTrustedSender(event, getMainWindow)) return { ok: false, error: 'Explanation request rejected.' };
+    cancelLive(); return explanation.send(id, question);
+  });
+  ipcMain.handle(OBSERVER_CHANNELS.cancelExplanation, event => { if (isTrustedSender(event, getMainWindow)) explanation.cancel(); });
+  ipcMain.handle(OBSERVER_CHANNELS.clearExplanation, event => { if (isTrustedSender(event, getMainWindow)) explanation.clear(); });
 
   ipcMain.handle(OBSERVER_CHANNELS.prepare, async (event, value: unknown) => {
     if (!isTrustedSender(event, getMainWindow)) return { ok: false, error: "Observer context request was rejected." };
+    cancelLive();
     const request = validateObserverPrepareRequest(value);
     if (!request) return { ok: false, error: "Observer context options are invalid." };
     try { return { ok: true, value: await controller.prepare(event.sender.id, request) }; }
@@ -40,6 +70,9 @@ export function registerObserverIpc(
     if (!isTrustedSender(event, getMainWindow)) {
       return { ok: false, error: "Observer request was rejected." };
     }
+    cancelLive();
+    if (value && typeof value === "object" && "liveObserver" in value) return { ok: false, error: "Use Live Observer controls." };
+    if (value && typeof value === "object" && "explanation" in value) return { ok: false, error: "Use the approved Explain conversation." };
     const request = validateObserverRequest(value);
     if (!request) return { ok: false, error: "Observer context is invalid or unsafe." };
     if (request.contextPackage && !controller.authorize(event.sender.id, request.contextPackage)) {
@@ -79,6 +112,7 @@ export function registerObserverIpc(
     controller,
     cleanup: () => {
       controller.clearWorkspace();
+      for (const channel of [OBSERVER_CHANNELS.explain, OBSERVER_CHANNELS.followup, OBSERVER_CHANNELS.cancelExplanation, OBSERVER_CHANNELS.clearExplanation]) ipcMain.removeHandler(channel);
       ipcMain.removeHandler(OBSERVER_CHANNELS.prepare);
       ipcMain.removeHandler(OBSERVER_CHANNELS.ask);
       ipcMain.removeHandler(OBSERVER_CHANNELS.outcome);
@@ -92,8 +126,9 @@ export class ObserverContextController {
   private workspace: { rootPath: string; webContentsId: number } | null = null;
   private prepared: ProjectContextPackage | null = null;
   readonly engine = new ProjectContextEngine();
-  setWorkspace(rootPath: string, webContentsId: number) { this.workspace = { rootPath, webContentsId }; this.prepared = null; this.engine.setWorkspace(rootPath); }
-  clearWorkspace(webContentsId?: number) { if (webContentsId !== undefined && this.workspace?.webContentsId !== webContentsId) return; this.workspace = null; this.prepared = null; this.engine.clearWorkspace(); }
+  constructor(private readonly onWorkspaceChange: () => void = () => {}) {}
+  setWorkspace(rootPath: string, webContentsId: number) { this.onWorkspaceChange(); this.workspace = { rootPath, webContentsId }; this.prepared = null; this.engine.setWorkspace(rootPath); }
+  clearWorkspace(webContentsId?: number) { if (webContentsId !== undefined && this.workspace?.webContentsId !== webContentsId) return; this.onWorkspaceChange(); this.workspace = null; this.prepared = null; this.engine.clearWorkspace(); }
   invalidate() { this.prepared = null; this.engine.invalidate(); }
   async prepare(webContentsId: number, request: import("../shared/observer").ObserverPrepareRequest): Promise<ObserverRequest> {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId) throw new Error("Open a workspace before asking Observer.");
@@ -122,7 +157,7 @@ export class ObserverContextController {
   }
   authorize(webContentsId: number, candidate: ProjectContextPackage): boolean {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId || !this.prepared) return false;
-    if (candidate.version !== this.prepared.version || candidate.activeFile.relativePath !== this.prepared.activeFile.relativePath || candidate.intent.mode !== this.prepared.intent.mode) return false;
+    if (candidate.version !== this.prepared.version || candidate.activeFile.relativePath !== this.prepared.activeFile.relativePath || candidate.intent.mode !== this.prepared.intent.mode || candidate.intent.instruction !== this.prepared.intent.instruction) return false;
     const prepared = new Map(this.prepared.items.map((item) => [item.id, item]));
     if (candidate.items.some((item) => JSON.stringify(prepared.get(item.id)) !== JSON.stringify(item) || redactProjectSecrets(item.content).redacted || item.staleState === "stale" || item.staleState === "unavailable")) return false;
     const mandatoryIds = this.prepared.items.filter((item) => !item.optional).map((item) => item.id);

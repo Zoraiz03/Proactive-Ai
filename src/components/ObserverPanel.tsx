@@ -210,6 +210,7 @@ export default function ObserverPanel({
               >
                 ✕
               </button>
+              {suggestion.historyWarning && <p role="status" className="mb-2 text-xs text-ember">{suggestion.historyWarning}</p>}
               <p className="text-xs leading-relaxed text-ink">
                 {suggestion.explanation}
               </p>
