@@ -63,6 +63,8 @@ import SettingsPanel from "./SettingsPanel";
 import SourceControlPanel from "./SourceControlPanel";
 import GitDiffViewer from "./GitDiffViewer";
 import ContextPreview from "./ContextPreview";
+import { explanationPreviewMatches } from "../../shared/explanation";
+import ExplainScopePicker from "./ExplainScopePicker";
 import ObserverEditReview, { type ObserverEditReviewState } from "./ObserverEditReview";
 import { MultiFileAppliedSummary, MultiFileChangeReview, MultiFilePlanReview } from "./MultiFileChangeWorkspace";
 import { sha256Text, validateAndBuildProposedEdit } from "../../shared/ai-edit";
@@ -636,6 +638,7 @@ export default function App({ user, onSignOut }: AppProps) {
   const [observerProvider, setObserverProvider] = useState<ObserverProvider>("gemini");
   const [observerStatus, setObserverStatus] = useState<ObserverStatus>("idle");
   const [explainQuestion, setExplainQuestion] = useState("");
+  const [explainScope, setExplainScope] = useState<"selection" | "function" | "file">("function");
   const explanation = useExplanation(openedWorkspace?.workspaceId, setObserverStatus);
   const clearExplanation = explanation.clear;
   const fix = useFixCode(openedWorkspace?.workspaceId,tabs,setObserverStatus);
@@ -953,13 +956,14 @@ export default function App({ user, onSignOut }: AppProps) {
         exclusions: localSettings.aiContextExclusions,
         maximumTotalCharacters: syncedSettings.maximumContextChars,
         maximumRelatedFiles: localSettings.contextMaximumRelatedFiles,
-        maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
+        maximumCharactersPerFile: activeObserverMode === "explain" ? localSettings.explainMaximumCodeCharacters : localSettings.contextMaximumFileCharacters,
+        ...(activeObserverMode === "explain" ? {explainScope} : {}),
         ...(activeObserverMode === "explain" && explainQuestion.trim() ? { userRequest: explainQuestion.trim() } : {}),
         ...(activeObserverMode === "plan_multi_file" ? { userRequest: multiFileDescription.trim() } : {}),
         ...(contextTrayItems.length && !["explain","fix_error","improve_code"].includes(activeObserverMode) ? { trayItems: contextTrayItems } : {}),
       },
     };
-  }, [improveGoal,improveInstruction,improveFullFile,fixProblem, fixDiagnostics, explainQuestion, activeIsMarkdown, activeObserverMode, activeTab, contextTrayItems, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+  }, [explainScope, localSettings.explainMaximumCodeCharacters, improveGoal,improveInstruction,improveFullFile,fixProblem, fixDiagnostics, explainQuestion, activeIsMarkdown, activeObserverMode, activeTab, contextTrayItems, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
   const currentContextSummary = observerRequest ? activeObserverMode === "improve_code" ? "Improve Code: selection, otherwise current function; file scope only with explicit approval. Exact scope appears in Context Preview." : activeObserverMode === "fix_error" ? observerRequest.seed.selectedCode ? "Fix Code: selected code with bounded surrounding context; edits stay inside the selection." : `Fix Code: entire active file (${activeTab?.draft.length.toLocaleString()} characters), including unsaved content. No silent truncation.` : "A focused project context package will be previewed before sending." : null;
 
   const attachTrayItem = useCallback(async (input: CreateContextTrayItemInput) => {
@@ -1756,6 +1760,10 @@ export default function App({ user, onSignOut }: AppProps) {
       await fix.start(request,explanationPreviewSource.current?.content ?? activeTab.draft);return;
     }
     if (request.mode === "explain" && request.kind === "code") {
+      const source=explanationPreviewSource.current;
+      if(!explanationPreviewMatches(source,{path:activeTab.file.relativePath,content:activeTab.draft})) {
+        setContextPreviewRequest(null);setObserverStatus("error");setObserverError("Source changed after preview. Ask Observer again to review the current buffer; nothing was sent.");return;
+      }
       setContextPreviewRequest(null);
       await explanation.start(request, explanationPreviewSource.current ?? { path: activeTab.file.relativePath, content: activeTab.draft });
       return;
@@ -2836,6 +2844,7 @@ export default function App({ user, onSignOut }: AppProps) {
               onRefresh={!observerEditReview && activeObserverMode==='fix_error' && activePath===fix.request.editBase?.targetRelativePath ? ()=>void askObserver(true):undefined}
               onReview={()=>void reviewFixCorrection()} />}
             fixVerificationCard={fixApplied && <section className="observer-suggestion explanation-conversation" aria-label="Fix Code verification"><strong>Applied {fixApplied.action ?? "Fix Code"} change · unverified</strong><p>{fixVerification}</p><small>Only this source version is associated with a run; dependencies and other behavior are not proven correct.</small><div className="observer-actions">{activePath===fixApplied.path && activeTab && runSupport(activeTab.file.name)==='supported' && <button disabled={runOutput?.status==='running'} onClick={()=>void runCurrentFile(fixApplied.hash)}>Run again</button>}<button disabled={activePath!==fixApplied.path} onClick={()=>void undoObserverChange()}>Undo {fixApplied.action ?? "Fix Code"} change</button><button onClick={()=>setFixApplied(null)}>Dismiss verification</button></div></section>}
+            explainScopeControl={<ExplainScopePicker request={observerRequest} value={explainScope} onChange={setExplainScope} disabled={observerStatus === "thinking" || Boolean(explanation.request || contextPreviewRequest)} />}
             explainQuestion={explainQuestion}
             onExplainQuestionChange={setExplainQuestion}
             explanationCard={explanation.request && <ExplanationConversation request={explanation.request} result={explanation.result} busy={explanation.busy} error={explanation.error}

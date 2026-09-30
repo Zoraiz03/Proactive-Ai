@@ -192,6 +192,7 @@ const observerBridge: ObserverBridge = Object.freeze({
   followup: (id: string, question: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.followup, id, question),
   cancelExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.cancelExplanation),
   clearExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.clearExplanation),
+  explainScopes: (request: ObserverPrepareRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.explainScopes, request),
   prepare: (request: ObserverPrepareRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.prepare, request),
   ask: (request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.ask, request),
   recordOutcome: (request: ObserverOutcomeRequest) =>

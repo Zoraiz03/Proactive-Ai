@@ -44,6 +44,7 @@ export interface LocalSettings {
   aiContextExclusions: string[];
   contextMaximumRelatedFiles: number;
   contextMaximumFileCharacters: number;
+  explainMaximumCodeCharacters: number;
   checkpointRetentionLimit: number;
   multiFileMaximumFiles: number;
   multiFileMaximumChangedLines: number;
@@ -122,6 +123,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
   aiContextExclusions: Object.freeze([]) as unknown as string[],
   contextMaximumRelatedFiles: 4,
   contextMaximumFileCharacters: 8_000,
+  explainMaximumCodeCharacters: 8_000,
   checkpointRetentionLimit: 20,
   multiFileMaximumFiles: 5,
   multiFileMaximumChangedLines: 500,
@@ -227,6 +229,7 @@ export function normalizeLocalSettings(value: unknown): LocalSettings {
     },
     aiContextExclusions: cleanExclusions(source.aiContextExclusions),
     contextMaximumRelatedFiles: boundedInt(source.contextMaximumRelatedFiles, DEFAULT_LOCAL_SETTINGS.contextMaximumRelatedFiles, 1, 10),
+    explainMaximumCodeCharacters: boundedInt(source.explainMaximumCodeCharacters, boundedInt(source.contextMaximumFileCharacters, 8000, 500, 20000), 500, 20000),
     contextMaximumFileCharacters: boundedInt(source.contextMaximumFileCharacters, DEFAULT_LOCAL_SETTINGS.contextMaximumFileCharacters, 500, 20_000),
     checkpointRetentionLimit: boundedInt(source.checkpointRetentionLimit, DEFAULT_LOCAL_SETTINGS.checkpointRetentionLimit, 1, 100),
     multiFileMaximumFiles: boundedInt(source.multiFileMaximumFiles, DEFAULT_LOCAL_SETTINGS.multiFileMaximumFiles, 1, 10),

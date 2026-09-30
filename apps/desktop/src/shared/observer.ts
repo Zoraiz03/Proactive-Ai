@@ -1,3 +1,4 @@
+import { explanationBudget } from "./explanation-budget.ts";
 import { validImproveContext, type ImproveCodeContext, type ImproveOutcome } from "./improve-code.ts";
 import { validFixContext, type FixCodeContext, type FixCodeOutcome, type FixCodeResult } from "./fix-code.ts";
 import { validExplanationInput, type ExplanationInput, type ExplanationResult } from "./explanation.ts";
@@ -36,6 +37,7 @@ export const OBSERVER_PROVIDERS = [
 
 export const OBSERVER_CHANNELS = {
   prepare: "observer:prepare",
+  explainScopes: "observer:explain-scopes",
   improveStart: "observer:improve-start",
   improveClarify: "observer:improve-clarify",
   improveClear: "observer:improve-clear",
@@ -162,6 +164,7 @@ export interface ObserverBridge {
   followup: (id: string, question: string) => Promise<IpcResult<ExplanationResult>>;
   cancelExplanation: () => Promise<void>;
   clearExplanation: () => Promise<void>;
+  explainScopes: (request: ObserverPrepareRequest) => Promise<IpcResult<{ range: import("./ai-edit").TextRange | null; reason: string }>>;
   prepare: (request: ObserverPrepareRequest) => Promise<IpcResult<ObserverRequest>>;
   ask: (request: ObserverRequest) => Promise<IpcResult<ObserverAskResult>>;
   recordOutcome: (request: ObserverOutcomeRequest) => Promise<IpcResult<void>>;
@@ -335,9 +338,10 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
   const request = value as Partial<ObserverPrepareRequest>;
   if (!OBSERVER_PROVIDERS.includes(request.provider as ObserverProvider) || !request.seed || typeof request.seed !== "object") return null;
   const seed = request.seed as Partial<ProjectContextSeed>;
-  if (!OBSERVER_MODES.includes(seed.mode as ObserverMode) || !["code", "doc"].includes(seed.kind ?? "") || typeof seed.activeRelativePath !== "string" || !seed.activeRelativePath || seed.activeRelativePath.length > 4096 || typeof seed.fileName !== "string" || typeof seed.language !== "string" || typeof seed.content !== "string" || seed.content.length > (["fix_error","improve_code"].includes(seed.mode ?? "") ? 2 * 1024 * 1024 : OBSERVER_LIMITS.activeFile)) return null;
+  if (!OBSERVER_MODES.includes(seed.mode as ObserverMode) || !["code", "doc"].includes(seed.kind ?? "") || typeof seed.activeRelativePath !== "string" || !seed.activeRelativePath || seed.activeRelativePath.length > 4096 || typeof seed.fileName !== "string" || typeof seed.language !== "string" || typeof seed.content !== "string" || seed.content.length > (["explain","fix_error","improve_code"].includes(seed.mode ?? "") ? 2 * 1024 * 1024 : OBSERVER_LIMITS.activeFile)) return null;
   if (!isPositiveInteger(seed.cursorLine) || !isPositiveInteger(seed.cursorColumn) || !Array.isArray(seed.exclusions) || seed.exclusions.some((item) => typeof item !== "string")) return null;
   if (!isPositiveInteger(seed.maximumTotalCharacters) || !isPositiveInteger(seed.maximumRelatedFiles) || !isPositiveInteger(seed.maximumCharactersPerFile)) return null;
+  if (seed.explainScope !== undefined && !["selection","function","file"].includes(seed.explainScope)) return null;
   if (seed.improveGoal !== undefined && !["readability","performance"].includes(seed.improveGoal)) return null;
   if (seed.improveFullFile !== undefined && typeof seed.improveFullFile !== "boolean") return null;
   if (seed.fixDiagnostics !== undefined && (!Array.isArray(seed.fixDiagnostics) || seed.fixDiagnostics.length > 10 || seed.fixDiagnostics.some(d => !d || !isPositiveInteger(d.line) || !isPositiveInteger(d.column) || typeof d.message !== 'string' || d.message.length > 2000))) return null;
@@ -376,6 +380,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
   if (request.storeHistory !== undefined && typeof request.storeHistory !== "boolean") return null;
   if (!isObserverModeForKind(request.mode as ObserverMode, request.kind as ObserverKind)) return null;
   if (request.contextPackage !== undefined && !contextPackage) return null;
+  if (request.explanation && (!contextPackage || explanationBudget(contextPackage,request.explanation,request.provider as ObserverProvider,request.model).error)) return null;
   if (request.editBase !== undefined && (!request.contextPackage || typeof request.editBase !== "object" || request.editBase.targetRelativePath !== contextPackage?.activeFile.relativePath || !/^[a-f0-9]{64}$/.test(request.editBase.originalContentHash) || !Number.isInteger(request.editBase.contentLength) || request.editBase.contentLength < 0 || typeof request.editBase.basedOnUnsavedContent !== "boolean")) return null;
   if (!contextPackage && !request.selectedCode && !request.nearbyCode && !request.activeFile && !request.diagnostic) return null;
   if (contextPackage && (contextPackage.intent.mode !== request.mode || contextPackage.activeFile.fileName !== request.fileName || contextPackage.activeFile.language !== request.language || contextPackage.activeFile.kind !== request.kind || contextPackage.cursor.line !== request.cursorLine || contextPackage.cursor.column !== request.cursorColumn)) return null;

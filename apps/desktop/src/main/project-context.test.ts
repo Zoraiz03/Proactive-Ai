@@ -104,7 +104,7 @@ test("blocks ignored, generated, secret, user-excluded, and escaping symlink can
   const outside = join(tmpdir(), `outside-context-${Date.now()}.ts`); await writeFile(outside, "outside");
   await symlink(outside, join(root, "src", "outside.ts"));
   const content = 'import "./helper";\nimport "./outside";\nimport "./ignored";\nimport "../node_modules/hidden";\n';
-  const context = await engine().build(seed("explain", { content, nearbyCode: content, exclusions: ["src/helper.ts"] }));
+  const context = await engine().build(seed("explain", { content, explainScope:"file", nearbyCode: content, exclusions: ["src/helper.ts"] }));
   assert.equal(context.items.some((item) => ["src/helper.ts", "src/outside.ts", "src/ignored.ts", ".env"].includes(item.source.relativePath ?? "")), false);
   await rm(outside, { force: true });
 });
@@ -180,17 +180,18 @@ test("mandatory secret files and tampered tray contents are rejected before prev
   await assert.rejects(() => engine().build(seed("continue_code", { trayItems: [{ ...valid, content: "changed" }] })), /invalid|changed after it was attached/);
 });
 
-test('manual Explain uses selection, otherwise one symbol/nearby excerpt, with no automatic imported files', async () => {
+test('manual Explain uses exact selection or complete function, with no automatic imported files', async () => {
  const service = engine();
  const selected = await service.build(seed('explain', { selectedCode: 'helper(value)', selectedLineStart: 3, selectedLineEnd: 3, userRequest: 'Explain for a beginner' }));
  assert.deepEqual(types(selected), ['user_instruction', 'selected_code']);
  assert.equal(selected.intent.instruction, 'Explain for a beginner');
- assert.equal(selected.items[1].source.lineStart, 3);
+ assert.equal(selected.items[1].source.lineStart, 4); // Actual selected text, not stale caller line hints.
  const current = await service.build(seed('explain'));
  assert.deepEqual(types(current), ['user_instruction', 'current_symbol']);
  const content = 'console.log(1);';
- const nearby = await service.build(seed('explain', { content, nearbyCode: content, cursorLine: 1 }));
- assert.deepEqual(types(nearby), ['user_instruction', 'nearby_code']);
+ await assert.rejects(()=>service.build(seed('explain', { content, cursorLine: 1 })), /could not be identified/);
+ const nearby = await service.build(seed('explain', { content, explainScope:'file', cursorLine: 1 }));
+ assert.deepEqual(types(nearby), ['user_instruction', 'complete_file']);
  assert.equal(nearby.containsCompleteFile, true);
  assert.equal(requiresCompleteFileConfirmation(nearby, true), true);
  const completeSelection = await service.build(seed('explain', { content, nearbyCode: content, selectedCode: content, selectedLineStart: 1, selectedLineEnd: 1 }));

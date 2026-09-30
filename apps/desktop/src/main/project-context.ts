@@ -1,5 +1,6 @@
 import {buildImproveCodeContext} from "./improve-code-context.ts";
 import { buildFixCodeContext } from "./fix-code-context.ts";
+import { buildExplainContext } from "./explain-context.ts";
 import { EXPLANATION_LIMITS } from "../shared/explanation.ts";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -137,6 +138,7 @@ export class ProjectContextEngine {
     const gitignore = await this.gitignorePatterns();
     if (isIgnored(seed.activeRelativePath, seed.exclusions, gitignore)) throw new Error("The active file is excluded from AI context.");
     await resolveWorkspacePath(this.rootPath, seed.activeRelativePath);
+    if (focusedExplain) return buildExplainContext(seed);
     if (seed.mode === "fix_error") return buildFixCodeContext(seed);
     if (seed.mode === "improve_code") {
       const context=buildImproveCodeContext(seed);

@@ -1,3 +1,5 @@
+import { explainFunction } from "./explain-context";
+import { explanationBudget } from "../shared/explanation-budget";
 import {ImproveCodeSession} from "./improve-code-session";
 import {resolveImproveScope} from "./improve-scope";
 import { FixCodeSession } from "./fix-code-session";
@@ -38,7 +40,7 @@ export function registerObserverIpc(
   const policy = async () => {
       const [synced, stored] = await Promise.all([settings.getSynced(), local?.get()]);
       if (!synced.ok || !stored) throw new Error(`Privacy settings unavailable: ${!synced.ok ? synced.error : 'local settings unavailable'}. Nothing was sent.`);
-      return { enabled: synced.value.observerEnabled, exclusions: stored.aiContextExclusions, maximumCharacters: synced.value.maximumContextChars, maximumFileCharacters: stored.contextMaximumFileCharacters, confirmCompleteFile: synced.value.confirmCompleteFile, includeDiagnostics: synced.value.includeDiagnostics, includeTerminalError: synced.value.includeTerminalError };
+      return { enabled: synced.value.observerEnabled, exclusions: stored.aiContextExclusions, maximumCharacters: synced.value.maximumContextChars, maximumFileCharacters: stored.contextMaximumFileCharacters, explainMaximumCodeCharacters: stored.explainMaximumCodeCharacters ?? stored.contextMaximumFileCharacters, confirmCompleteFile: synced.value.confirmCompleteFile, includeDiagnostics: synced.value.includeDiagnostics, includeTerminalError: synced.value.includeTerminalError };
     };
   const explanation = new ExplanationSession({ policy,
     confirm: async () => (await dialog.showMessageBox(getMainWindow()!, { message: 'This explanation includes a complete local file. Send the reviewed snapshot?', detail: 'Follow-up questions reuse this exact approved snapshot for this session. No other files are added.', buttons: ['Cancel', 'Send approved snapshot'], defaultId: 0, cancelId: 0 })).response === 1,
@@ -91,6 +93,12 @@ export function registerObserverIpc(
   ipcMain.handle(OBSERVER_CHANNELS.cancelExplanation, event => { if (isTrustedSender(event, getMainWindow)) explanation.cancel(); });
   ipcMain.handle(OBSERVER_CHANNELS.clearExplanation, event => { if (isTrustedSender(event, getMainWindow)) explanation.clear(); });
 
+  ipcMain.handle(OBSERVER_CHANNELS.explainScopes, (event, value: unknown) => {
+    if (!isTrustedSender(event,getMainWindow)) return {ok:false,error:'Explanation scope request rejected.'};
+    const request=validateObserverPrepareRequest(value);
+    if(!request || request.seed.mode!=='explain' || request.seed.kind!=='code') return {ok:false,error:'Invalid explanation scope.'};
+    return {ok:true,value:explainFunction(request.seed)};
+  });
   ipcMain.handle(OBSERVER_CHANNELS.prepare, async (event, value: unknown) => {
     if (!isTrustedSender(event, getMainWindow)) return { ok: false, error: "Observer context request was rejected." };
     cancelLive();
@@ -152,6 +160,7 @@ export function registerObserverIpc(
       controller.clearWorkspace();
       for (const channel of [OBSERVER_CHANNELS.improveStart, OBSERVER_CHANNELS.improveClarify, OBSERVER_CHANNELS.improveClear, OBSERVER_CHANNELS.fixStart, OBSERVER_CHANNELS.fixClarify, OBSERVER_CHANNELS.fixClear, OBSERVER_CHANNELS.explain, OBSERVER_CHANNELS.followup, OBSERVER_CHANNELS.cancelExplanation, OBSERVER_CHANNELS.clearExplanation]) ipcMain.removeHandler(channel);
       ipcMain.removeHandler(OBSERVER_CHANNELS.prepare);
+      ipcMain.removeHandler(OBSERVER_CHANNELS.explainScopes);
       ipcMain.removeHandler(OBSERVER_CHANNELS.ask);
       ipcMain.removeHandler(OBSERVER_CHANNELS.outcome);
       ipcMain.removeHandler(OBSERVER_CHANNELS.copy);
@@ -175,7 +184,8 @@ export class ObserverContextController {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId) throw new Error("Open a workspace before asking Observer.");
     const generation=this.generation;
     const contextPackage = await this.engine.build(request.seed);
-    if(request.seed.mode === "improve_code" && generation!==this.generation)throw new Error("Improve Code context changed while preparing. Preview the current project again.");
+    if(["explain","improve_code"].includes(request.seed.mode) && generation!==this.generation)throw new Error(`${request.seed.mode === "explain" ? "Explain" : "Improve Code"} context changed while preparing. Preview the current project again.`);
+    if(request.seed.mode === "explain" && request.seed.kind === "code") { const budget=explanationBudget(contextPackage,undefined,request.provider,request.model);if(budget.error)throw new Error(budget.error); }
     this.prepared = contextPackage;
     const source = contextPackage.items.some((item) => item.type === "selected_code") ? "selection" : contextPackage.items.some((item) => item.type === "diagnostic") ? "diagnostic" : "cursor";
     const result: ObserverRequest = {
@@ -216,6 +226,7 @@ export class ObserverContextController {
   authorize(webContentsId: number, candidate: ProjectContextPackage): boolean {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId || !this.prepared) return false;
     if (candidate.version !== this.prepared.version || candidate.activeFile.relativePath !== this.prepared.activeFile.relativePath || candidate.intent.mode !== this.prepared.intent.mode || candidate.intent.instruction !== this.prepared.intent.instruction) return false;
+    if(candidate.intent.mode === 'explain' && (JSON.stringify(candidate.limits)!==JSON.stringify(this.prepared.limits) || JSON.stringify(candidate.cursor)!==JSON.stringify(this.prepared.cursor) || JSON.stringify(candidate.activeFile)!==JSON.stringify(this.prepared.activeFile))) return false;
     const prepared = new Map(this.prepared.items.map((item) => [item.id, item]));
     if (candidate.items.some((item) => JSON.stringify(prepared.get(item.id)) !== JSON.stringify(item) || redactProjectSecrets(item.content).redacted || item.staleState === "stale" || item.staleState === "unavailable")) return false;
     const mandatoryIds = this.prepared.items.filter((item) => !item.optional).map((item) => item.id);

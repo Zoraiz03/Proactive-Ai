@@ -1,3 +1,5 @@
+import { buildExplainContext } from "../apps/desktop/src/main/explain-context.ts";
+import { explanationBudget } from "../apps/desktop/src/shared/explanation-budget.ts";
 import {validImproveContext} from "../apps/desktop/src/shared/improve-code.ts";
 import { validFixContext } from "../apps/desktop/src/shared/fix-code.ts";
 import { EXPLANATION_LIMITS, validExplanationInput } from "../apps/desktop/src/shared/explanation.ts";
@@ -46,6 +48,7 @@ const moduleExports: { POST?: (request: Request) => Promise<Response> } = {};
 const source = readFileSync(new URL("../src/app/api/suggest/route.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const requireStub = (name: string) => {
+ if(name.endsWith("/explanation-budget.ts") || name.endsWith("/explanation-budget"))return {explanationBudget};
   if (name.endsWith("/shared/improve-code.ts")) return {validImproveContext};
   if (name.endsWith("/shared/fix-code.ts")) return { validFixContext };
   if (name.endsWith("/shared/explanation.ts")) return { EXPLANATION_LIMITS, validExplanationInput };
@@ -113,6 +116,23 @@ for (const invalid of [
 assert.equal(providerCalls, explainCalls);
 authenticated = false; assert.equal((await send(explainBody)).status, 401); authenticated = true;
 console.log('Explain conversation route: authentication, validation, limits and no transcript storage passed');
+// Phase A: exercise the real authenticated backend with exact, complete synthetic scopes.
+for(const maximum of [8000,20000])for(const size of [7999,8000,8001,12000,19999,20000,20001]) {
+ const code='value = 1 #'+ 'x'.repeat(size-11);
+ const seed={mode:'explain' as const,kind:'code' as const,activeRelativePath:'main.py',fileName:'main.py',language:'python',content:code,cursorLine:1,cursorColumn:1,explainScope:'file' as const,exclusions:[],maximumTotalCharacters:30000,maximumCharactersPerFile:20000,maximumRelatedFiles:4};
+ // Construct oversized adversarial payloads too: the backend must reject without dispatch.
+ const base=buildExplainContext({...seed,content:'value = 1'});
+ const items=base.items.map(item=>item.type==='complete_file'?{...item,content:code,estimatedCharacters:code.length,estimatedTokens:Math.ceil(code.length/4)}:item);
+ const totalCharacters=items.reduce((n,item)=>n+item.content.length,0);
+ const contextPackage={...base,items,totalCharacters,estimatedTokens:Math.ceil(totalCharacters/4),limits:{...base.limits,maximumCharactersPerFile:maximum}};
+ const before=providerCalls;
+ const result=await send({...explainBody,fileName:seed.fileName,cursorLine:1,cursorColumn:1,explanation:{question:base.intent.instruction,messages:[]},contextPackage});
+ assert.equal(result.status,size<=maximum?200:400,`${size} / ${maximum}: ${JSON.stringify(await result.json())}`);
+ assert.equal(providerCalls,before+(size<=maximum?1:0));
+}
+assert.equal(historyCalls,0);
+console.log('Phase A backend: 7999/8000/8001/12000/20001 exact full-file budgets and no rejected-request dispatch passed');
+
 
 // Generated answers survive optional history failures, with no fabricated ID or retry.
 for (const mode of ["missing_table", "network", "saved"] as const) {

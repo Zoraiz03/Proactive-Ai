@@ -1,3 +1,5 @@
+import { explanationBudget } from "../apps/desktop/src/shared/explanation-budget.ts";
+import { explainFunction } from "../apps/desktop/src/main/explain-context.ts";
 import {buildImproveCodeContext} from "../apps/desktop/src/main/improve-code-context.ts";
 import {ImproveCodeSession} from "../apps/desktop/src/main/improve-code-session.ts";
 import {resolveImproveScope} from "../apps/desktop/src/main/improve-scope.ts";
@@ -54,6 +56,8 @@ approved.intent = { mode: 'explain', instruction: 'Explain' };
 const compiled = ts.transpileModule(readFileSync(new URL('../apps/desktop/src/main/observer-ipc.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const moduleExports: { registerObserverIpc?: (...args: unknown[]) => { controller: { setWorkspace: (root: string, id: number) => void; invalidate: () => void }; cleanup: () => void } } = {};
 new Function('require', 'exports', compiled)((name: string) => {
+ if(name.endsWith('/explanation-budget'))return {explanationBudget};
+ if(name.endsWith('/explain-context'))return {explainFunction};
  if(name.endsWith('/improve-code-session'))return {ImproveCodeSession};
  if(name.endsWith('/improve-scope'))return {resolveImproveScope};
  if (name === 'electron') return { BrowserWindow: { fromWebContents: () => win }, ipcMain, clipboard: { writeText: () => {} }, dialog: { showMessageBox: async () => ({ response: 1 }) } };
@@ -108,6 +112,11 @@ assert.equal((await invoke(observer.OBSERVER_CHANNELS.improveClarify,'improve','
 const lateImprovePreview=invoke(observer.OBSERVER_CHANNELS.prepare,{...prepare,seed:{...prepare.seed,mode:'improve_code',improveGoal:'readability',improveFullFile:true}});
 ipc.controller.setWorkspace('/tmp/project-after-prepare',1);
 assert.equal((await lateImprovePreview).ok,false);
+const scopeAvailability=await invoke(observer.OBSERVER_CHANNELS.explainScopes,{...prepare,seed:{...prepare.seed,content:'def f():\n    return 1',cursorLine:2,cursorColumn:5}});
+assert.equal(scopeAvailability.ok,true);assert.equal(scopeAvailability.value.range.end.line,2);
+const lateExplainPreview=invoke(observer.OBSERVER_CHANNELS.prepare,prepare);
+ipc.controller.setWorkspace('/tmp/project-after-explain-prepare',1);
+assert.equal((await lateExplainPreview).ok,false);
 ipc.cleanup();assert.equal(callbacks.size,0);
 console.log('Improve Code IPC: trusted sender, scope/goal authorization, clarification, generic-channel bypass rejection and project isolation passed');
 console.log('Fix Code IPC: trusted sender, exact preview/range authorization, clarification, generic-channel bypass rejection, project isolation passed');

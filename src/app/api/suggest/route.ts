@@ -1,5 +1,6 @@
 import {validImproveContext,type ImproveCodeContext} from "../../../../apps/desktop/src/shared/improve-code.ts";
 import { validFixContext, type FixCodeContext } from "../../../../apps/desktop/src/shared/fix-code.ts";
+import { explanationBudget } from "../../../../apps/desktop/src/shared/explanation-budget.ts";
 import { EXPLANATION_LIMITS, validExplanationInput } from "../../../../apps/desktop/src/shared/explanation.ts";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -63,8 +64,9 @@ const DesktopBody = z.object({
 }).superRefine((body, context) => {
   if (body.explanation && (body.mode !== 'explain' || body.kind !== 'code' || body.automaticRun || body.liveObserver || body.editBase || body.storeHistory || body.contextPackage.totalCharacters > EXPLANATION_LIMITS.contextCharacters ||
     body.contextPackage.totalCharacters + body.explanation.question.length + body.explanation.messages.reduce((n, m) => n + m.content.length, 0) > body.contextPackage.limits.maximumTotalCharacters ||
-    body.contextPackage.items.some(item => !['user_instruction', 'selected_code', 'current_symbol', 'nearby_code'].includes(item.type) || (item.source.relativePath && item.source.relativePath !== body.contextPackage.activeFile.relativePath)) ||
+    body.contextPackage.items.some(item => !['user_instruction', 'selected_code', 'current_symbol', 'nearby_code', 'complete_file'].includes(item.type) || (item.source.relativePath && item.source.relativePath !== body.contextPackage.activeFile.relativePath)) ||
     /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:api[_-]?key|password|access[_-]?token)\s*[:=]\s*["']?[A-Za-z0-9_./+\-=]{12,}/i.test(JSON.stringify(body.explanation)))) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid or unsafe explanation conversation.' });
+  if(body.explanation) { const budget=explanationBudget(body.contextPackage,body.explanation,body.provider,body.model);if(budget.error)context.addIssue({code:z.ZodIssueCode.custom,message:budget.error}); }
   const liveContextInvalid = body.automaticRun || body.mode !== "improve_code" || body.kind !== "code" ||
     !["python", "javascript"].includes(body.language) || body.storeHistory || !body.editBase ||
     body.contextPackage.totalCharacters > 9000 || body.contextPackage.items.length > 5 ||
