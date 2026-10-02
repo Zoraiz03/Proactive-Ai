@@ -3292,6 +3292,122 @@ execution. The earlier backend schema availability issue remains outside scope.
 The user explicitly requested a local commit for this iteration. No push is part
 of this task.
 
+## Manual Improve Code — implemented, provider acceptance pending (2026-09-29)
+
+The previous Fix Code iteration was rechecked, not assumed complete. Its unit,
+privacy, IPC, route, checkpoint and runner regressions pass. The Fix UI fixture
+initially exposed Monaco's “no diff result available” teardown race. Waiting for
+its computed diff before Apply made the fixture pass without hiding renderer
+errors. Signed-in/native and live-provider acceptance remain outstanding.
+
+Improve Code now offers Readability & maintainability (default) or Performance,
+plus optional instructions. Selection takes priority; otherwise the exact current
+function is previewed. No function means selection or explicit file approval is
+required. No mandatory code is silently truncated. Function resolution is isolated
+from other actions; conservative unsupported/ambiguous forms require selection.
+Optional bounded project conventions/test configuration is read-only, removable
+and privacy-screened in Context Preview. Context Tray/imported code is not added
+automatically for this action.
+
+A dedicated prompt and outcome contract distinguish one justified improvement,
+clarification, no worthwhile improvement, and a correctness issue requiring an
+explicit Fix Code handoff. Results explain rationale, assumptions/trade-offs and
+existing verification options. Performance claims must distinguish reasoning from
+measurements; no tests, benchmark results or behavior preservation are invented.
+Clarifications are bounded/session-only and recheck approved context, source and
+privacy. Authenticated backend/server keys, exclusions and complete-file consent
+remain intact; no transcripts or database changes were added.
+
+The existing cancellable session checks, structured edit validation, diff preview,
+explicit Accept Change, checkpoint/Undo and source-aware Run again controls are
+reused. Apply stays in memory, preserves unrelated unsaved code and is unverified.
+There is no automatic save, execution, installation or multi-file editing. The
+coffee/cream theme and other Observer/proactive contracts remain intact.
+
+Verification:
+
+- **279/279 desktop tests passed**, including 24 new Improve tests for exact
+  selection/function/file approval, long/oversized functions, goal/outcome handling,
+  clarification limits, secrets/consent/privacy, readonly configuration, stale or
+  invalid edits, cancellation/project isolation and checkpoint Undo.
+- Root tests passed: dedicated prompts, four outcomes, strict parsing/output-limit
+  errors, provider budgets with mocked fetch, authenticated route/no-history and
+  IPC preview/goal authorization, plus other-action regressions.
+- `test:improve-ui` passed with real Monaco selection events, preview, controls,
+  card/hook and diff; it covers goals/instructions, fallback approval, clarification,
+  no-change, explicit bug handoff/no send, Apply/Undo/no save, stale/invalid edits,
+  privacy, duplicate prevention and cancellation/project isolation. Main context,
+  session and checkpoint logic are real; provider/policy/consent/application and
+  handoff callbacks are controlled doubles. This is not full signed-in App testing.
+- `test:fix-ui`, `test:explain-ui` and `test:live-triggers` passed. Strict desktop
+  type checks, Electron and Next builds, root lint and focused module lint passed.
+  Broader desktop lint retains the same four unused-variable errors and three hook
+  warnings; unrelated lint cleanup is not included.
+
+[`IMPROVE_CODE.md`](./IMPROVE_CODE.md) records exact manual steps, scope/grammar
+limits, configuration/privacy behavior, and evaluations for duplication, nested
+conditions, already-clear code and a potentially behavior-changing performance
+proposal. Live-provider quality/cost/latency, native consent/save/run acceptance,
+backend settings availability, Windows and packaged startup footprint remain
+unverified. The existing TypeScript parser is bundled into main for exact JS/TS
+function ranges; no new dependency was installed. Mocked correctness tests are not
+AI accuracy or behavior-preservation evidence. No paid API calls or migrations
+were made. The user's final instruction authorizes a local commit; no push.
+
+## Shared Project Context — planning only (2026-09-29)
+
+- [x] Inspected current Context Tray, Chrome research handoff, context builders,
+  manual/Live Observer, privacy controls and local storage; recorded reuse and gaps.
+- [x] Added [Project Context implementation plan](./PROJECT_CONTEXT_PLAN.md) with
+  proposed workspace-local notes, compatibility boundaries and phased acceptance tests.
+- [ ] Implement and verify Conversation/Project Context tabs over existing state first.
+- [ ] Add explicit local goals/tasks/confirmed requirements, then opt-in request inclusion.
+- [ ] Address workspace binding of pending browser transfers before durable research.
+
+This pass changes documentation only; no tests/builds were rerun and no new feature
+is marked implemented or tested. Earlier verification records remain historical.
+No application/settings/database changes, dependency installation, commit or push.
+
+## Shared Project Context — Phase 1 tabs (2026-09-29)
+
+- [x] Implemented Conversation/Project Context tabs around existing mounted state,
+  with one tray, attachment count, eligibility copy, keyboard/ARIA navigation,
+  visible focus, independent scrolling and explicit return to request controls.
+- [x] Tested real mouse/keyboard interaction in the mocked Electron fixture, including
+  draft/attachment/request preservation, zero additional requests, cancellation,
+  project isolation, diff review, explicit Apply and checkpoint Undo across switches.
+- [x] 279 desktop tests, root tests, strict desktop type checks, root/focused lint,
+  Electron/Next builds and Improve/Fix/Explain/Live-trigger UI fixtures passed.
+- [ ] Full signed-in App/native dialogs, screen-reader and Windows acceptance remain
+  unverified; provider quality is not inferred from mocked tests.
+
+See [Project Context plan](./PROJECT_CONTEXT_PLAN.md#phase-1-delivery-evidence-2026-09-29)
+for exact evidence and remaining phases. No new persistence, notes, payload/consent
+changes or browser-transfer changes. Workspace binding remains a later-phase concern.
+No commit or push; unrelated prior planning edits are preserved.
+
+## Context pipeline Phase A — manual Explain scopes/budgets (2026-09-30)
+
+- [x] Explicit selected code/current function/entire active file controls with exact
+  unsaved scope and honest unavailable/oversized messages. Replaced Explain's 80-line
+  function fallback; synthetic cursor at line 400 in a 453-line function regression passes.
+- [x] Shared preparation/preview/desktop/backend/provider budget calculation, conservative
+  UTF-8 token estimate and response reserve. Separate local manual Explain ceiling
+  inherits existing limits; no automatic increases. Full-file consent/privacy retained.
+- [x] Exact snapshot validation, history budgeting, workspace cancellation, no truncation
+  and read-only Explain contracts. Model capacities documented; retired configured
+  `deepseek-chat` is specifically blocked for manual Explain, without model migration.
+- [x] 288 desktop tests, root tests, mocked Explain/Fix/Improve/Live/trigger UI suites,
+  desktop typecheck, focused/root lint and Electron/Next builds pass. App/Settings lint
+  retains pre-existing issues; standalone root tsc includes incompatible test targets.
+- [ ]Full signed-in/native dialogs and real-provider quality/token calibration remain
+  unverified. Unsupported/ambiguous Python function syntax requires explicit selection
+  or file scope. Shared project notes/research and Live context are still pending.
+
+See [Phase A evidence and manual steps](./CONTEXT_PIPELINE_AUDIT.md#phase-a-delivery--2026-09-30)
+for limits, provider sources, actual boundary results and remaining acceptance checks.
+No paid calls, migrations, commits or pushes. Earlier unrelated changes are preserved.
+
 ## Recommended next task
 
 Phase 13D is complete. Experiment A1 — automatic failed-run explanations — was

@@ -18,7 +18,7 @@ module.exports=async(win,js,wait)=>{
  assert.match(await js('document.querySelector(\'[aria-label="Fix Code result"] pre code\').textContent'),/add\(2, 3\)/);
  await input('Your clarification','Yes, add both inputs.');await click('Send clarification');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("Correction proposed")');
  const calls=(await summary()).calls;assert.deepEqual(calls[1].contextPackage,calls[0].contextPackage);assert.equal(calls[1].fixCode.clarifications.length,1);
- assert.equal(await js('window.fixtureState.applied'),false);await click('Review correction diff');await wait('Boolean(document.querySelector(".monaco-diff-editor"))');assert.equal(await js('window.fixtureState.applied'),false);
+ assert.equal(await js('window.fixtureState.applied'),false);await click('Review correction diff');await wait('window.monaco.editor.getDiffEditors().some(e=>e.getLineChanges()!==null)');assert.equal(await js('window.fixtureState.applied'),false);
  await js('document.querySelector(\'[aria-label="Observer edit review"]\').scrollIntoView({block:"start"})');await new Promise(r=>setTimeout(r,100));
  require('node:fs').writeFileSync('/tmp/fix-code-ui.png',(await win.capturePage()).toPNG());
  await click('Accept Change');await wait('window.fixtureState.applied');assert.match(await js('window.fixtureState.content'),/a \+ b/);assert.match(await js('window.fixtureState.content'),/unsaved comment preserved/);assert.match(await js('document.querySelector(\'[aria-label="Applied verification"]\').textContent'),/unverified/);

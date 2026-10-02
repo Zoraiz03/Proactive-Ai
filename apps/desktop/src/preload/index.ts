@@ -182,6 +182,9 @@ const authBridge: DesktopAuthBridge = Object.freeze({
 contextBridge.exposeInMainWorld("desktopAuth", authBridge);
 
 const observerBridge: ObserverBridge = Object.freeze({
+  improveStart: (id: string, request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.improveStart, id, request),
+  improveClarify: (id: string, answer: string, hash: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.improveClarify, id, answer, hash),
+  improveClear: () => ipcRenderer.invoke(OBSERVER_CHANNELS.improveClear),
   fixStart: (id: string, request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.fixStart, id, request),
   fixClarify: (id: string, answer: string, hash: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.fixClarify, id, answer, hash),
   fixClear: () => ipcRenderer.invoke(OBSERVER_CHANNELS.fixClear),
@@ -189,6 +192,7 @@ const observerBridge: ObserverBridge = Object.freeze({
   followup: (id: string, question: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.followup, id, question),
   cancelExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.cancelExplanation),
   clearExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.clearExplanation),
+  explainScopes: (request: ObserverPrepareRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.explainScopes, request),
   prepare: (request: ObserverPrepareRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.prepare, request),
   ask: (request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.ask, request),
   recordOutcome: (request: ObserverOutcomeRequest) =>

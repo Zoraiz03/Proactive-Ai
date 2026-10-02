@@ -16,6 +16,7 @@ export class FixCodeSession {
     private abort: AbortController | null = null;
     private generation = 0;
     private deps: {
+        allowImproveConfiguration?: boolean;
         policy: () => Promise<{
             enabled: boolean;
             exclusions: string[];
@@ -37,7 +38,7 @@ export class FixCodeSession {
             return { ok: false, error: 'Fix Code snapshot is invalid. Build a new preview.' };
         const context = request.contextPackage;
         const fix = request.fixCode;
-        if (!context || !validFixContext(fix) || request.editBase.contentLength !== content.length || request.editBase.targetRelativePath !== context.activeFile.relativePath || context.items.some(item => !['user_instruction', 'selected_code', 'complete_file', 'nearby_code', 'diagnostic', 'terminal_error'].includes(item.type) || (item.source.relativePath && item.source.relativePath !== context.activeFile.relativePath)))
+        if (!context || !validFixContext(fix) || request.editBase.contentLength !== content.length || request.editBase.targetRelativePath !== context.activeFile.relativePath || context.items.some(item => (!['user_instruction', 'selected_code', 'complete_file', 'nearby_code', 'diagnostic', 'terminal_error'].includes(item.type) || (item.source.relativePath && item.source.relativePath !== context.activeFile.relativePath)) && !(this.deps.allowImproveConfiguration && item.type==='project_rule' && ['AGENTS.md','.proactive/rules.md','package.json','pyproject.toml','pytest.ini'].includes(item.source.relativePath ?? '') && item.optional && !item.truncated && !item.redacted)))
             return {ok:false,error:'Fix Code context does not match the approved active file. Build a new preview.'};
         const start = offsetForPosition(content, fix.range.start), end = offsetForPosition(content, fix.range.end);
         const supplied = context.items.filter(item => item.type === (fix.scope === 'file' ? 'complete_file' : 'selected_code'));
@@ -79,7 +80,7 @@ export class FixCodeSession {
             if ((!p.includeDiagnostics && context.items.some(i => i.type === 'diagnostic')) || (!p.includeTerminalError && context.items.some(i => i.type === 'terminal_error')))
                 throw new Error('Diagnostic/run evidence permission changed. Build a new context preview.');
             const total = context.totalCharacters + clarifications.reduce((n, t) => n + t.question.length + t.answer.length, 0);
-            if (total > Math.min(p.maximumCharacters, context.limits.maximumTotalCharacters) || context.items.some(i => ['complete_file', 'selected_code', 'nearby_code'].includes(i.type) && i.content.length > p.maximumFileCharacters))
+            if (total > Math.min(p.maximumCharacters, context.limits.maximumTotalCharacters) || context.items.some(i => ['complete_file', 'selected_code', 'nearby_code', ...(this.deps.allowImproveConfiguration?['project_rule']:[])].includes(i.type) && i.content.length > p.maximumFileCharacters))
                 throw new Error('Approved context and clarification exceed current privacy limits. Select a smaller section.');
             if (p.confirmCompleteFile && context.containsCompleteFile && !session.consent) {
                 if (!initial)

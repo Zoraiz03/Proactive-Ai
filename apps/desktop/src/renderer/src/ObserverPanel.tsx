@@ -8,7 +8,7 @@ import {
   OBSERVER_PROVIDERS,
   OBSERVER_PROVIDER_LABELS,
 } from "../../shared/observer";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { ProactiveAction, ProactiveNudge } from "../../shared/proactive-observer";
 import type { UsefulnessFeedback } from "../../shared/proactive-insights";
 import type { ContextTrayItem } from "../../shared/context-tray";
@@ -25,12 +25,20 @@ const OBSERVER_STATUS_LABELS: Record<ObserverStatus, string> = {
 };
 
 interface ObserverPanelProps {
+  improveCard?: ReactNode;
+  improveGoal?: 'readability'|'performance';
+  improveInstruction?: string;
+  improveFullFile?: boolean;
+  onImproveGoalChange?: (value:'readability'|'performance')=>void;
+  onImproveInstructionChange?: (value:string)=>void;
+  onImproveFullFileChange?: (value:boolean)=>void;
   fixCard?: ReactNode;
   fixVerificationCard?: ReactNode;
   fixProblem?: string;
   onFixProblemChange?: (value:string)=>void;
   explanationCard?: ReactNode;
   explainQuestion?: string;
+  explainScopeControl?: ReactNode;
   onExplainQuestionChange?: (value: string) => void;
   automaticRunEnabled: boolean;
   automaticRunCard: ReactNode;
@@ -72,8 +80,9 @@ interface ObserverPanelProps {
 }
 
 export default function ObserverPanel({
+  improveCard, improveGoal="readability", improveInstruction="", improveFullFile=false, onImproveGoalChange, onImproveInstructionChange, onImproveFullFileChange,
   fixCard, fixVerificationCard, fixProblem = "", onFixProblemChange,
-  explanationCard, explainQuestion = "", onExplainQuestionChange,
+  explanationCard, explainScopeControl, explainQuestion = "", onExplainQuestionChange,
   automaticRunEnabled,
   automaticRunCard,
   mode,
@@ -112,11 +121,22 @@ export default function ObserverPanel({
   onKeepOriginalContextItem,
   onTruncateContextItem,
 }: ObserverPanelProps) {
-  const conversationCard = explanationCard ?? fixCard;
+  const conversationCard = explanationCard ?? fixCard ?? improveCard;
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
+  const [activeTab, setActiveTab] = useState<"conversation" | "context">("conversation");
+  const tabId = useId();
+  const conversationTabRef = useRef<HTMLButtonElement>(null);
+  const contextTabRef = useRef<HTMLButtonElement>(null);
+  const selectTab = (tab: "conversation" | "context") => {
+    setActiveTab(tab);
+    (tab === "conversation" ? conversationTabRef : contextTabRef).current?.focus();
+  };
   useEffect(() => {
-    if (focusToken > 0) workspaceRef.current?.focus();
+    if (focusToken > 0) {
+      setActiveTab("conversation");
+      conversationTabRef.current?.focus();
+    }
   }, [focusToken]);
 
   return (
@@ -135,6 +155,16 @@ export default function ObserverPanel({
         </span>
       </header>
 
+      <div className="observer-tabs" role="tablist" aria-label="Observer views" onKeyDown={event => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        selectTab(event.key === "Home" ? "conversation" : event.key === "End" ? "context" : activeTab === "conversation" ? "context" : "conversation");
+      }}>
+        <button ref={conversationTabRef} type="button" role="tab" id={`${tabId}-conversation-tab`} aria-controls={`${tabId}-conversation`} aria-selected={activeTab === "conversation"} tabIndex={activeTab === "conversation" ? 0 : -1} onClick={() => selectTab("conversation")}>Conversation</button>
+        <button ref={contextTabRef} type="button" role="tab" id={`${tabId}-context-tab`} aria-controls={`${tabId}-context`} aria-selected={activeTab === "context"} tabIndex={activeTab === "context" ? 0 : -1} onClick={() => selectTab("context")}>Project Context <span aria-label={`${contextTrayItems.length} attachments`}>({contextTrayItems.length})</span></button>
+      </div>
+      {/* Keep both panels mounted: tab navigation must not reset drafts or request state. */}
+      <section className="observer-tab-panel observer-conversation-panel" role="tabpanel" id={`${tabId}-conversation`} aria-labelledby={`${tabId}-conversation-tab`} hidden={activeTab !== "conversation"} tabIndex={0}>
       <section className="observer-controls" aria-label="Observer request controls">
         <div className="observer-control-grid">
           <label>
@@ -162,7 +192,9 @@ export default function ObserverPanel({
             </select>
           </label>
         </div>
-        {mode === "explain" && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="Explain this for a beginner" /><small>Selected code, otherwise the current function or nearby lines. Preview before sending. Context Tray and other files are not included in Explain.</small></label>}
+        {mode === "explain" && explainScopeControl}
+        {mode === "explain" && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="Explain this for a beginner" /><small>Choose an explicit scope and preview before sending. Context Tray and other files are not included in Explain.</small></label>}
+        {mode === "improve_code" && onImproveGoalChange && <div className="observer-multi-file-request"><label>Improvement goal<select aria-label="Improvement goal" value={improveGoal} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveGoalChange(e.target.value as 'readability'|'performance')}><option value="readability">Readability &amp; maintainability</option><option value="performance">Performance</option></select></label><label>Optional instruction<textarea aria-label="Improvement instruction" rows={3} maxLength={500} value={improveInstruction} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveInstructionChange?.(e.target.value)} placeholder="Reduce duplication without changing the public API."/></label><label><input type="checkbox" aria-label="Approve active file scope" checked={improveFullFile} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveFullFileChange?.(e.target.checked)}/> Explicitly approve active-file scope when no code is selected</label><small>Selection first, otherwise the current function. If no function is found, select code or approve the file above. Exact code and optional read-only configuration are previewed; never silently truncated.</small></div>}
         {mode === "fix_error" && onFixProblemChange && <label className="observer-multi-file-request"><span>What should this code do, or what is going wrong?</span><textarea aria-label="Fix Code problem" rows={3} maxLength={500} value={fixProblem} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e=>onFixProblemChange(e.target.value)} placeholder="Optional: describe the expected behavior or problem" /><small>Selected code plus bounded surrounding lines, otherwise the entire active file including unsaved changes. Preview before sending. No Context Tray or other files.</small></label>}
         {mode === "plan_multi_file" && <label className="observer-multi-file-request">
           <span>Describe the change</span>
@@ -192,17 +224,6 @@ export default function ObserverPanel({
 
       <div className="observer-scroll-region">
         {automaticRunCard}
-        {mode !== "explain" && mode !== "fix_error" && <ContextTray
-          items={contextTrayItems}
-          maximumCharacters={maximumContextCharacters}
-          webContextStatus={webContextStatus}
-          onRemove={onRemoveContextItem}
-          onClear={onClearContext}
-          onMove={onMoveContextItem}
-          onRefresh={onRefreshContextItem}
-          onKeepOriginal={onKeepOriginalContextItem}
-          onTruncate={onTruncateContextItem}
-        />}
 
         {proactiveNudge && (
           <article className="proactive-nudge" aria-label="Proactive Observer suggestion">
@@ -292,6 +313,23 @@ export default function ObserverPanel({
           )}
         </div>}
       </div>
+
+      </section>
+      <section className="observer-tab-panel observer-project-context-panel" role="tabpanel" id={`${tabId}-context`} aria-labelledby={`${tabId}-context-tab`} hidden={activeTab !== "context"} tabIndex={0}>
+        <p className="observer-context-eligibility">Attachments are local and session-only. Explain, Fix Code, Improve Code, Live Observer and automatic error help do not use this tray. Other workflows show included sources in Context Preview.</p>
+        <button type="button" className="observer-return-conversation" onClick={() => selectTab("conversation")}>{status === "thinking" ? "Return to Conversation for request and cancellation controls" : "Return to Conversation"}</button>
+        <ContextTray
+          items={contextTrayItems}
+          maximumCharacters={maximumContextCharacters}
+          webContextStatus={webContextStatus}
+          onRemove={onRemoveContextItem}
+          onClear={onClearContext}
+          onMove={onMoveContextItem}
+          onRefresh={onRefreshContextItem}
+          onKeepOriginal={onKeepOriginalContextItem}
+          onTruncate={onTruncateContextItem}
+        />
+      </section>
 
       <div className="observer-privacy-note">
         Manual requests show Context Preview. Auto-explain, when explicitly enabled, sends bounded failed-run context without another preview. No project-wide upload or automatic edits.
