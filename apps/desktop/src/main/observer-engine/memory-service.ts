@@ -14,6 +14,8 @@ import { shouldIgnoreWorkspaceWatchPath } from '../workspace-watcher.ts';
 import { recentProjectId } from '../recent-projects.ts';
 import { openMemoryDatabase, type MemoryDatabase } from './database.ts';
 import { JournalStore } from './journal-store.ts';
+import { safeDiskText } from './safe-disk-text.ts';
+import type { WorkspaceChange } from '../../shared/workspace';
 import type { EditBatch } from '../../shared/observer-engine.ts';
 
 const GENERATED = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', 'coverage', 'vendor', '__pycache__', '.venv']);
@@ -48,6 +50,36 @@ function settingsSnapshot(input: Partial<MemorySettings>): MemorySettings {
  */
 export class ProjectMemoryService {
   private journal: JournalStore | null = null;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private dailyTimer: ReturnType<typeof setInterval> | undefined;
+  private stopMaintenance() { clearTimeout(this.idleTimer); clearInterval(this.dailyTimer); this.idleTimer = undefined; this.dailyTimer = undefined; }
+  private scheduleMaintenance() {
+    if (!this.active(this.generation)) { this.stopMaintenance(); return; }
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => this.maintain(), 30000); this.idleTimer.unref();
+    if (!this.dailyTimer) { this.dailyTimer = setInterval(() => this.maintain(), 24 * 60 * 60 * 1000); this.dailyTimer.unref(); }
+  }
+  /** Called on idle, daily, and close. No provider calls or editor activity telemetry. */
+  maintain() {
+    if (!this.memory) return;
+    const db = this.memory.db;
+    try {
+      db.transaction(() => {
+        for (const row of db.prepare('SELECT path FROM files WHERE excluded=0 AND deleted=0').all() as { path: string }[]) this.journal!.compact(row.path);
+      })();
+      this.journal!.retain(this.timestamp() - this.settings.journalRetentionDays * 86400000);
+      db.prepare('DELETE FROM web_captures WHERE expires_at<=?').run(this.timestamp());
+      db.prepare('DELETE FROM suggestions WHERE ts<?').run(this.timestamp() - 90 * 86400000);
+      db.prepare('DELETE FROM governance_events WHERE ts<?').run(this.timestamp() - this.settings.journalRetentionDays * 86400000);
+      this.scrub();
+      db.exec('VACUUM');
+      while (this.status().overSizeCap && this.journal!.evictOldest()) { this.scrub(); db.exec('VACUUM'); }
+      if (this.status().overSizeCap) this.warn('memory_size_cap');
+    } catch { this.warn('memory_maintenance_unavailable'); }
+    this.emit();
+  }
+  compact() { this.maintain(); }
+  async onExternalChange(change: WorkspaceChange) { await this.scan({ changedPaths: [change.relativePath] }); }
   private memory: MemoryDatabase | null = null;
   private root = '';
   private workspaceId: string | null = null;
@@ -119,14 +151,18 @@ export class ProjectMemoryService {
       this.paused = (db.prepare("SELECT value FROM meta WHERE key='memory_paused'").get() as { value: string }).value === '1';
       this.lastScanAt = Number((db.prepare("SELECT value FROM meta WHERE key='last_scan_at'").get() as { value: string } | undefined)?.value) || null;
       await this.scan();
+      if (this.active(this.generation)) this.maintain();
+      this.scheduleMaintenance();
       return this.status();
     } catch (error) { await this.close(); throw error; }
     finally { this.lifecycle = false; }
   }
 
   async close(): Promise<void> {
+    this.stopMaintenance();
     this.generation++;
     await this.scanning;
+    this.maintain();
     if (this.memory) { this.memory.db.pragma('wal_checkpoint(TRUNCATE)'); this.memory.db.close(); }
     this.journal = null;
     this.memory = null; this.root = ''; this.file = ''; this.workspaceId = null; this.lastScanAt = null;
@@ -145,6 +181,7 @@ export class ProjectMemoryService {
       this.scrub();
     }
     this.emit();
+    this.scheduleMaintenance();
   }
 
   setPaused(paused: boolean) {
@@ -152,6 +189,7 @@ export class ProjectMemoryService {
     this.paused = paused; this.generation++;
     this.memory?.db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('memory_paused',?)").run(paused ? '1' : '0');
     this.emit();
+    this.scheduleMaintenance();
   }
 
   private exclusion(path: string): MemoryExclusion | null {
@@ -179,11 +217,16 @@ export class ProjectMemoryService {
   }
 
   private exclude(path: string, size: number, mtime: number, reason: MemoryExclusion) {
+    this.memory!.db.transaction(() => {
+    if (reason === 'secret_flagged' && !this.memory!.db.prepare('SELECT 1 FROM files WHERE path=? AND secret_flagged=1').get(path)) {
+      this.memory!.db.prepare("INSERT INTO governance_events(ts,layer,path,detail) VALUES(?,'privacy_block',?,'secret_flagged')").run(this.timestamp(), path);
+    }
     this.removeContent(path);
     this.memory!.db.prepare(`INSERT INTO files(path,language,size_bytes,mtime_ms,excluded,secret_flagged,exclusion,first_seen_at,updated_at)
       VALUES(?,?,?,?,1,?,?,?,?) ON CONFLICT(path) DO UPDATE SET size_bytes=excluded.size_bytes,mtime_ms=excluded.mtime_ms,
       content_hash=NULL,baseline_ver=0,excluded=1,secret_flagged=excluded.secret_flagged,exclusion=excluded.exclusion,deleted=0,updated_at=excluded.updated_at`)
       .run(path, monacoLanguageForFile(path), size, mtime, reason === 'secret_flagged' ? 1 : 0, reason, this.timestamp(), this.timestamp());
+    })();
   }
 
   private scrub() {
@@ -337,7 +380,17 @@ export class ProjectMemoryService {
     db.transaction(() => {
       if (path) { this.removeContent(path); db.prepare('DELETE FROM files WHERE path=?').run(path); }
       else if (scope === 'web') db.exec('DELETE FROM web_captures');
-      else if (scope === 'journal') db.exec('DELETE FROM edit_journal');
+      else if (scope === 'journal') {
+        for (const row of db.prepare('SELECT path FROM files WHERE excluded=0 AND deleted=0').all() as { path: string }[]) {
+          try { this.journal!.compact(row.path, true); }
+          catch {
+            this.warn('memory_purge_drift');
+            try { this.indexContent(row.path, this.journal!.recoverBaseline(row.path)); }
+            catch { this.exclude(row.path, 0, 0, 'unreadable'); }
+          }
+        }
+        db.exec('DELETE FROM edit_journal'); this.journal!.pruneBaselines();
+      }
       else {
         for (const table of ['baselines', 'edit_journal', 'symbols', 'chunks', 'web_captures', 'suggestions', 'governance_events', 'project_brief', 'files']) db.exec(`DELETE FROM ${table}`);
         db.prepare("DELETE FROM meta WHERE key='last_scan_at'").run(); this.lastScanAt = null;
@@ -391,24 +444,24 @@ export class ProjectMemoryService {
         this.journal!.baseline(path, text); this.indexContent(path, text);
       })();
       return true;
-    } catch {
-      if (this.active(epoch)) { this.exclude(path, row?.size_bytes ?? 0, row?.mtime_ms ?? 0, 'secret_flagged'); this.scrub(); this.emit(); }
+    } catch (error) {
+      if (this.active(epoch)) { this.exclude(path, row?.size_bytes ?? 0, row?.mtime_ms ?? 0, (error as Error).message === 'memory_secret' ? 'secret_flagged' : 'unreadable'); this.scrub(); this.emit(); }
       return false;
     }
   }
 
-  async readCurrent(path: string): Promise<string | null> {
+  readCurrent(path: string): string | null {
     if (!this.memory || this.exclusion(path)) return null;
     try { return this.journal!.read(path); }
     catch {
       this.warn('memory_replay_drift');
       const epoch = this.generation;
       try {
-        const disk = await this.diskText(path);
+        const text = safeDiskText(this.root, path, this.settings.maxFileBytes);
         if (!this.active(epoch)) return null;
-        this.memory!.db.transaction(() => { this.journal!.baseline(path, disk.text); this.indexContent(path, disk.text); })();
-        return disk.text;
-      } catch { if (this.active(epoch)) { this.exclude(path, 0, 0, 'unreadable'); this.scrub(); } return null; }
+        this.memory!.db.transaction(() => { this.journal!.baseline(path, text); this.indexContent(path, text); })();
+        return text;
+      } catch (error) { if (this.active(epoch)) { this.exclude(path, 0, 0, (error as Error).message === 'memory_secret' ? 'secret_flagged' : 'unreadable'); this.scrub(); } return null; }
     }
   }
 
@@ -427,14 +480,13 @@ export class ProjectMemoryService {
       if ((error as Error).message === 'memory_secret') {
         this.memory!.db.transaction(() => {
           this.exclude(batch.path, 0, 0, 'secret_flagged');
-          this.memory!.db.prepare("INSERT INTO governance_events(ts,layer,path,detail) VALUES(?,'privacy_block',?,'secret_flagged')").run(this.timestamp(), batch.path);
         })(); this.scrub(); this.emit();
         return { ok: true, skipped: true };
       }
       throw error;
     }
     if (text === null) return { ok: true, skipped: true };
-    this.emit();
+    this.emit(); this.scheduleMaintenance();
     return { ok: true, lastSeq: (this.memory!.db.prepare('SELECT max(seq) n FROM edit_journal').get() as { n: number }).n };
   }
 
@@ -451,7 +503,7 @@ export class ProjectMemoryService {
         this.memory!.db.transaction(() => { this.journal!.baseline(path, disk.text); this.indexContent(path, disk.text); })();
       }
       this.memory!.db.prepare('UPDATE files SET size_bytes=?,mtime_ms=? WHERE path=?').run(disk.size, disk.mtime, path);
-    } catch { if (this.active(epoch)) { this.exclude(path, 0, 0, 'unreadable'); this.scrub(); } }
+    } catch (error) { if (this.active(epoch)) { this.exclude(path, 0, 0, (error as Error).message === 'memory_secret' ? 'secret_flagged' : 'unreadable'); this.scrub(); } }
     this.emit();
   }
 

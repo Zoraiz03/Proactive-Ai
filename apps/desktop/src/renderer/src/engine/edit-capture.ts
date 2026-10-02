@@ -1,4 +1,4 @@
-import { applyDelta, journalHash } from '../../../shared/edit-journal.ts';
+import { applyDelta, journalHash, splitJournalText } from '../../../shared/edit-journal.ts';
 import type { EditBatch, EditDelta, EditOrigin } from '../../../shared/observer-engine';
 
 export interface ContentEvent {
@@ -33,10 +33,10 @@ export function createEditCapture(deps: {
       for (const change of changes) {
         const origin = event.isUndoing || event.isRedoing ? 'undo_redo' : explicitOrigin ??
           (changes.length === 1 && change.rangeLength === 0 && (change.text.length > 20 || change.text.includes('\n')) ? 'paste' : 'typing');
-        const pieces = Math.max(1, Math.ceil(change.text.length / 20000));
-        for (let piece = 0; piece < pieces; piece++) {
-          const delta: EditDelta = { path, offset: change.rangeOffset + piece * 20000,
-            removedLen: piece === 0 ? change.rangeLength : 0, inserted: change.text.slice(piece*20000,(piece+1)*20000),
+        let insertedOffset = 0;
+        for (const inserted of splitJournalText(change.text)) {
+          const delta: EditDelta = { path, offset: change.rangeOffset + insertedOffset,
+            removedLen: insertedOffset === 0 ? change.rangeLength : 0, inserted,
             origin, ts: Math.floor((deps.now ?? Date.now)()/1000)*1000 };
           if (pending.length >= 20 || new TextEncoder().encode(JSON.stringify([...pending,delta])).length > 180000) flush();
           const last = pending.at(-1);
@@ -44,6 +44,7 @@ export function createEditCapture(deps: {
             last.offset + last.inserted.length === delta.offset && last.inserted.length + delta.inserted.length <= 20000) last.inserted += delta.inserted;
           else pending.push(delta);
           text = applyDelta(text, delta);
+          insertedOffset += inserted.length;
         }
       }
       if (++events >= 20) flush();

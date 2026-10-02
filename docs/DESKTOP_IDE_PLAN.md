@@ -62,13 +62,16 @@ their original meaning.
 | Phase 0 (P0-T1–T3) | In Progress | Documentation delivered; desktop baseline gate fails on Python availability and Windows symlink permissions |
 | Phase E1 | In Progress | E1a and E1b implementation complete; Electron runtime and packaged-launch acceptance pending |
 | Phase E1b (P1-T4, P1-T5) | In Progress | Chunks/symbols, validated memory IPC, typed preload and read-only Privacy MemoryPanel implemented; typecheck passed; desktop tests 312 passed, 0 failed, 1 existing skip; native/runtime verification pending |
-| Phase E2 | Not Started | Edit capture, journal, watcher integration, compaction and retention |
+| Phase E2 (P2-T1 through P2-T5) | Implementation complete; runtime acceptance pending | Validated delta replay, Monaco capture with origin/flush rules, private transactional journals and 20-file LRU, save drift recovery, external-change rebaselines, compaction and retention implemented |
 | Phase E3 | Not Started | Context assembly, retrieval, budgets and manifest |
 | Phase E4 | Not Started | Independent switches, engine governance, backend and outcomes; optional real streaming |
 | Phase E5 | Not Started | Opt-in Chrome page context v2 and bridge integration |
 | Phase E6 | Not Started | New-project wizard, brief, plan and phase-aware help |
 | Phase E7 | Not Started | History, local evaluation, accessibility, documentation and release checks |
 | Phase E8 | Not Started | Unspecified: §14 requests E1–E8 rows but defines tasks only through E7; owner clarification required before scoping E8 |
+
+E2 validation (2026-10-03): desktop typecheck passed; `npm test`: 327 tests, 326 passed, 0 failed, 1 existing skip (baseline: 312 passed). Tests cover randomized replay, capture batches, trusted IPC, privacy purges, unsaved/reopen/save drift, watcher changes, LRU eviction, emoji paste boundaries, compaction, retention and purge recovery. Root backend and root lockfiles unchanged; root build not required.
+E2 wiring and limitations: typed `memory:buffer` bootstraps a validated unsaved snapshot before fire-and-forget `memory:edits`; existing LiveEdit behavior remains. Journal compaction runs after 30 seconds idle and on close, with daily expiry and journal/web-first size eviction. Consent now explicitly describes unsaved capture. Electron native rebuild, interactive Monaco/save/close acceptance and packaged launch remain unverified: Visual Studio C++ Build Tools are missing. Node SQLite tests passed; E3 was not started.
 
 E1a verification: desktop typecheck passed; 305 tests = 300 passed, four known Python/symlink environment failures, one existing skip; all 17 new tests passed. No backend changes, so root build not run.
 E1a limits: generated directories are metadata-only (not traversed); Node SQLite verified, Electron native rebuild/packaged launch unverified; no packaging/asar-unpack config exists. Chunks/symbols, journaling, retention, IPC/UI remain later tasks; this update supersedes the Phase 0 unstarted/native-dependency notes below.

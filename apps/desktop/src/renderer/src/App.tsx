@@ -1741,6 +1741,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setMultiFileBusy(false);
     if (!result.ok) { setMultiFileError(result.error); appendOutput(`Multi-file apply: ${result.error}`, "error"); recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "apply", outcome: "failed", provider: observerProvider, planId: multiFilePlan.planId, changeSetId: multiFileChangeSet.changeSetId, fileCount: multiFileChangeSet.changes.length, updateCount: multiFileChangeSet.changes.filter((item) => item.operation === "update").length, createCount: multiFileChangeSet.changes.filter((item) => item.operation === "create").length, changedLines: 0, durationMs: Date.now() - started }); return; }
     const snapshots = new Map(result.value.files.map((file) => [file.relativePath, file]));
+    for (const path of snapshots.keys()) markMemoryOrigin(path, "ai_apply");
     setTabs((current) => current.map((tab) => { const file = snapshots.get(tab.file.relativePath); return file ? { ...tab, file: { ...tab.file, content: file.content, modifiedAtMs: file.modifiedAtMs }, draft: file.content, saveStatus: null, externalConflict: null, externalNotice: null } : tab; }));
     const first = result.value.files[0];
     if (first) await selectFile({ name: first.relativePath.split("/").at(-1) ?? first.relativePath, relativePath: first.relativePath, kind: "file", isSymbolicLink: false });
@@ -1755,6 +1756,7 @@ export default function App({ user, onSignOut }: AppProps) {
     const result = await window.multiFileObserver.undo({ workspaceId: openedWorkspace.workspaceId, dirtyPaths: tabsRef.current.filter(isDirty).map((tab) => tab.file.relativePath) }); setMultiFileBusy(false);
     if (!result.ok) { setMultiFileError(result.error); appendOutput(`Multi-file rollback: ${result.error}`, "error"); return; }
     const restored = new Map(result.value.restoredFiles.map((file) => [file.relativePath, file])); const removed = new Set(result.value.removedPaths);
+    for (const path of restored.keys()) markMemoryOrigin(path, "undo_redo");
     setTabs((current) => current.filter((tab) => !removed.has(tab.file.relativePath)).map((tab) => { const file = restored.get(tab.file.relativePath); return file ? { ...tab, file: { ...tab.file, content: file.content, modifiedAtMs: file.modifiedAtMs }, draft: file.content, saveStatus: null, externalConflict: null, externalNotice: null } : tab; }));
     if (activePath && removed.has(activePath)) setActivePath(null);
     setMultiFileApplied(null); setMultiFilePlan(null); setMultiFileBases(null); setRunOutput(null); setGitRefreshToken((value) => value + 1);
@@ -2322,6 +2324,7 @@ export default function App({ user, onSignOut }: AppProps) {
     if (!latest.ok || await sha256Text(latest.value.content) !== documentHash) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: "Markdown changed after checkpoint creation; nothing was applied." } }); return; }
     const written = await window.workspace.writeFile({ relativePath: context.documentationPath, content: validated.value.proposedContent, expectedModifiedAtMs: latest.value.modifiedAtMs });
     if (!written.ok) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: written.error } }); return; }
+    markMemoryOrigin(context.documentationPath, "ai_apply");
     setTabs((current) => current.map((tab) => tab.file.relativePath === context.documentationPath ? { ...tab, file: { ...tab.file, content: validated.value.proposedContent, modifiedAtMs: written.value.modifiedAtMs }, draft: validated.value.proposedContent, saveStatus: null, autoSaveBlocked: false } : tab));
     setWorkspaceVersion((value) => value + 1); setGitRefreshToken((value) => value + 1); setDocumentationUpdateView({ stage: "applied", path: context.documentationPath, relationshipId: context.relationshipId });
     await openDocumentationLocation(context.documentationPath, context.sectionRange.start.line);
@@ -2336,6 +2339,7 @@ export default function App({ user, onSignOut }: AppProps) {
     if (!restored.ok) { appendOutput(restored.error, "error"); return; }
     const written = await window.workspace.writeFile({ relativePath: documentationUpdateView.path, content: restored.value.previousContent, expectedModifiedAtMs: current.value.modifiedAtMs });
     if (!written.ok) { appendOutput(written.error, "error"); return; }
+    markMemoryOrigin(documentationUpdateView.path, "undo_redo");
     setTabs((tabs) => tabs.map((tab) => tab.file.relativePath === documentationUpdateView.path ? { ...tab, file: { ...tab.file, content: restored.value.previousContent, modifiedAtMs: written.value.modifiedAtMs }, draft: restored.value.previousContent, saveStatus: null } : tab)); setWorkspaceVersion((value) => value + 1); setGitRefreshToken((value) => value + 1); setDocumentationUpdateView(null); appendOutput("Documentation update rolled back without overwriting newer edits.", "success");
   }, [appendOutput, documentationUpdateView, openedWorkspace]);
   const saveSyncedSettings = useCallback(async (settings: SyncedSettings) => {

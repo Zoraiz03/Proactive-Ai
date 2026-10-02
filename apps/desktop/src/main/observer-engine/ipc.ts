@@ -75,6 +75,16 @@ export function registerMemoryIpc(deps: {
   });
   const edits = (event: IpcMainEvent, request: MemoryEditsRequest, ...extra: unknown[]) => {
     if (extra.length || !valid(event, request, ['workspaceId','sessionId','batch']) || !sessionValid(request)) return;
+    const batch = request.batch;
+    if (!exact(batch, ['path','clientSeq','expectedBaseHash','deltas']) || !validScope({ path: batch.path }) ||
+      typeof batch.expectedBaseHash !== 'string' || !/^[a-f0-9]{64}$/.test(batch.expectedBaseHash) ||
+      !Array.isArray(batch.deltas) || !batch.deltas.length || batch.deltas.length > 20 ||
+      batch.deltas.some(delta => !exact(delta, ['path','offset','removedLen','inserted','origin','ts']) || delta.path !== batch.path ||
+        !Number.isSafeInteger(delta.offset) || !Number.isSafeInteger(delta.removedLen) || typeof delta.inserted !== 'string' ||
+        !['typing','paste','ai_apply','undo_redo','external'].includes(delta.origin as string) || !Number.isFinite(delta.ts)) ||
+      Buffer.byteLength(JSON.stringify(request)) > 256 * 1024) {
+      publish({ ok: false, error: 'Memory edits need resynchronization; invalid edit batch.' }); return;
+    }
     const epoch = generation;
     void serial(async () => {
       if (!current(epoch, event) || !consent || service.status().paused) return;

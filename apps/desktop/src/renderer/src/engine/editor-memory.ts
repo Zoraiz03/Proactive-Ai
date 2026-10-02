@@ -12,7 +12,8 @@ export function attachEditorMemory(instance: editor.IStandaloneCodeEditor, works
   const stopStatus = window.engine.onMemoryStatus(event => {
     if (event.workspaceId !== workspace()) return;
     if (!event.result.ok || event.result.value.paused || workspaceId !== workspace()) capture.reset();
-    workspaceId = workspace(); enabled = event.result.ok && event.result.value.open && !event.result.value.paused;
+    workspaceId = workspace();
+    if (event.result.ok) enabled = event.result.value.open && !event.result.value.paused;
   });
   if (workspaceId) void window.engine.memoryStatus({ workspaceId }).then(result => {
     enabled = workspaceId === workspace() && result.ok && result.value.open && !result.value.paused;

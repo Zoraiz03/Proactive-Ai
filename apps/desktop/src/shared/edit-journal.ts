@@ -1,5 +1,16 @@
 import type { JournalRow } from './observer-engine';
 
+export function splitJournalText(text: string): string[] {
+  if (!text.length) return [''];
+  const pieces: string[] = [];
+  for (let start = 0; start < text.length;) {
+    let end = Math.min(start + 20000, text.length);
+    if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) end--;
+    pieces.push(text.slice(start, end)); start = end;
+  }
+  return pieces;
+}
+
 export function applyDelta(text: string, delta: { offset: number; removedLen: number; inserted: string }): string {
   if (!Number.isSafeInteger(delta.offset) || !Number.isSafeInteger(delta.removedLen) || delta.offset < 0 ||
     delta.removedLen < 0 || delta.offset + delta.removedLen > text.length || typeof delta.inserted !== 'string') throw new Error('invalid_delta');

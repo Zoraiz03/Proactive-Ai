@@ -109,7 +109,7 @@ app.whenReady().then(() => {
         title: 'Local project memory',
         message: kind === 'purge' ? 'Purge the requested project memory?' : kind === 'resume' ? 'Resume local project indexing?' : 'Index this project locally for this session?',
         detail: kind === 'purge' ? 'This removes the selected local memory records, not your project files.' :
-          'Eligible saved files will be stored in local SQLite outside your project, with chunks and a symbol outline. Secret files and your exclusions are skipped. No AI requests or web capture are enabled. The Privacy Memory panel shows read-only counts. Consent ends when this workspace closes.',
+          'Eligible files and unsaved editor changes will be stored in local SQLite outside your project, with an edit journal, chunks and a symbol outline. Journal retention defaults to 30 days. Secret files and your exclusions are skipped. No AI requests or web capture are enabled. The Privacy Memory panel shows read-only counts. Consent ends when this workspace closes.',
         buttons: ['Cancel', kind === 'purge' ? 'Purge memory' : 'Allow local indexing'], defaultId: 0, cancelId: 0, noLink: true,
       });
       return answer.response === 1;
@@ -170,7 +170,7 @@ app.whenReady().then(() => {
     onMemoryFilesChanged: (paths, root) => { void memoryIpc?.filesChanged(paths, root); },
     onWorkspaceChanged: () => { observerIpc.controller.invalidate(); automaticRunIpc?.controller.invalidateFiles(); },
   }, app.getPath("userData"));
-  app.once('before-quit', event => {
+  app.once('will-quit', event => {
     event.preventDefault();
     void (memoryIpc?.cleanup() ?? Promise.resolve()).finally(() => { memoryIpc = null; app.quit(); });
   });

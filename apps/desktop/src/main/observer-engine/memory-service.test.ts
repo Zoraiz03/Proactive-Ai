@@ -73,6 +73,24 @@ test('lazy new-file baseline, paused writes and corrupt replay recovery are safe
   assert.equal(await service.readCurrent('new.ts'), 'new');
 }));
 
+test('maintenance expires web, suggestions and governance; journal purge preserves unsaved text', async () => fixture(async ({ root, service, db }) => {
+  await writeFile(join(root, 'main.ts'), 'base'); await service.open(root, 'existing');
+  service.applyEditBatch(edit('main.ts', 'base', ' unsaved'));
+  service.purge('journal'); assert.equal(await service.readCurrent('main.ts'), 'base unsaved');
+  const connection = db();
+  try {
+    connection.exec(`INSERT INTO web_captures(id,captured_at,expires_at,source,url,hostname,title,text,content_hash)
+      VALUES('old',0,1,'selection','https://example.org','example.org','','old','hash');
+      INSERT INTO suggestions(id,ts,kind,trigger_reason,manifest_json) VALUES('old',-99999999999,'test','manual','{}'),('new',1234000,'test','manual','{}');
+      INSERT INTO governance_events(ts,layer) VALUES(-99999999999,'privacy_block'),(1234000,'privacy_block');`);
+    service.maintain();
+    assert.equal(service.status().webCaptures, 0);
+    assert.equal((connection.prepare('SELECT count(*) n FROM suggestions').get() as { n: number }).n, 1);
+    assert.equal((connection.prepare('SELECT count(*) n FROM governance_events').get() as { n: number }).n, 1);
+    assert.equal(await service.readCurrent('main.ts'), 'base unsaved');
+  } finally { connection.close(); }
+}));
+
 async function fixture(run: (f: { root: string; data: string; service: ProjectMemoryService; db: () => Database.Database }) => Promise<void>, enabled = true) {
   const base = await mkdtemp(join(tmpdir(), 'memory-scan-'));
   const root = join(base, 'project'), data = join(base, 'data');
