@@ -50,6 +50,45 @@ implementation and its verification evidence in the changelog.
 | Phase 13D | Complete | Final desktop UI polish, responsive containment, accessibility, and verification |
 | Experiment A1 | In Progress | Automatic failed-run explanations implemented; 183 desktop tests and backend/build checks pass; interactive/provider acceptance pending |
 
+## Observer-Intervener Engine
+
+The [implementation spec](./OBSERVER_ENGINE_SPEC.md) is being followed one phase
+at a time. Phase 0 began on 2026-10-02 as a documentation-only audit; no engine
+runtime work is authorized in this task. Existing phase statuses above retain
+their original meaning.
+
+| Phase | Status | Goal |
+|---|---|---|
+| Phase 0 (P0-T1–T3) | In Progress | Documentation delivered; desktop baseline gate fails on Python availability and Windows symlink permissions |
+| Phase E1 | Not Started | Local memory store, scan, privacy controls and status |
+| Phase E2 | Not Started | Edit capture, journal, watcher integration, compaction and retention |
+| Phase E3 | Not Started | Context assembly, retrieval, budgets and manifest |
+| Phase E4 | Not Started | Independent switches, engine governance, backend and outcomes; optional real streaming |
+| Phase E5 | Not Started | Opt-in Chrome page context v2 and bridge integration |
+| Phase E6 | Not Started | New-project wizard, brief, plan and phase-aware help |
+| Phase E7 | Not Started | History, local evaluation, accessibility, documentation and release checks |
+| Phase E8 | Not Started | Unspecified: §14 requests E1–E8 rows but defines tasks only through E7; owner clarification required before scoping E8 |
+
+Phase 0 deliverables are finished; the phase is not marked Complete because this
+plan requires every check to pass. E1–E7 remain unstarted. The baseline and
+remaining environment prerequisites are recorded in the 2026-10-02 changelog.
+
+Open decisions carried forward from spec §16, without changing the specified
+defaults: supervisor approval of the amendment before E4 ships to others;
+proactive default off versus opt-in onboarding behavior; widening SRS FR-06's
+2–15-second range to 2–300 seconds; web auto-ingestion default off and initial
+deny list; history sync default off; retention defaults and future at-rest
+encryption; genuine streaming support per provider. No official `.docx` is edited.
+The missing E8 task definition is a specification discrepancy, not a new phase
+designed here. The §7.2 `useWebContext` default and §9 auto-ingestion switch must
+remain distinct; §16's wording does not authorize silently enabling ingestion.
+
+Native packaging audit: `apps/desktop/package.json` currently rebuilds only
+`node-pty`; `electron.vite.config.ts` externalizes dependencies. No electron-builder,
+Forge or asar-unpack configuration was found in the desktop package. E1 must
+address `better-sqlite3` rebuild/packaging requirements (§4.1); no dependency or
+packaging configuration is added in Phase 0.
+
 ## Recommended folder structure
 
 ```text
@@ -1589,6 +1628,18 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-10-02 — Observer Engine direction and roadmap (P0-T2)
+
+- Added a dated PRODUCT_DIRECTION amendment while preserving the earlier text:
+  primary opt-in engine, visible independent switches, content-change debounce,
+  second-resolution delta timestamps, prohibited behavioral surveillance,
+  revocable allowlisted Chrome capture and unchanged consent/privacy boundaries.
+- Added E1–E7 roadmap rows and an explicitly unspecified E8 row. Recorded owner
+  and supervisor decisions, timer-range deviation and native-packaging gap.
+- The amendment does not claim supervisor approval or change official documents.
+  Later phases remain Not Started; Phase 0 retains In Progress until the failed
+  baseline test gate is resolved.
 
 ### 2026-10-02 — Observer Engine Phase 0 baseline audit (P0-T1)
 
@@ -3458,6 +3509,12 @@ for limits, provider sources, actual boundary results and remaining acceptance c
 No paid calls, migrations, commits or pushes. Earlier unrelated changes are preserved.
 
 ## Recommended next task
+
+**2026-10-02 update:** Stop after Observer Engine Phase 0 for review. Resolve the
+recorded Python/symlink baseline prerequisites and rerun the desktop suite before
+claiming all gates pass. Phase E1 requires an explicit follow-up instruction.
+The earlier recommendation below is retained as history and its outstanding
+acceptance items are not discharged by this documentation audit.
 
 Phase 13D is complete. Experiment A1 — automatic failed-run explanations — was
 authorized on 2026-09-04 and implemented after that phase. Automated verification
