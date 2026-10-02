@@ -3542,6 +3542,12 @@ See [Phase A evidence and manual steps](./CONTEXT_PIPELINE_AUDIT.md#phase-a-deli
 for limits, provider sources, actual boundary results and remaining acceptance checks.
 No paid calls, migrations, commits or pushes. Earlier unrelated changes are preserved.
 
+## Functional documentation baseline — 2026-10-02
+
+- [x] Added [current modules and functional inventory](./CURRENT_PRODUCT_FUNCTIONAL_INVENTORY.md) for revising scope, SRS, SDD, and diagrams.
+- [x] Inspected current desktop, retained web, and extension sources; separated implemented, experimental, partial, and planned capabilities. Recorded functional boundaries without implementation mechanics.
+- [ ] Formal SRS/SDD/scope rewrites and revised diagrams remain separate deliverables. This inventory is not new live-provider or packaged-product acceptance evidence.
+
 ## Recommended next task
 
 **2026-10-02 update:** Stop after Observer Engine Phase 0 for review. Resolve the
