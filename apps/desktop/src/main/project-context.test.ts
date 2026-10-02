@@ -42,12 +42,12 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 const engine = () => { const value = new ProjectContextEngine(); value.setWorkspace(root); return value; };
 const types = (context: Awaited<ReturnType<ProjectContextEngine["build"]>>) => context.items.map((item) => item.type);
 
-test("selects action-specific Explain, Fix Error, Improve, Continue, and Generate Tests context", async () => {
+test("selects action-specific Explain, Fix Code, Improve, Continue, and Generate Tests context", async () => {
   const service = engine();
   const explain = await service.build(seed("explain", { selectedCode: "helper(value)" }));
   assert.deepEqual(types(explain).slice(0, 4), ["user_instruction", "selected_code"]);
   const fix = await service.build(seed("fix_error", { diagnostic: { fileName: "calculate.ts", line: 4, column: 19, message: "helper is not a function" }, runError: "calculate.ts:4 helper is not a function" }));
-  assert.ok(types(fix).includes("diagnostic")); assert.ok(types(fix).includes("terminal_error")); assert.ok(types(fix).includes("related_file"));
+  assert.ok(types(fix).includes("diagnostic")); assert.ok(types(fix).includes("terminal_error")); assert.ok(types(fix).includes("complete_file")); assert.equal(types(fix).includes("related_file"), false);
   const improve = await service.build(seed("improve_code"));
   assert.ok(types(improve).includes("project_rule"));
   const continuation = await service.build(seed("continue_code"));
@@ -79,7 +79,7 @@ test("multi-file planning requires an explicit description and builds focused pl
 });
 
 test("orders context by the documented priorities and trims lower-priority items deterministically", async () => {
-  const context = await engine().build(seed("fix_error", { selectedCode: "helper(value)", diagnostic: { fileName: "calculate.ts", line: 4, column: 1, message: "failure" }, runError: "failure", maximumTotalCharacters: 1_000, maximumCharactersPerFile: 500 }));
+  const context = await engine().build(seed("improve_code", { selectedCode: "helper(value)", diagnostic: { fileName: "calculate.ts", line: 4, column: 1, message: "failure" }, runError: "failure", maximumTotalCharacters: 1_000, maximumCharactersPerFile: 500 }));
   assert.deepEqual(context.items.map((item) => item.priority), [...context.items.map((item) => item.priority)].sort((a, b) => a - b));
   assert.ok(context.totalCharacters <= 1_000);
   assert.ok(context.omitted.length > 0);

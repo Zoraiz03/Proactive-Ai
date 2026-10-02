@@ -13,6 +13,9 @@ export interface IdeOutputMessage {
 }
 
 export interface RunOutputState {
+  sourceHash?: string;
+  sourceUnchanged?: boolean;
+  snapshotVerified?: boolean;
   runId: string;
   relativePath: string;
   language: RunLanguage;

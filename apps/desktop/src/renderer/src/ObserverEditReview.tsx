@@ -1,3 +1,4 @@
+import { FixMarkdown } from "./FixCodeCard";
 import { useEffect, useRef } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import type { ObserverRequest, ObserverSuggestion } from "../../shared/observer";
@@ -33,14 +34,14 @@ export default function ObserverEditReview({ review, settings, theme, applying, 
       <div><strong>Review Observer Change</strong><span>{edit?.targetRelativePath}</span></div>
       <div className="observer-review-actions">
         <button onClick={onCopy}>Copy Proposed Code</button>
-        <button onClick={onRegenerate}>Regenerate</button>
+        <button onClick={onRegenerate}>{review.request.fixCode ? "New Fix Code review" : "Regenerate"}</button>
         <button onClick={onReject}>Reject Change</button>
         <button className="primary" disabled={applying || Boolean(review.staleMessage)} onClick={onAccept}>{applying ? "Creating checkpoint…" : "Accept Change"}</button>
       </div>
     </header>
     <div className="observer-review-meta">
       {review.suggestion.historyWarning && <p role="status">{review.suggestion.historyWarning}</p>}
-      <p>{review.suggestion.explanation}</p><p>{review.suggestion.reason}</p>
+      {review.request.fixCode ? <><FixMarkdown>{review.suggestion.explanation}</FixMarkdown><strong>How to verify (not executed)</strong><FixMarkdown>{review.suggestion.verification ?? ""}</FixMarkdown></> : <><p>{review.suggestion.explanation}</p><p>{review.suggestion.reason}</p></>}
       <span>{review.contextSummary}</span>
       {review.request.editBase?.basedOnUnsavedContent && <strong>Based on unsaved editor content — accepting will keep this tab dirty.</strong>}
       {edit?.warnings?.map((warning) => <em key={warning}>{warning}</em>)}

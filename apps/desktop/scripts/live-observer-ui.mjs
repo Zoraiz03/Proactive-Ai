@@ -9,11 +9,16 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const triggers = process.argv.includes('--triggers');
 const explain = process.argv.includes('--explain');
+const fix = process.argv.includes('--fix');
 const desktop = resolve(import.meta.dirname, '..');
 const temp = await mkdtemp(join(tmpdir(), 'live-observer-ui-'));
 const server = await createServer({ configFile: false, root: desktop, plugins: [react()], server: { host: '127.0.0.1', port: 0, fs: { allow: [resolve(desktop, '../..'), temp] } } });
 try {
- await writeFile(join(temp, 'index.html'), `<html><head><script type="module">import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;</script></head><body><div id="root"></div><script type="module" src="/@fs/${desktop}/scripts/${explain ? 'explanation-ui' : triggers ? 'live-trigger-ui' : 'live-observer-ui'}.tsx"></script></body></html>`);
+ await writeFile(join(temp, 'index.html'), `<html><head><script type="module">import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;</script></head><body><div id="root"></div><script type="module" src="/@fs/${desktop}/scripts/${fix ? 'fix-code-ui' : explain ? 'explanation-ui' : triggers ? 'live-trigger-ui' : 'live-observer-ui'}.tsx"></script></body></html>`);
+ if (fix) {
+  await build({entryPoints:[join(desktop,'scripts/fix-code-main.ts')],bundle:true,platform:'node',format:'cjs',external:['electron'],outfile:join(temp,'fix-main.cjs')});
+  await writeFile(join(temp,'fix-preload.cjs'), `const {contextBridge,ipcRenderer}=require('electron');const call=k=>(...args)=>ipcRenderer.invoke('fix-fixture-'+k,...args);contextBridge.exposeInMainWorld('observer',Object.fromEntries(['prepare','fixStart','fixClarify','fixClear'].map(k=>[k,call(k)])));contextBridge.exposeInMainWorld('fixture',Object.fromEntries(['checkpoint','undo','summary','mode','delay','release','permit','consent'].map(k=>[k,call(k)])));`);
+ }
  if (triggers) {
   await build({ entryPoints: [join(desktop, 'src/main/live-observer.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: join(temp, 'controller.cjs') });
   await writeFile(join(temp, 'preload.cjs'), `const {contextBridge,ipcRenderer}=require('electron');
@@ -26,7 +31,8 @@ try {
  await writeFile(join(temp, 'main.cjs'), String.raw`const { app, BrowserWindow, ipcMain } = require('electron');
  const assert = require('node:assert/strict');
  app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1000, height: 800, show: true, webPreferences: { contextIsolation: true, nodeIntegration: false, preload: ${triggers ? JSON.stringify(join(temp, 'preload.cjs')) : 'undefined'} } });
+  const win = new BrowserWindow({ width: 1000, height: 800, show: true, webPreferences: { contextIsolation: true, nodeIntegration: false, preload: ${fix ? JSON.stringify(join(temp, 'fix-preload.cjs')) : triggers ? JSON.stringify(join(temp, 'preload.cjs')) : 'undefined'} } });
+  if (${fix}) await require(${JSON.stringify(join(temp,'fix-main.cjs'))}).install(${JSON.stringify(temp)});
   if (${triggers}) {
    const {LiveObserverController,buildLiveRequest}=require(${JSON.stringify(join(temp, 'controller.cjs'))});
    let now=100000, delayed=false, release=null, signal=null, latest=null, prepares=0, manualSends=0;
@@ -54,8 +60,10 @@ try {
    await win.loadURL(${JSON.stringify(`http://127.0.0.1:${port}/@fs/${temp}/index.html`)});
    const js = code => win.webContents.executeJavaScript(code);
    const wait = async predicate => { for (let n=0;n<300;n++) { if(await js(predicate)) return; await new Promise(r=>setTimeout(r,100)); } throw new Error('UI timeout: '+predicate); };
+   if (${fix}) { await require(${JSON.stringify(join(desktop,'scripts/fix-code-driver.cjs'))})(win,js,wait); assert.deepEqual(rendererErrors,[]); app.exit(0); return; }
    if (${explain}) { await require(${JSON.stringify(join(desktop, 'scripts/explanation-driver.cjs'))})(win,js,wait); assert.deepEqual(rendererErrors,[]); app.exit(0); return; }
-   if (${triggers}) { await require(${JSON.stringify(join(desktop, 'scripts/live-trigger-driver.cjs'))})(win,js,wait); assert.deepEqual(rendererErrors,[]); app.exit(0); return; }
+   if (${fix}) await require(${JSON.stringify(join(temp,'fix-main.cjs'))}).install(${JSON.stringify(temp)});
+  if (${triggers}) { await require(${JSON.stringify(join(desktop, 'scripts/live-trigger-driver.cjs'))})(win,js,wait); assert.deepEqual(rendererErrors,[]); app.exit(0); return; }
    await wait('Boolean(document.querySelector(\'[aria-label="Live Observer"]\'))');
    assert.equal(await js('document.querySelector(\'[aria-label="Live Observer"]\').getAttribute("aria-checked")'), 'false');
    await wait('window.monaco.editor.getEditors().length > 0');

@@ -92,6 +92,9 @@ export interface ProjectContextSeed {
   cursorLine: number;
   cursorColumn: number;
   selectedCode?: string;
+  selectionRange?: import("./ai-edit").TextRange;
+  fixDiagnostics?: { line: number; column: number; message: string }[];
+  fixRunEvidence?: { sourceHash?: string; sourceUnchanged?: boolean; output: string };
   selectedLineStart?: number;
   selectedLineEnd?: number;
   nearbyCode?: string;

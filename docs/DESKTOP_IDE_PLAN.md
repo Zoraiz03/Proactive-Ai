@@ -3225,6 +3225,73 @@ prior missing-backend-schema issue is not repaired/rechecked in this iteration;
 unavailable privacy settings still block sends with an actionable message.
 Automated correctness is established for the tested flows; AI accuracy is not.
 
+## Manual Fix Code — implemented, provider acceptance pending (2026-09-29)
+
+The prior Live Observer iteration was rechecked: its controller suite and real
+Monaco/Electron trigger fixture pass, including code → Enter → pause, trailing
+spaces, whitespace-only suppression, queued cooldown, privacy/activity blockers,
+provider time, disable cancellation and stale response rejection. Existing Explain
+and Live card/diff UI fixtures also pass. The documented nonfatal upstream Monaco
+disposal warning remains in the older Live fixture.
+
+Manual **Fix Error** is now **Fix Code**, retaining `fix_error` internally. It
+accepts code with no diagnostics, previews the exact selection plus bounded
+read-only surroundings, or the entire active unsaved buffer. Oversized scope is
+rejected explicitly instead of silently trimmed. Optional expected behavior,
+permitted diagnostics and version-labeled run evidence are previewed together.
+Exclusions, secret screening, complete-file consent and authenticated server-only
+provider access remain in place.
+
+A dedicated prompt/response contract distinguishes a justified correction, one
+focused clarification, and no clear problem found. Clarification is session-only,
+bounded and reuses the approved source; privacy/source checks run on each send.
+Safe Markdown, cancellation and project/late-response guards use the existing
+Observer layout and coffee/cream theme. Other actions' prompts/contracts remain
+separate. No conversation transcript is persisted.
+
+Corrections reuse exact hash/text validation, the existing diff preview, explicit
+Accept Change, checkpoint and Undo. Selection boundaries are enforced in main and
+provider parsing. Apply leaves the draft unsaved and unverified. Explicit Run again
+retains save confirmation, checks the executed source version and reports only
+limited run evidence. There are no automatic edits, saves, commands, dependency
+installs, other-file changes or migrations. Normal Run behavior is unchanged.
+
+Verification:
+
+- **255/255 desktop tests pass**, including 24 new Fix Code tests covering exact
+  selection/full unsaved scope, oversize rejection, no diagnostics, stale run
+  evidence, clarification/limits, privacy/consent, source tampering, cancellation,
+  valid/invalid edits, preserving unrelated changes, checkpoint Undo, and guarded
+  Python/CommonJS/ESM execution/source mismatch rejection.
+- Root tests pass: Fix-specific prompts/outcomes/parser failures, mocked output
+  budgets for all providers, authenticated route/no-history behavior, IPC preview
+  authorization, clarification/project isolation and other-action regressions.
+- `test:fix-ui` passes with actual EditorWorkspace/Monaco selection events,
+  ObserverPanel, Context Preview, Fix hook/card, Monaco diff and main session/
+  context/checkpoint logic. It exercises consent cancellation, safe Markdown,
+  clarification, no-problem, invalid/stale edits, explicit Apply/Undo, privacy,
+  duplicate prevention, cancellation and project isolation. Provider, policy,
+  consent and application callbacks are fixture doubles; the signed-in native
+  App/save/run flow is still a manual acceptance item.
+- `test:explain-ui`, `test:live-ui`, and `test:live-triggers` pass.
+- Desktop strict type checks, Electron production build, Next.js build, root lint
+  and focused module lint pass. Broader desktop lint retains four existing unused
+  variable errors and three existing hook warnings in App/project-context; this
+  iteration does not clean up unrelated baseline issues.
+
+[`FIX_CODE.md`](./FIX_CODE.md) documents limits, scope, privacy, exact manual steps,
+runner requirements, fixture coverage and five live-provider evaluation cases:
+syntax, undefined variable, ambiguous incomplete function, stated logic error,
+and already-correct code. No paid API calls were made; mocked correctness tests
+are not evidence of AI accuracy. Remaining checks include real provider quality/
+latency/cost, native complete-file/save/run dialogs, actual backend settings
+availability and Windows acceptance. JavaScript guarded verification requires
+Node's synchronous load-hook support; unsupported runtimes must not claim verified
+execution. The earlier backend schema availability issue remains outside scope.
+
+The user explicitly requested a local commit for this iteration. No push is part
+of this task.
+
 ## Recommended next task
 
 Phase 13D is complete. Experiment A1 — automatic failed-run explanations — was

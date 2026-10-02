@@ -11,6 +11,7 @@ export type RunLanguage = "python" | "javascript";
 export type RunStatus = "running" | "succeeded" | "failed" | "stopped";
 
 export interface RunStartRequest {
+  expectedContentHash?: string;
   runId: string;
   relativePath: string;
 }
@@ -34,6 +35,9 @@ export interface RunDiagnostic {
 }
 
 export interface RunCompleteEvent {
+  sourceHash?: string;
+  sourceUnchanged?: boolean;
+  snapshotVerified?: boolean;
   runId: string;
   status: Exclude<RunStatus, "running">;
   exitCode: number | null;
@@ -42,6 +46,7 @@ export interface RunCompleteEvent {
 }
 
 export interface RunStarted {
+  sourceHash?: string;
   runId: string;
   language: RunLanguage;
   relativePath: string;

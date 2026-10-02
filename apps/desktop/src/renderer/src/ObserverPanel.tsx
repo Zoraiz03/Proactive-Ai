@@ -25,6 +25,10 @@ const OBSERVER_STATUS_LABELS: Record<ObserverStatus, string> = {
 };
 
 interface ObserverPanelProps {
+  fixCard?: ReactNode;
+  fixVerificationCard?: ReactNode;
+  fixProblem?: string;
+  onFixProblemChange?: (value:string)=>void;
   explanationCard?: ReactNode;
   explainQuestion?: string;
   onExplainQuestionChange?: (value: string) => void;
@@ -68,6 +72,7 @@ interface ObserverPanelProps {
 }
 
 export default function ObserverPanel({
+  fixCard, fixVerificationCard, fixProblem = "", onFixProblemChange,
   explanationCard, explainQuestion = "", onExplainQuestionChange,
   automaticRunEnabled,
   automaticRunCard,
@@ -107,6 +112,7 @@ export default function ObserverPanel({
   onKeepOriginalContextItem,
   onTruncateContextItem,
 }: ObserverPanelProps) {
+  const conversationCard = explanationCard ?? fixCard;
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -136,7 +142,7 @@ export default function ObserverPanel({
             <select
               value={mode}
               onChange={(event) => onModeChange(event.target.value as ObserverMode)}
-              disabled={status === "thinking" || Boolean(explanationCard)}
+              disabled={status === "thinking" || Boolean(conversationCard)}
             >
               {modes.map((value) => (
                 <option key={value} value={value}>{OBSERVER_MODE_LABELS[value]}</option>
@@ -148,7 +154,7 @@ export default function ObserverPanel({
             <select
               value={provider}
               onChange={(event) => onProviderChange(event.target.value as ObserverProvider)}
-              disabled={status === "thinking" || Boolean(explanationCard)}
+              disabled={status === "thinking" || Boolean(conversationCard)}
             >
               {OBSERVER_PROVIDERS.map((value) => (
                 <option key={value} value={value}>{OBSERVER_PROVIDER_LABELS[value]}</option>
@@ -156,7 +162,8 @@ export default function ObserverPanel({
             </select>
           </label>
         </div>
-        {mode === "explain" && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(explanationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="Explain this for a beginner" /><small>Selected code, otherwise the current function or nearby lines. Preview before sending. Context Tray and other files are not included in Explain.</small></label>}
+        {mode === "explain" && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="Explain this for a beginner" /><small>Selected code, otherwise the current function or nearby lines. Preview before sending. Context Tray and other files are not included in Explain.</small></label>}
+        {mode === "fix_error" && onFixProblemChange && <label className="observer-multi-file-request"><span>What should this code do, or what is going wrong?</span><textarea aria-label="Fix Code problem" rows={3} maxLength={500} value={fixProblem} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e=>onFixProblemChange(e.target.value)} placeholder="Optional: describe the expected behavior or problem" /><small>Selected code plus bounded surrounding lines, otherwise the entire active file including unsaved changes. Preview before sending. No Context Tray or other files.</small></label>}
         {mode === "plan_multi_file" && <label className="observer-multi-file-request">
           <span>Describe the change</span>
           <textarea value={multiFileDescription} maxLength={500} rows={5} disabled={status === "thinking"} onChange={(event) => onMultiFileDescriptionChange(event.target.value)} placeholder="Describe the outcome that may require coordinated changes across files." />
@@ -165,7 +172,7 @@ export default function ObserverPanel({
         <div className={`observer-context-summary ${contextSummary ? "ready" : "empty"}`}>
           <span aria-hidden="true">◎</span>
           <p>{contextSummary ?? (mode === "fix_error"
-            ? "Run the active file and select Fix Error when a diagnostic is available."
+            ? "Select code or open a file for Fix Code; diagnostics are optional."
             : "Open a supported code or Markdown file to choose focused context.")}</p>
         </div>
         <div className="observer-primary-actions">
@@ -185,7 +192,7 @@ export default function ObserverPanel({
 
       <div className="observer-scroll-region">
         {automaticRunCard}
-        {mode !== "explain" && <ContextTray
+        {mode !== "explain" && mode !== "fix_error" && <ContextTray
           items={contextTrayItems}
           maximumCharacters={maximumContextCharacters}
           webContextStatus={webContextStatus}
@@ -232,8 +239,9 @@ export default function ObserverPanel({
           </section>
         )}
 
-        {explanationCard}
-        {!explanationCard && <div className="observer-result" aria-live="polite">
+        {conversationCard}
+        {fixVerificationCard}
+        {!conversationCard && <div className="observer-result" aria-live="polite">
           {status === "idle" && (
             <div className="observer-empty">
               <span className="observer-state-emblem" aria-hidden="true"><span /></span>

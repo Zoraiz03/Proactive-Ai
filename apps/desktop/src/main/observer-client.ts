@@ -1,3 +1,4 @@
+import { FIX_CODE_LIMITS, validFixSuggestion } from "../shared/fix-code.ts";
 import { EXPLANATION_LIMITS } from "../shared/explanation.ts";
 import type { IpcResult } from "../shared/workspace.ts";
 import {
@@ -38,18 +39,19 @@ function publicRequestError(error: unknown): string {
   return "Observer could not complete the request.";
 }
 
-function validSuggestion(value: unknown, explanation = false): ObserverSuggestion | null {
+function validSuggestion(value: unknown, explanation = false, fixCode = false): ObserverSuggestion | null {
   if (typeof value !== "object" || value === null) return null;
   const suggestion = value as Partial<ObserverSuggestion>;
   if (
     (suggestion.historyWarning !== undefined && (typeof suggestion.historyWarning !== "string" || suggestion.historyWarning.length > 500)) ||
     (suggestion.id !== undefined && (typeof suggestion.id !== "string" || suggestion.id.length < 1 || suggestion.id.length > 128)) ||
-    typeof suggestion.explanation !== "string" || suggestion.explanation.length < 1 || suggestion.explanation.length > (explanation ? EXPLANATION_LIMITS.responseCharacters : 10_000) ||
+    typeof suggestion.explanation !== "string" || suggestion.explanation.length < 1 || suggestion.explanation.length > (fixCode ? FIX_CODE_LIMITS.responseCharacters : explanation ? EXPLANATION_LIMITS.responseCharacters : 10_000) ||
     typeof suggestion.snippet !== "string" || suggestion.snippet.length > 50_000 ||
     typeof suggestion.reason !== "string" || suggestion.reason.length > 2_000
   ) return null;
   const edit = suggestion.edit === undefined ? undefined : parseStructuredObserverEdit(suggestion.edit);
   if (suggestion.edit !== undefined && !edit) return null;
+  if (fixCode && !validFixSuggestion(suggestion as ObserverSuggestion)) return null;
   return { ...suggestion, ...(edit ? { edit } : {}) } as ObserverSuggestion;
 }
 
@@ -80,7 +82,7 @@ export class ObserverApiClient {
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
-    const timeout = setTimeout(() => controller.abort(), request.explanation ? EXPLANATION_LIMITS.requestTimeoutMs : 45_000);
+    const timeout = setTimeout(() => controller.abort(), request.fixCode ? FIX_CODE_LIMITS.timeoutMs : request.explanation ? EXPLANATION_LIMITS.requestTimeoutMs : 45_000);
     try {
       const response = await this.fetchImplementation(`${this.baseUrl}/api/suggest`, {
         method: "POST",
@@ -105,7 +107,7 @@ export class ObserverApiClient {
         return { ok: false, error: "Observer returned an invalid response." };
       }
       const provider = (payload as { provider?: unknown }).provider;
-      const suggestion = validSuggestion((payload as { suggestion?: unknown }).suggestion, Boolean(request.explanation));
+      const suggestion = validSuggestion((payload as { suggestion?: unknown }).suggestion, Boolean(request.explanation), Boolean(request.fixCode));
       if (!OBSERVER_PROVIDERS.includes(provider as ObserverAskResult["provider"]) || !suggestion) {
         return { ok: false, error: "Observer returned an invalid response." };
       }

@@ -9,8 +9,9 @@
     "lint": "next lint",
     "test:manual-suggestion": "node --experimental-strip-types scripts/manual-suggestion.test.ts",
     "test:project-context": "node --experimental-strip-types scripts/project-context.test.ts",
-    "test": "npm run test:manual-suggestion && npm run test:project-context && npm run test:explanation",
+    "test": "npm run test:manual-suggestion && npm run test:project-context && npm run test:explanation && npm run test:fix-code",
     "check:observer-backend": "node scripts/check-observer-backend.cjs",
+    "test:fix-code": "node --experimental-strip-types scripts/fix-code.test.ts",
     "test:explanation": "node --experimental-strip-types scripts/explanation.test.ts"
   },
   "dependencies": {

@@ -1,3 +1,8 @@
+import {createHash} from "node:crypto";
+import {buildFixCodeContext} from "../apps/desktop/src/main/fix-code-context.ts";
+import {isEditableObserverMode} from "../apps/desktop/src/shared/ai-edit.ts";
+import { FixCodeSession } from "../apps/desktop/src/main/fix-code-session.ts";
+import { fixSelectionRange } from "../apps/desktop/src/shared/fix-code.ts";
 import assert from 'node:assert/strict';
 import { buildPrompt, getSuggestion, parseExplanation, type SuggestContext } from '../src/lib/server/providers.ts';
 import { EXPLANATION_LIMITS } from '../apps/desktop/src/shared/explanation.ts';
@@ -47,15 +52,17 @@ const compiled = ts.transpileModule(readFileSync(new URL('../apps/desktop/src/ma
 const moduleExports: { registerObserverIpc?: (...args: unknown[]) => { controller: { setWorkspace: (root: string, id: number) => void; invalidate: () => void }; cleanup: () => void } } = {};
 new Function('require', 'exports', compiled)((name: string) => {
  if (name === 'electron') return { BrowserWindow: { fromWebContents: () => win }, ipcMain, clipboard: { writeText: () => {} }, dialog: { showMessageBox: async () => ({ response: 1 }) } };
+ if (name.endsWith('/fix-code-session')) return { FixCodeSession };
+ if (name.endsWith('/fix-code')) return { fixSelectionRange };
  if (name.endsWith('/explanation-session')) return { ExplanationSession };
- if (name.endsWith('/observer-client')) return { ObserverApiClient: class { async ask(request: import("../apps/desktop/src/shared/observer").ObserverRequest) { calls++; assert.equal(request.storeHistory, false); return { ok: true, value: { provider: 'demo', suggestion: { explanation: 'Read-only mock answer.', snippet: '', reason: '' } } }; } } };
+ if (name.endsWith('/observer-client')) return { ObserverApiClient: class { async ask(request: import("../apps/desktop/src/shared/observer").ObserverRequest) { calls++; assert.equal(request.storeHistory, false); return { ok: true, value: { provider: 'demo', suggestion: { explanation: 'Read-only mock answer.', snippet: '', reason: '', ...(request.fixCode?{fixOutcome:'clarification',clarificationQuestion:'What output is expected?',verification:''}:{}) } } }; } } };
  if (name.endsWith('/settings-client')) return { SettingsApiClient: class { async getSynced() { return { ok: true, value: { observerEnabled: true, maximumContextChars: 9000, confirmCompleteFile: false } }; } } };
  if (name.endsWith('/settings-store')) return { LocalSettingsStore: class { async get() { return { aiContextExclusions: [], contextMaximumFileCharacters: 6000 }; } } };
  if (name.endsWith('/shared/observer')) return observer;
- if (name.endsWith('/project-context')) return { ProjectContextEngine: class { setWorkspace() {} clearWorkspace() {} invalidate() {} async build() { return approved; } }, redactProjectSecrets: () => ({ redacted: false }) };
- if (name.endsWith('/ai-edit')) return { isEditableObserverMode: () => false };
+ if (name.endsWith('/project-context')) return { ProjectContextEngine: class { setWorkspace() {} clearWorkspace() {} invalidate() {} async build(seed: import("../apps/desktop/src/shared/project-context").ProjectContextSeed) { return seed.mode === "fix_error" ? buildFixCodeContext(seed) : approved; } }, redactProjectSecrets: () => ({ redacted: false }) };
+ if (name.endsWith('/ai-edit')) return { isEditableObserverMode };
  if (name.endsWith('/documentation-update')) return {};
- if (name === 'node:crypto') return {};
+ if (name === 'node:crypto') return {createHash};
  throw new Error(`Unexpected IPC dependency: ${name}`);
 }, moduleExports);
 const ipc = moduleExports.registerObserverIpc!(() => signedIn ? win : null, async () => 'fixture-token', 'http://localhost:3000', () => {}, '/tmp/mock-settings');
@@ -73,5 +80,16 @@ assert.equal((await invoke(observer.OBSERVER_CHANNELS.followup, 'one', 'Why?')).
 assert.equal((await invoke(observer.OBSERVER_CHANNELS.ask, { ...prepared.value, explanation: { question: 'Bypass?', messages: [] } })).ok, false);
 ipc.controller.setWorkspace('/tmp/different-project', 1);
 assert.equal((await invoke(observer.OBSERVER_CHANNELS.followup, 'one', 'Old conversation?')).ok, false);
-assert.equal(calls, 2); ipc.cleanup(); assert.equal(callbacks.size, 0);
+assert.equal(calls, 2);
+const fixPreview=await invoke(observer.OBSERVER_CHANNELS.prepare,{...prepare,seed:{...prepare.seed,mode:'fix_error'}});assert.equal(fixPreview.ok,true);
+const fixRequest=fixPreview.value;
+assert.equal((await invoke(observer.OBSERVER_CHANNELS.fixStart,'fix',{...fixRequest,fixCode:{...fixRequest.fixCode,range:{start:{line:1,column:1},end:{line:1,column:2}}}})).ok,false);
+signedIn=false;assert.equal((await invoke(observer.OBSERVER_CHANNELS.fixStart,'fix',fixRequest)).ok,false);signedIn=true;
+assert.equal((await invoke(observer.OBSERVER_CHANNELS.fixStart,'fix',fixRequest)).ok,true);
+assert.equal((await invoke(observer.OBSERVER_CHANNELS.fixClarify,'fix','Return 1.',fixRequest.editBase!.originalContentHash)).ok,true);
+assert.equal((await invoke(observer.OBSERVER_CHANNELS.ask,fixRequest)).ok,false);
+ipc.controller.setWorkspace('/tmp/third-project',1);
+assert.equal((await invoke(observer.OBSERVER_CHANNELS.fixClarify,'fix','Old project?',fixRequest.editBase!.originalContentHash)).ok,false);
+ipc.cleanup();assert.equal(callbacks.size,0);
+console.log('Fix Code IPC: trusted sender, exact preview/range authorization, clarification, generic-channel bypass rejection, project isolation passed');
 console.log('Explain IPC: trusted session, preview authorization, privacy path, original snapshot and project isolation passed');
