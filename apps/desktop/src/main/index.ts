@@ -1,6 +1,7 @@
 import { registerLiveObserverIpc } from "./live-observer-ipc";
 import { join } from "node:path";
-import { app, BrowserWindow, dialog, session, type WebPreferences } from "electron";
+import { app, BrowserWindow, dialog, session, ipcMain, type WebPreferences } from "electron";
+import { registerMemoryIpc } from './observer-engine/ipc';
 import { registerWorkspaceIpc } from "./workspace-ipc";
 import { registerTerminalIpc } from "./terminal-ipc";
 import { registerRunIpc } from "./run-ipc";
@@ -21,6 +22,7 @@ declare const __DESKTOP_API_BASE_URL__: string;
 let mainWindow: BrowserWindow | null = null;
 let liveObserverIpc: ReturnType<typeof registerLiveObserverIpc> | null = null;
 let automaticRunIpc: ReturnType<typeof registerAutomaticRunIpc> | null = null;
+let memoryIpc: ReturnType<typeof registerMemoryIpc> | null = null;
 
 function createMainWindow(): BrowserWindow {
   const webPreferences: WebPreferences = {
@@ -42,8 +44,8 @@ function createMainWindow(): BrowserWindow {
   });
 
   mainWindow = window;
-  window.webContents.on("did-start-loading", () => { automaticRunIpc?.reset(); liveObserverIpc?.reset(); });
-  window.webContents.once("destroyed", () => { automaticRunIpc?.clearWorkspace(); liveObserverIpc?.clearWorkspace(); });
+  window.webContents.on("did-start-loading", () => { automaticRunIpc?.reset(); liveObserverIpc?.reset(); void memoryIpc?.clearWorkspace(); });
+  window.webContents.once("destroyed", () => { automaticRunIpc?.clearWorkspace(); liveObserverIpc?.clearWorkspace(); void memoryIpc?.clearWorkspace(); });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     if (url !== window.webContents.getURL()) event.preventDefault();
@@ -95,9 +97,24 @@ app.whenReady().then(() => {
     runIpc?.controller.clearWorkspace();
     automaticRunIpc?.clearWorkspace();
     liveObserverIpc?.clearWorkspace();
+    void memoryIpc?.clearWorkspace();
     void workspaceIpc?.clearWorkspace();
   });
   const getAuthenticatedWindow = () => authIpc.controller.isAuthenticated() ? mainWindow : null;
+  memoryIpc = registerMemoryIpc({
+    ipc: ipcMain, getWindow: getAuthenticatedWindow, userData: app.getPath('userData'),
+    confirm: async kind => {
+      const window = getAuthenticatedWindow(); if (!window) return false;
+      const answer = await dialog.showMessageBox(window, {
+        title: 'Local project memory',
+        message: kind === 'purge' ? 'Purge the requested project memory?' : kind === 'resume' ? 'Resume local project indexing?' : 'Index this project locally for this session?',
+        detail: kind === 'purge' ? 'This removes the selected local memory records, not your project files.' :
+          'Eligible saved files will be stored in local SQLite outside your project, with chunks and a symbol outline. Secret files and your exclusions are skipped. No AI requests or web capture are enabled. The Privacy Memory panel shows read-only counts. Consent ends when this workspace closes.',
+        buttons: ['Cancel', kind === 'purge' ? 'Purge memory' : 'Allow local indexing'], defaultId: 0, cancelId: 0, noLink: true,
+      });
+      return answer.response === 1;
+    },
+  });
   automaticRunIpc = registerAutomaticRunIpc(getAuthenticatedWindow, app.getPath("userData"), () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim());
   liveObserverIpc = registerLiveObserverIpc(getAuthenticatedWindow, app.getPath("userData"), () => authIpc.controller.getAccessToken(), __DESKTOP_API_BASE_URL__.trim(), () => ["waiting", "thinking", "ready"].includes(automaticRunIpc?.controller.getState().status ?? "off"));
   const observerIpc = registerObserverIpc(
@@ -111,7 +128,8 @@ app.whenReady().then(() => {
     getAuthenticatedWindow,
     app.getPath("userData"),
     () => authIpc.controller.getAccessToken(),
-    __DESKTOP_API_BASE_URL__.trim()
+    __DESKTOP_API_BASE_URL__.trim(),
+    () => memoryIpc?.refreshPolicy() ?? Promise.resolve()
   );
   const gitIpc = registerGitIpc(getAuthenticatedWindow);
   const checkpointIpc = registerCheckpointIpc(getAuthenticatedWindow, app.getPath("userData"));
@@ -123,6 +141,7 @@ app.whenReady().then(() => {
   runIpc = registerRunIpc(getAuthenticatedWindow, automaticRunIpc.controller);
   workspaceIpc = registerWorkspaceIpc(getAuthenticatedWindow, {
     onWorkspaceOpened: (rootPath, webContentsId) => {
+      void memoryIpc?.setWorkspace(rootPath, webContentsId);
       automaticRunIpc?.setWorkspace(rootPath, webContentsId);
       liveObserverIpc?.setWorkspace(rootPath, webContentsId);
       terminalIpc?.controller.setWorkspace(rootPath, webContentsId);
@@ -135,6 +154,7 @@ app.whenReady().then(() => {
       webContextIpc.controller.setWorkspace(webContentsId);
     },
     onWorkspaceClosed: (webContentsId) => {
+      void memoryIpc?.clearWorkspace();
       automaticRunIpc?.clearWorkspace();
       liveObserverIpc?.clearWorkspace();
       terminalIpc?.controller.clearWorkspace(webContentsId);
@@ -148,6 +168,10 @@ app.whenReady().then(() => {
     },
     onWorkspaceChanged: () => { observerIpc.controller.invalidate(); automaticRunIpc?.controller.invalidateFiles(); },
   }, app.getPath("userData"));
+  app.once('before-quit', event => {
+    event.preventDefault();
+    void (memoryIpc?.cleanup() ?? Promise.resolve()).finally(() => { memoryIpc = null; app.quit(); });
+  });
   app.once("will-quit", () => {
     automaticRunIpc?.cleanup();
     liveObserverIpc?.cleanup();

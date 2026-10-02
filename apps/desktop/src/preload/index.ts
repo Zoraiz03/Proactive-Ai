@@ -8,6 +8,16 @@ const liveBridge: LiveBridge = Object.freeze({
 });
 contextBridge.exposeInMainWorld("liveObserver", liveBridge);
 import { contextBridge, ipcRenderer } from "electron";
+import { createMemoryBridge } from './memory-bridge';
+import type { MemoryStatusEvent } from '../shared/observer-engine';
+contextBridge.exposeInMainWorld('engine', createMemoryBridge({
+  invoke: (channel, request) => ipcRenderer.invoke(channel, request),
+  subscribe: (channel, listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, event: MemoryStatusEvent) => listener(event);
+    ipcRenderer.on(channel, wrapped);
+    return () => { ipcRenderer.removeListener(channel, wrapped); };
+  },
+}));
 import { AUTOMATIC_RUN_CHANNELS, type AutomaticRunBridge, type AutomaticRunActivity, type AutomaticRunState } from "../shared/automatic-run";
 import type { ObserverProvider } from "../shared/observer";
 

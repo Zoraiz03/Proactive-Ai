@@ -126,6 +126,7 @@ export class ProjectMemoryService {
     await this.scanning;
     if (this.memory) { this.memory.db.pragma('wal_checkpoint(TRUNCATE)'); this.memory.db.close(); }
     this.memory = null; this.root = ''; this.file = ''; this.workspaceId = null; this.lastScanAt = null;
+    this.emit();
   }
 
   configure(input: Partial<MemorySettings>) {
@@ -189,7 +190,7 @@ export class ProjectMemoryService {
   scan(options: { full?: boolean } = {}): Promise<ScanReport> {
     if (this.scanning) return this.scanning;
     const epoch = this.generation;
-    this.scanning = this.performScan(epoch, options.full === true).finally(() => {
+    this.scanning = Promise.resolve().then(() => this.performScan(epoch, options.full === true)).finally(() => {
       this.scanning = null; this.emit();
     });
     return this.scanning;
@@ -342,6 +343,8 @@ export class ProjectMemoryService {
     const databaseBytes = db ? Number(db.pragma('page_count', { simple: true })) * Number(db.pragma('page_size', { simple: true })) : 0;
     return { workspaceId: this.workspaceId, open: !!db, paused: this.paused || !this.settings.memoryEnabled,
       scanning: !!this.scanning, files: count('files', 'deleted=0'), indexedFiles: count('files', 'deleted=0 AND excluded=0'),
+      chunks: count('chunks'), symbols: count('symbols'),
+      journalBytes: db ? (db.prepare('SELECT coalesce(sum(length(CAST(inserted AS BLOB)) + coalesce(length(CAST(removed_text AS BLOB)),0)),0) n FROM edit_journal').get() as { n: number }).n : 0,
       excludedFiles: count('files', 'deleted=0 AND excluded=1'), journalRows: count('edit_journal'), webCaptures: count('web_captures'),
       databaseBytes, overSizeCap: databaseBytes >= this.settings.maxDatabaseBytes, lastScanAt: this.lastScanAt,
       searchMode: this.memory?.searchMode ?? 'fallback' };

@@ -639,6 +639,9 @@ export default function App({ user, onSignOut }: AppProps) {
   const [observerStatus, setObserverStatus] = useState<ObserverStatus>("idle");
   const [explainQuestion, setExplainQuestion] = useState("");
   const [explainScope, setExplainScope] = useState<"selection" | "function" | "file">("function");
+  useEffect(() => {
+    if (openedWorkspace?.workspaceId) void window.engine.openMemory({ workspaceId: openedWorkspace.workspaceId });
+  }, [openedWorkspace?.workspaceId]);
   const explanation = useExplanation(openedWorkspace?.workspaceId, setObserverStatus);
   const clearExplanation = explanation.clear;
   const fix = useFixCode(openedWorkspace?.workspaceId,tabs,setObserverStatus);
@@ -2973,7 +2976,7 @@ export default function App({ user, onSignOut }: AppProps) {
         onGitDiff={() => { if (documentationUpdateView.stage === "applied") void window.git.status().then((status) => { if (status.ok && status.value.state === "repository") { const file = status.value.files.find((item) => item.relativePath === documentationUpdateView.path); if (file) void openGitDiff(file); } }); setDocumentationUpdateView(null); }}
         onAddContext={() => { if (documentationUpdateRelationship) void addDocumentationRelationshipContext(documentationUpdateRelationship); }}
       />}
-      <SettingsPanel
+      <SettingsPanel memoryWorkspaceId={openedWorkspace?.workspaceId}
         open={settingsOpen}
         local={localSettings}
         synced={syncedSettings}

@@ -1,4 +1,5 @@
 // Contracts only: no Node, Electron, filesystem or database imports.
+import type { IpcResult } from './workspace';
 export const ENGINE_CHANNELS = {
   memoryOpen: 'memory:open', memoryStatus: 'memory:status', memoryEdits: 'memory:edits',
   memoryPause: 'memory:pause', memoryPurge: 'memory:purge', configure: 'engine:configure',
@@ -32,6 +33,9 @@ export interface MemoryStatus {
   scanning: boolean;
   files: number;
   indexedFiles: number;
+  chunks: number;
+  symbols: number;
+  journalBytes: number;
   excludedFiles: number;
   journalRows: number;
   webCaptures: number;
@@ -39,6 +43,18 @@ export interface MemoryStatus {
   overSizeCap: boolean;
   lastScanAt: number | null;
   searchMode: 'fts5' | 'fallback';
+}
+
+export interface MemoryRequest { workspaceId: string }
+export interface MemoryPauseRequest extends MemoryRequest { paused: boolean }
+export interface MemoryPurgeRequest extends MemoryRequest { scope: PurgeScope }
+export interface MemoryStatusEvent { workspaceId: string | null; result: IpcResult<MemoryStatus> }
+export interface EngineBridge {
+  openMemory(request: MemoryRequest): Promise<IpcResult<MemoryStatus>>;
+  memoryStatus(request: MemoryRequest): Promise<IpcResult<MemoryStatus>>;
+  pauseMemory(request: MemoryPauseRequest): Promise<IpcResult<MemoryStatus>>;
+  purgeMemory(request: MemoryPurgeRequest): Promise<IpcResult<MemoryStatus>>;
+  onMemoryStatus(listener: (event: MemoryStatusEvent) => void): () => void;
 }
 export interface ScanReport {
   scanned: number; updated: number; unchanged: number; excluded: number;

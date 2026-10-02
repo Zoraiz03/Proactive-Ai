@@ -9,12 +9,14 @@ import {
   type SyncedSettings,
 } from "../../shared/settings";
 import ObserverInsightsSettings from "./ObserverInsightsSettings";
+import MemoryPanel from './engine/MemoryPanel';
 import type { WebContextBridgeStatus } from "../../shared/web-context-bridge";
 
 const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Observer Insights", "Documentation Impact", "Browser Extension", "Privacy", "Data and History"] as const;
 type Section = typeof sections[number];
 
 interface Props {
+  memoryWorkspaceId?: string;
   open: boolean;
   local: LocalSettings;
   synced: SyncedSettings;
@@ -176,6 +178,7 @@ export default function SettingsPanel(props: Props) {
             </div>
           </>}
           {active === "Privacy" && <>
+            <MemoryPanel workspaceId={props.memoryWorkspaceId} />
             <h3>Privacy</h3><p>Manual Observer requests show focused context before sending. The separate, session-only Auto-explain switch in Observer can send bounded failed-run code and errors automatically after explicit consent. It never includes Context Tray items or edits files.</p>
             <Toggle label="Never send .env files" checked disabled onChange={() => undefined} />
             <Toggle label="Never send credentials, private keys, tokens, or secret files" checked disabled onChange={() => undefined} />

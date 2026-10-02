@@ -60,7 +60,8 @@ their original meaning.
 | Phase | Status | Goal |
 |---|---|---|
 | Phase 0 (P0-T1–T3) | In Progress | Documentation delivered; desktop baseline gate fails on Python availability and Windows symlink permissions |
-| Phase E1 | In Progress | E1a complete (2026-10-02): P1-T1 types, P1-T2 SQLite/migrations/native rebuild wiring, P1-T3 local memory open/scan/status/purge; E1b chunks/symbols/IPC/UI unstarted |
+| Phase E1 | In Progress | E1a and E1b implementation complete; Electron runtime and packaged-launch acceptance pending |
+| Phase E1b (P1-T4, P1-T5) | In Progress | Chunks/symbols, validated memory IPC, typed preload and read-only Privacy MemoryPanel implemented; typecheck passed; desktop tests 312 passed, 0 failed, 1 existing skip; native/runtime verification pending |
 | Phase E2 | Not Started | Edit capture, journal, watcher integration, compaction and retention |
 | Phase E3 | Not Started | Context assembly, retrieval, budgets and manifest |
 | Phase E4 | Not Started | Independent switches, engine governance, backend and outcomes; optional real streaming |
@@ -71,6 +72,9 @@ their original meaning.
 
 E1a verification: desktop typecheck passed; 305 tests = 300 passed, four known Python/symlink environment failures, one existing skip; all 17 new tests passed. No backend changes, so root build not run.
 E1a limits: generated directories are metadata-only (not traversed); Node SQLite verified, Electron native rebuild/packaged launch unverified; no packaging/asar-unpack config exists. Chunks/symbols, journaling, retention, IPC/UI remain later tasks; this update supersedes the Phase 0 unstarted/native-dependency notes below.
+
+E1b (2026-10-02) supersedes the E1a chunks/symbols/IPC/UI deferral: scans now atomically index 40-line chunks with five-line overlap and heuristic JS/TS/Python declarations, backfill E1a databases, and purge derived data on exclusion, secret detection or deletion. The existing symbol detector is reused through a pure shared helper. Memory open/status/pause/purge enforce authenticated main-frame sender, current workspace, exact payloads and native consent; workspace changes, sign-out and shutdown cancel/close the service. Settings changes immediately reapply exclusions. The Privacy panel subscribes to real counts, journal text bytes, database size, scan state and last-scan time; it has no mutation controls and receives no file content, keys or database paths.
+Validation: 313 desktop tests total (312 passed, 0 failed, 1 pre-existing POSIX-fixture skip), including eight added indexing/IPC/preload/read-only-view tests; typecheck and diff checks passed. The separately committed Windows Python fixture fix passed all 24 Fix Code tests. Node SQLite works in this checkout; Electron native rebuild remains blocked by missing Visual Studio C++ Build Tools. No Electron runtime, interactive native-dialog, rendered-panel or packaged-launch verification is claimed. No backend files changed, so root build was not run. Both root package-lock.json copies retained their original hashes. Journaling, web ingestion and later engine phases remain unstarted.
 
 Phase 0 deliverables are finished; the phase is not marked Complete because this
 plan requires every check to pass. E1–E7 remain unstarted. The baseline and

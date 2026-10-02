@@ -8,7 +8,8 @@ export function registerSettingsIpc(
   getWindow: () => BrowserWindow | null,
   userDataPath: string,
   getAccessToken: () => Promise<string | null>,
-  apiBaseUrl: string
+  apiBaseUrl: string,
+  onLocalChange: () => Promise<void> = async () => {}
 ) {
   const store = new LocalSettingsStore(userDataPath);
   const tabStore = new WorkspaceTabStore(userDataPath);
@@ -20,8 +21,8 @@ export function registerSettingsIpc(
     catch { return { ok: false, error: "Could not update local settings." } as const; }
   };
   ipcMain.handle(SETTINGS_CHANNELS.getLocal, (event) => local(event, () => store.get()));
-  ipcMain.handle(SETTINGS_CHANNELS.updateLocal, (event, value) => local(event, () => store.set(value)));
-  ipcMain.handle(SETTINGS_CHANNELS.resetLocal, (event) => local(event, () => store.reset()));
+  ipcMain.handle(SETTINGS_CHANNELS.updateLocal, (event, value) => local(event, async () => { const saved = await store.set(value); await onLocalChange(); return saved; }));
+  ipcMain.handle(SETTINGS_CHANNELS.resetLocal, (event) => local(event, async () => { const saved = await store.reset(); await onLocalChange(); return saved; }));
   ipcMain.handle(SETTINGS_CHANNELS.getSynced, (event) => trusted(event) ? client.getSynced() : { ok: false, error: "Settings request denied." });
   ipcMain.handle(SETTINGS_CHANNELS.updateSynced, (event, value) => trusted(event) ? client.updateSynced(value) : { ok: false, error: "Settings request denied." });
   ipcMain.handle(SETTINGS_CHANNELS.providerStatus, (event) => trusted(event) ? client.providerStatus() : { ok: false, error: "Settings request denied." });
