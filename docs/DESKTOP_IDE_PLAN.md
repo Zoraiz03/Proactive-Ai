@@ -1629,6 +1629,26 @@ headers return 401, and authorization data is not logged.
 
 ## Changelog
 
+### 2026-10-02 — Observer Engine architecture skeleton and stop (P0-T3)
+
+- Created `OBSERVER_ENGINE.md` with a Mermaid renderer → narrow preload → main
+  (memory, engine, assembler, bridge) → Next.js → provider diagram and Chrome →
+  bridge path. Clearly distinguished existing infrastructure from future nodes.
+- Documented reuse, trust boundaries, independent switches, privacy, explicit
+  review/apply and phase-scoped documentation TODOs; no simulated behavior.
+- Verification: `git -C .push-checkout diff --stat d2a9bbc` and `diff --name-only`
+  show only `docs/DESKTOP_IDE_PLAN.md`, `docs/PRODUCT_DIRECTION.md` and the new
+  `docs/OBSERVER_ENGINE.md`. `git diff --check d2a9bbc` passes. Compared all
+  tracked non-document files in the working project with the clean baseline
+  checkout (normalizing CRLF/LF only): zero source differences. Generated build
+  artifacts are ignored; package files, migrations, tests and official documents
+  are unchanged.
+- Saved separate local P0-T1, P0-T2 and P0-T3 commits in `.push-checkout`, with
+  matching documentation in the workspace root. No push is part of this phase.
+- Stopped for review as requested. Documentation is delivered; the phase retains
+  In Progress solely because the desktop baseline gate is not green. No E1 work
+  was started and no later-phase runtime behavior was introduced.
+
 ### 2026-10-02 — Observer Engine direction and roadmap (P0-T2)
 
 - Added a dated PRODUCT_DIRECTION amendment while preserving the earlier text:
