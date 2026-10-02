@@ -60,7 +60,7 @@ their original meaning.
 | Phase | Status | Goal |
 |---|---|---|
 | Phase 0 (P0-T1–T3) | In Progress | Documentation delivered; desktop baseline gate fails on Python availability and Windows symlink permissions |
-| Phase E1 | Not Started | Local memory store, scan, privacy controls and status |
+| Phase E1 | In Progress | E1a complete (2026-10-02): P1-T1 types, P1-T2 SQLite/migrations/native rebuild wiring, P1-T3 local memory open/scan/status/purge; E1b chunks/symbols/IPC/UI unstarted |
 | Phase E2 | Not Started | Edit capture, journal, watcher integration, compaction and retention |
 | Phase E3 | Not Started | Context assembly, retrieval, budgets and manifest |
 | Phase E4 | Not Started | Independent switches, engine governance, backend and outcomes; optional real streaming |
@@ -68,6 +68,9 @@ their original meaning.
 | Phase E6 | Not Started | New-project wizard, brief, plan and phase-aware help |
 | Phase E7 | Not Started | History, local evaluation, accessibility, documentation and release checks |
 | Phase E8 | Not Started | Unspecified: §14 requests E1–E8 rows but defines tasks only through E7; owner clarification required before scoping E8 |
+
+E1a verification: desktop typecheck passed; 305 tests = 300 passed, four known Python/symlink environment failures, one existing skip; all 17 new tests passed. No backend changes, so root build not run.
+E1a limits: generated directories are metadata-only (not traversed); Node SQLite verified, Electron native rebuild/packaged launch unverified; no packaging/asar-unpack config exists. Chunks/symbols, journaling, retention, IPC/UI remain later tasks; this update supersedes the Phase 0 unstarted/native-dependency notes below.
 
 Phase 0 deliverables are finished; the phase is not marked Complete because this
 plan requires every check to pass. E1–E7 remain unstarted. The baseline and
