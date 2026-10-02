@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, readFile, realpath, utimes, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, readFile, realpath, utimes, symlink, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
@@ -14,6 +14,23 @@ import type { EditBatch } from '../../shared/observer-engine.ts';
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 const edit = (path: string, before: string, inserted: string, clientSeq = 1): EditBatch => ({ path, clientSeq,
   expectedBaseHash: digest(before), deltas: [{ path, offset: before.length, removedLen: 0, inserted, origin: 'typing', ts: 1234567 }] });
+
+test('external changes preserve unrelated unsaved buffers, journal disk changes and handle rename/delete', async () => fixture(async ({ root, service, db }) => {
+  await writeFile(join(root, 'a.ts'), 'a'); await writeFile(join(root, 'b.ts'), 'b'); await service.open(root, 'existing');
+  service.applyEditBatch(edit('a.ts', 'a', ' unsaved'));
+  await writeFile(join(root, 'b.ts'), 'external'); await service.scan({ changedPaths: ['b.ts'] });
+  assert.equal(await service.readCurrent('a.ts'), 'a unsaved'); assert.equal(await service.readCurrent('b.ts'), 'external');
+  const connection = db();
+  try {
+    const row = connection.prepare("SELECT origin,inserted FROM edit_journal WHERE path='b.ts'").get() as { origin: string; inserted: string };
+    assert.equal(row.origin, 'external'); assert.equal(row.inserted, 'external');
+    assert.equal((connection.prepare("SELECT count(*) n FROM baselines WHERE path='b.ts'").get() as { n: number }).n, 2);
+  } finally { connection.close(); }
+  await rename(join(root, 'b.ts'), join(root, 'c.ts')); await service.scan({ changedPaths: ['b.ts','c.ts'] });
+  assert.equal(await service.readCurrent('b.ts'), null); assert.equal(await service.readCurrent('c.ts'), 'external');
+  assert.equal(service.status().journalRows, 2);
+  await rm(join(root, 'c.ts')); await service.scan({ changedPaths: ['c.ts'] }); assert.equal(await service.readCurrent('c.ts'), null);
+}));
 
 test('journal tracks unsaved content, replays after reopen, rejects drift and rebaselines on save', async () => fixture(async ({ root, service, db }) => {
   await writeFile(join(root, 'main.ts'), 'const n = 1;'); await service.open(root, 'existing');

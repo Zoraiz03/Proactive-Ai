@@ -166,7 +166,8 @@ app.whenReady().then(() => {
       verificationTaskIpc.controller.clearWorkspace(webContentsId);
       webContextIpc.controller.clearWorkspace(webContentsId);
     },
-    onFileSaved: async (path) => { await memoryIpc?.fileSaved(path); },
+    onFileSaved: async (path, root) => { await memoryIpc?.fileSaved(path, root); },
+    onMemoryFilesChanged: (paths, root) => { void memoryIpc?.filesChanged(paths, root); },
     onWorkspaceChanged: () => { observerIpc.controller.invalidate(); automaticRunIpc?.controller.invalidateFiles(); },
   }, app.getPath("userData"));
   app.once('before-quit', event => {

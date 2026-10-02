@@ -136,9 +136,13 @@ export function registerMemoryIpc(deps: {
     } catch { return unavailable(); }
   });
   return {
-    fileSaved(path: string) {
+    filesChanged(paths: string[], root: string) {
       const epoch = generation;
-      return serial(async () => { if (epoch === generation) await service.verifySave(path); });
+      return serial(async () => { if (epoch === generation && root === owner?.root) await service.scan({ changedPaths: paths }); }).catch(() => { if (epoch === generation) publish(unavailable()); });
+    },
+    fileSaved(path: string, root = owner?.root) {
+      const epoch = generation;
+      return serial(async () => { if (epoch === generation && root === owner?.root) await service.verifySave(path); });
     },
     setWorkspace(root: string, sender: number) {
       generation++; consent = false; opening = false; failure = false;

@@ -192,16 +192,16 @@ export class ProjectMemoryService {
     this.memory.db.pragma('wal_checkpoint(TRUNCATE)');
   }
 
-  scan(options: { full?: boolean } = {}): Promise<ScanReport> {
+  scan(options: { full?: boolean; changedPaths?: readonly string[] } = {}): Promise<ScanReport> {
     if (this.scanning) return this.scanning;
     const epoch = this.generation;
-    this.scanning = Promise.resolve().then(() => this.performScan(epoch, options.full === true)).finally(() => {
+    this.scanning = Promise.resolve().then(() => this.performScan(epoch, options.full === true, options.changedPaths ?? [])).finally(() => {
       this.scanning = null; this.emit();
     });
     return this.scanning;
   }
 
-  private async performScan(epoch: number, full: boolean): Promise<ScanReport> {
+  private async performScan(epoch: number, full: boolean, changedPaths: readonly string[]): Promise<ScanReport> {
     const report: ScanReport = { scanned: 0, updated: 0, unchanged: 0, excluded: 0, deleted: 0, errors: 0, capped: false, cancelled: false };
     if (!this.active(epoch)) return { ...report, cancelled: true };
     const db = this.memory!.db;
@@ -220,7 +220,7 @@ export class ProjectMemoryService {
           const info = await lstat(absolute);
           if (!this.active(epoch)) break;
           const excluded = this.exclusion(path);
-          if (excluded || info.isSymbolicLink() || (!info.isFile() && !info.isDirectory())) {
+          if (excluded || info.isSymbolicLink() || (info.isFile() && info.nlink > 1) || (!info.isFile() && !info.isDirectory())) {
             db.transaction(() => this.exclude(path, info.size, info.mtimeMs, excluded ?? 'unsafe_path'))(); report.excluded++; continue;
           }
           const safe = await resolveWorkspacePath(this.root, path);
@@ -234,7 +234,8 @@ export class ProjectMemoryService {
           }
           const old = db.prepare('SELECT * FROM files WHERE path=?').get(path) as FileRow | undefined;
           const needsIndex = info.size > 0 && !db.prepare('SELECT 1 FROM chunks WHERE path=? LIMIT 1').get(path);
-          if (!full && !needsIndex && old && !old.excluded && !old.deleted && old.size_bytes === info.size && old.mtime_ms === info.mtimeMs) {
+          const changed = changedPaths.includes(path);
+          if (!full && !changed && !needsIndex && old && !old.excluded && !old.deleted && old.size_bytes === info.size && old.mtime_ms === info.mtimeMs) {
             indexed++; report.unchanged++; continue;
           }
           const handle = await open(safe.realPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -265,7 +266,11 @@ export class ProjectMemoryService {
               db.prepare('UPDATE files SET mtime_ms=?,size_bytes=?,updated_at=? WHERE path=?').run(info.mtimeMs, info.size, this.timestamp(), path);
               report.unchanged++; return;
             }
-            this.removeContent(path);
+            if (old && !old.excluded && !old.deleted) {
+              try { this.journal!.external(path, text, this.settings.maxFileBytes); }
+              catch { this.warn('memory_external_drift'); }
+            } else this.removeContent(path);
+            this.journal!.clear(path);
             const version = (old?.baseline_ver ?? 0) + 1;
             db.prepare(`INSERT INTO files(path,language,size_bytes,content_hash,mtime_ms,baseline_ver,first_seen_at,updated_at)
               VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET language=excluded.language,size_bytes=excluded.size_bytes,

@@ -36,6 +36,15 @@ export class JournalStore {
     this.db.prepare('UPDATE files SET baseline_ver=?,content_hash=?,updated_at=? WHERE path=?').run(version, hash(text), this.now(), path);
     this.clear(path);
   }
+  external(path: string, next: string, maxBytes: number) {
+    const previous = this.read(path);
+    if (previous === null || previous === next) return;
+    let start = 0, end = 0;
+    while (start < previous.length && start < next.length && previous[start] === next[start]) start++;
+    while (end < previous.length - start && end < next.length - start && previous[previous.length - end - 1] === next[next.length - end - 1]) end++;
+    this.apply({ path, clientSeq: 1, expectedBaseHash: hash(previous), deltas: [{ path, offset: start,
+      removedLen: previous.length - start - end, inserted: next.slice(start, next.length - end), origin: 'external', ts: this.now() }] }, maxBytes);
+  }
   apply(batch: EditBatch, maxBytes: number): string | null {
     let text = this.read(batch.path);
     if (text === null) return null;
