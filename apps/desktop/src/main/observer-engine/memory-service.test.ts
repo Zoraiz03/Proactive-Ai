@@ -9,6 +9,52 @@ import { ProjectMemoryService } from './memory-service.ts';
 import { recentProjectId } from '../recent-projects.ts';
 import { searchMemoryChunks } from './database.ts';
 import { createHash } from 'node:crypto';
+import type { EditBatch } from '../../shared/observer-engine.ts';
+
+const digest = (text: string) => createHash('sha256').update(text).digest('hex');
+const edit = (path: string, before: string, inserted: string, clientSeq = 1): EditBatch => ({ path, clientSeq,
+  expectedBaseHash: digest(before), deltas: [{ path, offset: before.length, removedLen: 0, inserted, origin: 'typing', ts: 1234567 }] });
+
+test('journal tracks unsaved content, replays after reopen, rejects drift and rebaselines on save', async () => fixture(async ({ root, service, db }) => {
+  await writeFile(join(root, 'main.ts'), 'const n = 1;'); await service.open(root, 'existing');
+  assert.equal(await service.beginBuffer('main.ts', 'const n = 1;'), true);
+  service.applyEditBatch(edit('main.ts', 'const n = 1;', '\nconst b = 2;'));
+  assert.equal(await service.readCurrent('main.ts'), 'const n = 1;\nconst b = 2;');
+  assert.throws(() => service.applyEditBatch(edit('main.ts', 'wrong', 'x')), /drift/);
+  const connection = db();
+  try {
+    const row = connection.prepare('SELECT * FROM edit_journal').get() as { ts: number; post_hash: string };
+    assert.equal(row.ts, 1234000); assert.equal(row.post_hash, digest('const n = 1;\nconst b = 2;'));
+  } finally { connection.close(); }
+  await service.close(); await service.open(root, 'existing');
+  assert.equal(await service.readCurrent('main.ts'), 'const n = 1;\nconst b = 2;');
+  await writeFile(join(root, 'main.ts'), 'saved differently'); await service.verifySave('main.ts');
+  assert.equal(await service.readCurrent('main.ts'), 'saved differently');
+  assert.equal(service.status().journalRows, 1);
+}));
+
+test('secret edit atomically removes all path content, emits privacy block and stays excluded until clean scan', async () => fixture(async ({ root, service, db }) => {
+  await writeFile(join(root, 'main.ts'), 'safe'); await service.open(root, 'existing');
+  service.applyEditBatch(edit('main.ts', 'safe', '\napi_key = "sk-' + 'x'.repeat(40) + '"'));
+  assert.equal(await service.readCurrent('main.ts'), null);
+  assert.equal(service.status().journalRows, 0); assert.equal(service.status().chunks, 0);
+  assert.equal(await service.beginBuffer('main.ts', 'clean'), false);
+  const connection = db();
+  try { assert.equal((connection.prepare("SELECT count(*) n FROM governance_events WHERE layer='privacy_block'").get() as { n: number }).n, 1); }
+  finally { connection.close(); }
+  await service.scan({ full: true }); assert.equal(await service.readCurrent('main.ts'), 'safe');
+}));
+
+test('lazy new-file baseline, paused writes and corrupt replay recovery are safe', async () => fixture(async ({ root, service, db }) => {
+  await service.open(root, 'new'); await writeFile(join(root, 'new.ts'), 'new');
+  assert.equal(await service.beginBuffer('new.ts', 'new'), true);
+  service.setPaused(true); assert.deepEqual(service.applyEditBatch(edit('new.ts', 'new', 'x')), { ok: true, skipped: true });
+  service.setPaused(false); service.applyEditBatch(edit('new.ts', 'new', 'x'));
+  const connection = db();
+  try { connection.prepare("UPDATE files SET content_hash='bad' WHERE path='new.ts'").run(); }
+  finally { connection.close(); }
+  assert.equal(await service.readCurrent('new.ts'), 'new');
+}));
 
 async function fixture(run: (f: { root: string; data: string; service: ProjectMemoryService; db: () => Database.Database }) => Promise<void>, enabled = true) {
   const base = await mkdtemp(join(tmpdir(), 'memory-scan-'));

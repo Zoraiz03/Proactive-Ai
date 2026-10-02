@@ -47,7 +47,7 @@ export function createEditCapture(deps: {
         }
       }
       if (++events >= 20) flush();
-      else { cancel(); timer = (deps.schedule ?? setTimeout)(flush,250); }
+      else { cancel(); timer = (deps.schedule ? deps.schedule(flush,250) : setTimeout(flush,250) as ReturnType<typeof setTimeout>); }
     },
   };
 }

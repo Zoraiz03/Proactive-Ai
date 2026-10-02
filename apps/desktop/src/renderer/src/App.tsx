@@ -1,3 +1,5 @@
+import { attachEditorMemory } from './engine/editor-memory';
+import { flushMemoryCapture, markMemoryOrigin } from './engine/edit-capture';
 import ImproveCodeCard from "./ImproveCodeCard";
 import {improveScopeLabel} from "../../shared/improve-code";
 import { useFixCode } from "./useFixCode";
@@ -241,6 +243,7 @@ function Placeholder({ icon, children }: { icon: string; children: React.ReactNo
 }
 
 interface EditorWorkspaceProps {
+  memoryWorkspaceId?: string;
   onLiveEdit?: (edit: LiveEdit) => void;
   liveState: LiveState;
   onLiveReview: () => void;
@@ -267,7 +270,7 @@ interface EditorWorkspaceProps {
 }
 
 export function EditorWorkspace({
-  liveState, onLiveReview, onLiveEdit,
+  liveState, onLiveReview, onLiveEdit, memoryWorkspaceId,
   tabs,
   activePath,
   surface,
@@ -289,6 +292,8 @@ export function EditorWorkspace({
   editorSettings,
   editorTheme,
 }: EditorWorkspaceProps) {
+  const memoryWorkspaceRef = useRef(memoryWorkspaceId);
+  memoryWorkspaceRef.current = memoryWorkspaceId;
   const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const liveDiagnostics = useRef<DiagnosticSignal[]>([]);
@@ -555,6 +560,7 @@ export function EditorWorkspace({
                   });
                 };
                 editorDisposablesRef.current = [
+                  attachEditorMemory(instance, () => memoryWorkspaceRef.current, () => activePathRef.current),
                   instance.onDidChangeCursorSelection(emitObserverContext),
                   instance.onDidChangeModelContent(emitObserverContext),
                   instance.onDidChangeModel(() => { liveReporter.current?.cancel(); lastEditorContent.current = instance.getValue(); liveDiagnostics.current = []; emitObserverContext(); }),
@@ -1054,6 +1060,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [appendOutput, contextTrayItems]);
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
+    flushMemoryCapture();
     const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === relativePath);
     if (!tab || !isDirty(tab)) return true;
     if (tab.saving) return false;
@@ -2034,6 +2041,7 @@ export default function App({ user, onSignOut }: AppProps) {
       return;
     }
     if(approvedScope) { editSession.clear();setFixApplied({path:editBase.targetRelativePath,hash:appliedContentHash,action:review.request.improveCode?"Improve Code":"Fix Code"});setFixVerification("Applied in memory — unverified. No save or execution performed."); }
+    markMemoryOrigin(editBase.targetRelativePath, "ai_apply");
     setTabs((current) => current.map((tab) => tab.file.relativePath === editBase.targetRelativePath
       ? { ...tab, draft: validated.value.proposedContent, saveStatus: null, autoSaveBlocked: true }
       : tab));
@@ -2051,6 +2059,7 @@ export default function App({ user, onSignOut }: AppProps) {
     const currentContentHash = await sha256Text(activeTab.draft);
     const restored = await window.checkpoints.restore({ workspaceId: openedWorkspace.workspaceId, relativePath: activeTab.file.relativePath, currentContentHash });
     if (!restored.ok) { appendOutput(restored.error, "error"); return; }
+    markMemoryOrigin(activeTab.file.relativePath, "undo_redo");
     setTabs((current) => current.map((tab) => tab.file.relativePath === activeTab.file.relativePath
       ? { ...tab, draft: restored.value.previousContent, saveStatus: null, autoSaveBlocked: true }
       : tab));
@@ -2798,6 +2807,7 @@ export default function App({ user, onSignOut }: AppProps) {
             />
           ) : (
           <EditorWorkspace
+            memoryWorkspaceId={openedWorkspace?.workspaceId}
             onLiveEdit={(edit) => { if (liveState.enabled && edit.relativePath === activePath) window.liveObserver.edit(edit); }}
             liveState={liveState}
             onLiveReview={() => void reviewLiveSuggestion()}

@@ -13,6 +13,8 @@ import { prepareWorkspaceRoot, resolveWorkspacePath, normalizeWorkspaceRelativeP
 import { shouldIgnoreWorkspaceWatchPath } from '../workspace-watcher.ts';
 import { recentProjectId } from '../recent-projects.ts';
 import { openMemoryDatabase, type MemoryDatabase } from './database.ts';
+import { JournalStore } from './journal-store.ts';
+import type { EditBatch } from '../../shared/observer-engine.ts';
 
 const GENERATED = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', 'coverage', 'vendor', '__pycache__', '.venv']);
 const LOCKFILES = /(?:^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|uv\.lock|Pipfile\.lock|composer\.lock|Gemfile\.lock|.*\.lock)$/i;
@@ -43,9 +45,9 @@ function settingsSnapshot(input: Partial<MemorySettings>): MemorySettings {
 }
 
 /** Main-process service only. Caller supplies app.getPath('userData') and explicit consent.
- * TODO(spec §4.4): E2 adds journals/watcher/retention. No provider access here.
  */
 export class ProjectMemoryService {
+  private journal: JournalStore | null = null;
   private memory: MemoryDatabase | null = null;
   private root = '';
   private workspaceId: string | null = null;
@@ -106,6 +108,7 @@ export class ProjectMemoryService {
       await chmod(directory, 0o700).catch(() => {});
       await chmod(file, 0o600).catch(() => {});
       this.memory = openMemoryDatabase(file, this.warn);
+      this.journal = new JournalStore(this.memory.db, () => this.timestamp());
       this.root = prepared.rootPath; this.file = file;
       const db = this.memory.db;
       db.transaction(() => {
@@ -125,6 +128,7 @@ export class ProjectMemoryService {
     this.generation++;
     await this.scanning;
     if (this.memory) { this.memory.db.pragma('wal_checkpoint(TRUNCATE)'); this.memory.db.close(); }
+    this.journal = null;
     this.memory = null; this.root = ''; this.file = ''; this.workspaceId = null; this.lastScanAt = null;
     this.emit();
   }
@@ -159,6 +163,7 @@ export class ProjectMemoryService {
   }
 
   private removeContent(path: string, journal = true) {
+    this.journal?.clear(path);
     const db = this.memory!.db;
     for (const table of ['baselines', 'chunks', 'symbols', ...(journal ? ['edit_journal'] : [])]) db.prepare(`DELETE FROM ${table} WHERE path=?`).run(path);
   }
@@ -321,6 +326,7 @@ export class ProjectMemoryService {
     if (!this.memory) return;
     this.generation++; // prevents an in-flight scan repopulating purged content
     const db = this.memory.db;
+    this.journal?.clear();
     const path = typeof scope === 'object' && scope !== null ? normalizeWorkspaceRelativePath(scope.path).relativePath : null;
     if (!path && !['all', 'web', 'journal'].includes(scope as string)) throw new Error('invalid_memory_purge');
     db.transaction(() => {
@@ -335,6 +341,113 @@ export class ProjectMemoryService {
     this.scrub();
     db.exec('VACUUM');
     this.scrub(); this.emit();
+  }
+
+  private async diskText(path: string): Promise<{ text: string; size: number; mtime: number }> {
+    let part = this.root;
+    for (const segment of normalizeWorkspaceRelativePath(path).segments) { part = join(part, segment); if ((await lstat(part)).isSymbolicLink()) throw new Error('memory_unsafe_path'); }
+    const safe = await resolveWorkspacePath(this.root, path);
+    const handle = await open(safe.realPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const before = await handle.stat();
+      if (!before.isFile() || before.nlink > 1 || before.size > this.settings.maxFileBytes) throw new Error('memory_unsafe_file');
+      const bytes = Buffer.alloc(this.settings.maxFileBytes + 1);
+      let count = 0;
+      while (count < bytes.length) { const read = await handle.read(bytes, count, bytes.length - count, count); if (!read.bytesRead) break; count += read.bytesRead; }
+      const after = await handle.stat();
+      const check = await resolveWorkspacePath(this.root, path);
+      const info = await lstat(join(this.root, path));
+      if (check.realPath !== safe.realPath || info.isSymbolicLink() || info.ino !== before.ino || info.dev !== before.dev ||
+        before.size !== after.size || before.mtimeMs !== after.mtimeMs || count !== after.size || count > this.settings.maxFileBytes) throw new Error('memory_file_changed');
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, count));
+      if (text.includes('\0') || redactContextSecrets(text).redacted) throw new Error('memory_secret');
+      return { text, size: count, mtime: after.mtimeMs };
+    } finally { await handle.close(); }
+  }
+
+  async beginBuffer(path: string, text: string): Promise<boolean> {
+    const epoch = this.generation;
+    path = normalizeWorkspaceRelativePath(path).relativePath;
+    if (!this.active(epoch) || this.exclusion(path)) return false;
+    const row = this.memory!.db.prepare('SELECT * FROM files WHERE path=?').get(path) as FileRow | undefined;
+    if (row?.excluded) return false;
+    try {
+      const disk = await this.diskText(path); // Validate the backing file before accepting an unsaved snapshot.
+      if (!this.active(epoch)) return false;
+      if (redactContextSecrets(text).redacted) throw new Error('memory_secret');
+      if (Buffer.byteLength(text) > this.settings.maxFileBytes || text.includes('\0')) throw new Error('memory_content_limit');
+      if (row?.content_hash !== hash(text)) this.memory!.db.transaction(() => {
+        if (!row || row.deleted) {
+          if (this.status().indexedFiles >= this.settings.maxFiles) throw new Error('memory_file_limit');
+          this.memory!.db.prepare(`INSERT INTO files(path,language,size_bytes,mtime_ms,first_seen_at,updated_at)
+            VALUES(?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET deleted=0,excluded=0`)
+            .run(path, monacoLanguageForFile(path), disk.size, disk.mtime, this.timestamp(), this.timestamp());
+        }
+        this.journal!.baseline(path, text); this.indexContent(path, text);
+      })();
+      return true;
+    } catch {
+      if (this.active(epoch)) { this.exclude(path, row?.size_bytes ?? 0, row?.mtime_ms ?? 0, 'secret_flagged'); this.scrub(); this.emit(); }
+      return false;
+    }
+  }
+
+  async readCurrent(path: string): Promise<string | null> {
+    if (!this.memory || this.exclusion(path)) return null;
+    try { return this.journal!.read(path); }
+    catch {
+      this.warn('memory_replay_drift');
+      const epoch = this.generation;
+      try {
+        const disk = await this.diskText(path);
+        if (!this.active(epoch)) return null;
+        this.memory!.db.transaction(() => { this.journal!.baseline(path, disk.text); this.indexContent(path, disk.text); })();
+        return disk.text;
+      } catch { if (this.active(epoch)) { this.exclude(path, 0, 0, 'unreadable'); this.scrub(); } return null; }
+    }
+  }
+
+  applyEditBatch(batch: EditBatch): { ok: true; skipped?: true; lastSeq?: number } {
+    if (!this.active(this.generation) || this.exclusion(batch.path)) return { ok: true, skipped: true };
+    if (!Array.isArray(batch.deltas) || !batch.deltas.length || batch.deltas.length > 20 ||
+      !Number.isSafeInteger(batch.clientSeq) || batch.clientSeq < 1 || Buffer.byteLength(JSON.stringify(batch)) > 256 * 1024 ||
+      normalizeWorkspaceRelativePath(batch.path).relativePath !== batch.path) throw new Error('invalid_memory_batch');
+    let text: string | null;
+    try { text = this.memory!.db.transaction(() => {
+      const result = this.journal!.apply(batch, this.settings.maxFileBytes);
+      if (result !== null) this.indexContent(batch.path, result);
+      return result;
+    })(); }
+    catch (error) {
+      if ((error as Error).message === 'memory_secret') {
+        this.memory!.db.transaction(() => {
+          this.exclude(batch.path, 0, 0, 'secret_flagged');
+          this.memory!.db.prepare("INSERT INTO governance_events(ts,layer,path,detail) VALUES(?,'privacy_block',?,'secret_flagged')").run(this.timestamp(), batch.path);
+        })(); this.scrub(); this.emit();
+        return { ok: true, skipped: true };
+      }
+      throw error;
+    }
+    if (text === null) return { ok: true, skipped: true };
+    this.emit();
+    return { ok: true, lastSeq: (this.memory!.db.prepare('SELECT max(seq) n FROM edit_journal').get() as { n: number }).n };
+  }
+
+  async verifySave(path: string) {
+    const epoch = this.generation;
+    if (!this.active(epoch) || this.exclusion(path)) return;
+    try {
+      const disk = await this.diskText(path);
+      if (!this.active(epoch)) return;
+      const current = await this.readCurrent(path);
+      if (!this.active(epoch) || current === null) return;
+      if (hash(current) !== hash(disk.text)) {
+        this.warn('memory_save_drift');
+        this.memory!.db.transaction(() => { this.journal!.baseline(path, disk.text); this.indexContent(path, disk.text); })();
+      }
+      this.memory!.db.prepare('UPDATE files SET size_bytes=?,mtime_ms=? WHERE path=?').run(disk.size, disk.mtime, path);
+    } catch { if (this.active(epoch)) { this.exclude(path, 0, 0, 'unreadable'); this.scrub(); } }
+    this.emit();
   }
 
   status(): MemoryStatus {

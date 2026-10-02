@@ -1,7 +1,7 @@
 // Contracts only: no Node, Electron, filesystem or database imports.
 import type { IpcResult } from './workspace';
 export const ENGINE_CHANNELS = {
-  memoryOpen: 'memory:open', memoryStatus: 'memory:status', memoryEdits: 'memory:edits',
+  memoryOpen: 'memory:open', memoryStatus: 'memory:status', memoryEdits: 'memory:edits', memoryBuffer: 'memory:buffer',
   memoryPause: 'memory:pause', memoryPurge: 'memory:purge', configure: 'engine:configure',
   edit: 'engine:edit', activity: 'engine:activity', state: 'engine:state',
   outcome: 'engine:outcome', resume: 'engine:resume', stream: 'engine:stream',
@@ -46,10 +46,14 @@ export interface MemoryStatus {
 }
 
 export interface MemoryRequest { workspaceId: string }
+export interface MemoryBufferRequest extends MemoryRequest { sessionId: string; path: string; content: string }
+export interface MemoryEditsRequest extends MemoryRequest { sessionId: string; batch: EditBatch }
 export interface MemoryPauseRequest extends MemoryRequest { paused: boolean }
 export interface MemoryPurgeRequest extends MemoryRequest { scope: PurgeScope }
 export interface MemoryStatusEvent { workspaceId: string | null; result: IpcResult<MemoryStatus> }
 export interface EngineBridge {
+  beginBuffer(request: MemoryBufferRequest): Promise<IpcResult<MemoryStatus>>;
+  memoryEdits(request: MemoryEditsRequest): void;
   openMemory(request: MemoryRequest): Promise<IpcResult<MemoryStatus>>;
   memoryStatus(request: MemoryRequest): Promise<IpcResult<MemoryStatus>>;
   pauseMemory(request: MemoryPauseRequest): Promise<IpcResult<MemoryStatus>>;

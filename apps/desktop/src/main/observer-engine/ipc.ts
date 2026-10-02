@@ -1,4 +1,5 @@
-import type { BrowserWindow, IpcMain, IpcMainInvokeEvent } from 'electron';
+import type { BrowserWindow, IpcMain, IpcMainInvokeEvent, IpcMainEvent } from 'electron';
+import type { MemoryBufferRequest, MemoryEditsRequest } from '../../shared/observer-engine.ts';
 import { ENGINE_CHANNELS, type MemoryStatus, type MemoryStatusEvent, type PurgeScope } from '../../shared/observer-engine.ts';
 import type { IpcResult } from '../../shared/workspace';
 import { ProjectMemoryService } from './memory-service.ts';
@@ -14,7 +15,7 @@ const validScope = (value: unknown): value is PurgeScope => ['all','web','journa
     !/[\x00-\x1f\\:]/.test(value.path) && !value.path.startsWith('/') && value.path.split('/').every(part => part !== '.' && part !== '..' && part !== ''));
 
 export function registerMemoryIpc(deps: {
-  ipc: Pick<IpcMain, 'handle'|'removeHandler'>;
+  ipc: Pick<IpcMain, 'handle'|'removeHandler'|'on'|'removeListener'>;
   getWindow: () => BrowserWindow | null;
   userData: string;
   confirm: (kind: 'open'|'resume'|'purge') => Promise<boolean>;
@@ -23,6 +24,7 @@ export function registerMemoryIpc(deps: {
   let generation = 0, consent = false, opening = false;
   let failure = false;
   let tail: Promise<unknown> = Promise.resolve();
+  const sessions = new Map<string, { path: string; seq: number }>();
   const settings = new LocalSettingsStore(deps.userData);
   const publish = (result: IpcResult<MemoryStatus>) => {
     const window = deps.getWindow();
@@ -36,14 +38,14 @@ export function registerMemoryIpc(deps: {
   const serial = <T>(action: () => Promise<T>): Promise<T> => {
     const next = tail.then(action); tail = next.catch(() => {}); return next;
   };
-  const trusted = (event: IpcMainInvokeEvent) => {
+  const trusted = (event: IpcMainInvokeEvent | IpcMainEvent) => {
     const window = deps.getWindow();
     return !!window && !window.isDestroyed() && event.sender === window.webContents &&
       event.sender.id === owner?.sender && event.senderFrame === event.sender.mainFrame;
   };
-  const valid = (event: IpcMainInvokeEvent, request: unknown, keys: string[]) => trusted(event) && exact(request, keys) &&
+  const valid = (event: IpcMainInvokeEvent | IpcMainEvent, request: unknown, keys: string[]) => trusted(event) && exact(request, keys) &&
     typeof request.workspaceId === 'string' && request.workspaceId === owner?.id;
-  const current = (epoch: number, event: IpcMainInvokeEvent) => generation === epoch && trusted(event);
+  const current = (epoch: number, event: IpcMainInvokeEvent | IpcMainEvent) => generation === epoch && trusted(event);
   const snapshot = (): IpcResult<MemoryStatus> => {
     if (failure) return unavailable();
     const status = service.status();
@@ -54,7 +56,36 @@ export function registerMemoryIpc(deps: {
     const local = await settings.get();
     return { exclusions: local.aiContextExclusions };
   };
-  const channels = [ENGINE_CHANNELS.memoryOpen, ENGINE_CHANNELS.memoryStatus, ENGINE_CHANNELS.memoryPause, ENGINE_CHANNELS.memoryPurge];
+  const channels = [ENGINE_CHANNELS.memoryBuffer, ENGINE_CHANNELS.memoryOpen, ENGINE_CHANNELS.memoryStatus, ENGINE_CHANNELS.memoryPause, ENGINE_CHANNELS.memoryPurge];
+  const sessionValid = (request: { sessionId: unknown }) => typeof request.sessionId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(request.sessionId);
+  deps.ipc.handle(ENGINE_CHANNELS.memoryBuffer, async (event, request: MemoryBufferRequest, ...extra: unknown[]) => {
+    if (extra.length || !valid(event, request, ['workspaceId','sessionId','path','content']) || !sessionValid(request) ||
+      typeof request.content !== 'string' || request.content.length > 2 * 1024 * 1024 || typeof request.path !== 'string' || !validScope({ path: request.path })) return denied();
+    const epoch = generation;
+    return serial(async () => {
+      if (!current(epoch, event) || !consent || service.status().paused) return denied();
+      try {
+        if (!await service.beginBuffer(request.path, request.content) || !current(epoch, event)) return denied();
+        const seq = sessions.get(request.sessionId)?.seq ?? 0;
+        sessions.delete(request.sessionId); sessions.set(request.sessionId, { path: request.path, seq });
+        if (sessions.size > 20) sessions.delete(sessions.keys().next().value!);
+        return snapshot();
+      } catch { return denied(); }
+    });
+  });
+  const edits = (event: IpcMainEvent, request: MemoryEditsRequest, ...extra: unknown[]) => {
+    if (extra.length || !valid(event, request, ['workspaceId','sessionId','batch']) || !sessionValid(request)) return;
+    const epoch = generation;
+    void serial(async () => {
+      if (!current(epoch, event) || !consent || service.status().paused) return;
+      const session = sessions.get(request.sessionId);
+      try {
+        if (!session || !request.batch || request.batch.path !== session.path || !Number.isSafeInteger(request.batch.clientSeq) || request.batch.clientSeq <= session.seq) throw new Error('memory_sequence');
+        service.applyEditBatch(request.batch); session.seq = request.batch.clientSeq;
+      } catch { sessions.delete(request.sessionId); publish({ ok: false, error: 'Memory edits need resynchronization; the next editor change will retry.' }); }
+    });
+  };
+  deps.ipc.on(ENGINE_CHANNELS.memoryEdits, edits);
 
   deps.ipc.handle(ENGINE_CHANNELS.memoryStatus, async (event, request: unknown, ...extra: unknown[]) => {
     if (extra.length || !valid(event, request, ['workspaceId'])) return denied();
@@ -85,7 +116,7 @@ export function registerMemoryIpc(deps: {
     const epoch = generation;
     const paused = (request as { paused: boolean }).paused;
     try {
-      if (paused) { service.setPaused(true); return snapshot(); }
+      if (paused) { sessions.clear(); service.setPaused(true); return snapshot(); }
       if (!consent || !await deps.confirm('resume') || !current(epoch, event)) return denied();
       return await serial(async () => {
         const options = await policy(); if (!current(epoch, event)) return denied();
@@ -99,13 +130,19 @@ export function registerMemoryIpc(deps: {
     const epoch = generation;
     try {
       if (!await deps.confirm('purge') || !current(epoch, event)) return denied();
+      sessions.clear();
       service.purge((request as { scope: PurgeScope }).scope);
       return snapshot();
     } catch { return unavailable(); }
   });
   return {
+    fileSaved(path: string) {
+      const epoch = generation;
+      return serial(async () => { if (epoch === generation) await service.verifySave(path); });
+    },
     setWorkspace(root: string, sender: number) {
       generation++; consent = false; opening = false; failure = false;
+      sessions.clear();
       service.configure({ memoryEnabled: false });
       owner = { root, id: recentProjectId(root), sender };
       const epoch = generation;
@@ -118,6 +155,7 @@ export function registerMemoryIpc(deps: {
       }).catch(() => { if (epoch === generation) { failure = true; publish(unavailable()); } });
     },
     clearWorkspace() {
+      sessions.clear();
       generation++; consent = false; opening = false; owner = null;
       service.configure({ memoryEnabled: false });
       return serial(() => service.close());
@@ -128,6 +166,7 @@ export function registerMemoryIpc(deps: {
       catch { if (epoch === generation) { service.configure({ memoryEnabled: false }); failure = true; publish(unavailable()); } }
     },
     async cleanup() {
+      deps.ipc.removeListener(ENGINE_CHANNELS.memoryEdits, edits);
       channels.forEach(channel => deps.ipc.removeHandler(channel));
       generation++; owner = null; service.configure({ memoryEnabled: false }); await serial(() => service.close());
     },

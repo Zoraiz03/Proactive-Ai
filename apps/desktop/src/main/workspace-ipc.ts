@@ -125,6 +125,7 @@ export function registerWorkspaceIpc(
     onWorkspaceOpened: (rootPath: string, webContentsId: number) => void;
     onWorkspaceClosed: (webContentsId?: number) => void;
     onWorkspaceChanged?: () => void;
+    onFileSaved?: (path: string) => Promise<void>;
   },
   userDataPath: string
 ): { clearWorkspace: () => Promise<void>; cleanup: () => Promise<void> } {
@@ -372,6 +373,7 @@ export function registerWorkspaceIpc(
           typeof request.relativePath === "string"
         ) {
           watcher.suppress([request.relativePath]);
+          await lifecycle.onFileSaved?.(request.relativePath);
           lifecycle.onWorkspaceChanged?.();
         }
         return {

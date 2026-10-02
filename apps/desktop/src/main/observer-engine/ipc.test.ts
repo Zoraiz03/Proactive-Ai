@@ -11,6 +11,30 @@ import { recentProjectId } from '../recent-projects.ts';
 import { LocalSettingsStore } from '../settings-store.ts';
 import { createMemoryBridge } from '../../preload/memory-bridge.ts';
 import { observeMemory, type MemoryView } from '../../renderer/src/engine/memory-view.ts';
+import { journalHash } from '../../shared/edit-journal.ts';
+
+test('edit IPC orders bootstrap and batches, rejects stale sessions and unauthorized workspace messages', async () => fixture(async f => {
+  await f.invoke(ENGINE_CHANNELS.memoryOpen, { workspaceId: f.id });
+  const text = 'export const count = 1;';
+  const begin = await f.invoke(ENGINE_CHANNELS.memoryBuffer, { workspaceId: f.id, sessionId: 'editor-1', path: 'main.ts', content: text });
+  assert.ok(begin.ok);
+  const batch = { path: 'main.ts', clientSeq: 1, expectedBaseHash: journalHash(text), deltas: [
+    { path: 'main.ts', offset: text.length, removedLen: 0, inserted: '\n// typed', origin: 'typing', ts: Date.now() },
+  ] };
+  f.handlers.get(ENGINE_CHANNELS.memoryEdits)!(f.event, { workspaceId: 'other', sessionId: 'editor-1', batch });
+  await f.controller.fileSaved('main.ts');
+  let status = await f.invoke(ENGINE_CHANNELS.memoryStatus, { workspaceId: f.id });
+  assert.ok(status.ok && status.value.journalRows === 0);
+  f.handlers.get(ENGINE_CHANNELS.memoryEdits)!(f.event, { workspaceId: f.id, sessionId: 'editor-1', batch });
+  // A save is an explicit queue barrier; disk drift rebaselines but retains the edit trail.
+  await f.controller.fileSaved('main.ts');
+  status = await f.invoke(ENGINE_CHANNELS.memoryStatus, { workspaceId: f.id });
+  assert.ok(status.ok && status.value.journalRows === 1);
+  f.handlers.get(ENGINE_CHANNELS.memoryEdits)!(f.event, { workspaceId: f.id, sessionId: 'editor-1', batch });
+  await f.controller.fileSaved('main.ts');
+  assert.ok(f.events.some(event => !event.result.ok && event.result.error.includes('resynchronization')));
+  assert.equal((await f.invoke(ENGINE_CHANNELS.memoryBuffer, { workspaceId: f.id, sessionId: 'x', path: '../outside', content: text })).ok, false);
+}));
 
 async function fixture(run: (f: {
   root: string; data: string; id: string; event: IpcMainInvokeEvent;
@@ -28,7 +52,7 @@ async function fixture(run: (f: {
   const window = { isDestroyed: () => false, webContents: sender } as unknown as BrowserWindow;
   const event = { sender, senderFrame: frame } as unknown as IpcMainInvokeEvent;
   let signedIn = true, consent = async () => true;
-  const ipc = { handle: (channel: string, fn: unknown) => handlers.set(channel, fn), removeHandler: (channel: string) => handlers.delete(channel) } as unknown as IpcMain;
+  const ipc = { on: (channel: string, fn: unknown) => handlers.set(channel, fn), removeListener: (channel: string) => handlers.delete(channel), handle: (channel: string, fn: unknown) => handlers.set(channel, fn), removeHandler: (channel: string) => handlers.delete(channel) } as unknown as IpcMain;
   const controller = registerMemoryIpc({ ipc, getWindow: () => signedIn ? window : null, userData: data, confirm: () => consent() });
   const invoke = (channel: string, request: unknown, source = event) => handlers.get(channel)(source, request) as Promise<IpcResult<MemoryStatus>>;
   try {
@@ -41,7 +65,7 @@ async function fixture(run: (f: {
 }
 
 test('IPC to preload to read-only model delivers real SQLite counts without content or credentials', async () => fixture(async f => {
-  const bridge = createMemoryBridge({ invoke: f.invoke, subscribe: (_channel, listener) => { f.listeners.add(listener); return () => { f.listeners.delete(listener); }; } });
+  const bridge = createMemoryBridge({ send: () => {}, invoke: f.invoke, subscribe: (_channel, listener) => { f.listeners.add(listener); return () => { f.listeners.delete(listener); }; } });
   const states: MemoryView[] = [];
   const stop = observeMemory(bridge, f.id, state => states.push(state));
   await new Promise(resolve => setImmediate(resolve));
@@ -104,7 +128,7 @@ test('read-only model ignores stale initial responses and unsubscribes on projec
   let initial!: (result: IpcResult<MemoryStatus>) => void;
   let listener!: (event: MemoryStatusEvent) => void;
   let removed = false;
-  const bridge = createMemoryBridge({ invoke: async () => new Promise(resolve => { initial = resolve; }), subscribe: (_channel, callback) => { listener = callback; return () => { removed = true; }; } });
+  const bridge = createMemoryBridge({ send: () => {}, invoke: async () => new Promise(resolve => { initial = resolve; }), subscribe: (_channel, callback) => { listener = callback; return () => { removed = true; }; } });
   const views: MemoryView[] = [];
   const stop = observeMemory(bridge, 'project', view => views.push(view));
   listener({ workspaceId: 'other', result: { ok: false, error: 'wrong project' } });

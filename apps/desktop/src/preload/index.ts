@@ -11,6 +11,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { createMemoryBridge } from './memory-bridge';
 import type { MemoryStatusEvent } from '../shared/observer-engine';
 contextBridge.exposeInMainWorld('engine', createMemoryBridge({
+  send: (channel, request) => ipcRenderer.send(channel, request),
   invoke: (channel, request) => ipcRenderer.invoke(channel, request),
   subscribe: (channel, listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, event: MemoryStatusEvent) => listener(event);
