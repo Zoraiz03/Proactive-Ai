@@ -83,7 +83,7 @@ for (const [language, name, code] of [['python', 'main.py', 'print("fixture-ok")
             out: string;
             err: string;
             ack: string;
-        }>((resolve, reject) => { const child = spawn(language === 'python' ? 'python3' : process.execPath, guardedRunArgs(language, file, expected), { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] }); let out = '', err = '', ack = ''; child.stdout.on('data', d => out += d); child.stderr.on('data', d => err += d); child.stdio[3]!.on('data', d => ack += d); child.on('error', reject); child.on('close', status => resolve({ status, out, err, ack })); });
+        }>((resolve, reject) => { const child = spawn(language === 'python' ? (process.platform === 'win32' ? 'python' : 'python3') : process.execPath, guardedRunArgs(language, file, expected), { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] }); let out = '', err = '', ack = ''; child.stdout.on('data', d => out += d); child.stderr.on('data', d => err += d); child.stdio[3]!.on('data', d => ack += d); child.on('error', reject); child.on('close', status => resolve({ status, out, err, ack })); });
         const good = await run(hash(code));
         assert.equal(good.status, 0, good.err);
         assert.equal(good.ack, hash(code));
