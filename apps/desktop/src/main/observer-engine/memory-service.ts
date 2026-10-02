@@ -8,6 +8,7 @@ import { DEFAULT_MEMORY_SETTINGS, type MemorySettings, type MemoryStatus, type S
 import { redactContextSecrets } from '../../shared/context-tray.ts';
 import { isExcludedFromAiContext, isMandatorySecretFile } from '../../shared/settings.ts';
 import { monacoLanguageForFile } from '../../shared/languages.ts';
+import { memoryChunks, memorySymbols } from '../../shared/memory-index.ts';
 import { prepareWorkspaceRoot, resolveWorkspacePath, normalizeWorkspaceRelativePath } from '../workspace-files.ts';
 import { shouldIgnoreWorkspaceWatchPath } from '../workspace-watcher.ts';
 import { recentProjectId } from '../recent-projects.ts';
@@ -42,8 +43,7 @@ function settingsSnapshot(input: Partial<MemorySettings>): MemorySettings {
 }
 
 /** Main-process service only. Caller supplies app.getPath('userData') and explicit consent.
- * TODO(spec §4.4): E1b adds chunks/symbols and IPC; E2 adds journals/watcher/retention.
- * This class is deliberately not connected to startup, renderer or a provider yet.
+ * TODO(spec §4.4): E2 adds journals/watcher/retention. No provider access here.
  */
 export class ProjectMemoryService {
   private memory: MemoryDatabase | null = null;
@@ -162,6 +162,16 @@ export class ProjectMemoryService {
     for (const table of ['baselines', 'chunks', 'symbols', ...(journal ? ['edit_journal'] : [])]) db.prepare(`DELETE FROM ${table} WHERE path=?`).run(path);
   }
 
+  private indexContent(path: string, text: string) {
+    const db = this.memory!.db;
+    db.prepare('DELETE FROM chunks WHERE path=?').run(path);
+    db.prepare('DELETE FROM symbols WHERE path=?').run(path);
+    const insertChunk = db.prepare('INSERT INTO chunks(path,chunk_idx,line_start,line_end,text,hash) VALUES(?,?,?,?,?,?)');
+    for (const chunk of memoryChunks(text)) insertChunk.run(path, chunk.index, chunk.lineStart, chunk.lineEnd, chunk.text, hash(chunk.text));
+    const insertSymbol = db.prepare('INSERT INTO symbols(path,name,kind,line_start,line_end) VALUES(?,?,?,?,?)');
+    for (const symbol of memorySymbols(text, monacoLanguageForFile(path))) insertSymbol.run(path, symbol.name, symbol.kind, symbol.lineStart, symbol.lineEnd);
+  }
+
   private exclude(path: string, size: number, mtime: number, reason: MemoryExclusion) {
     this.removeContent(path);
     this.memory!.db.prepare(`INSERT INTO files(path,language,size_bytes,mtime_ms,excluded,secret_flagged,exclusion,first_seen_at,updated_at)
@@ -217,7 +227,8 @@ export class ProjectMemoryService {
             db.transaction(() => this.exclude(path, info.size, info.mtimeMs, reason))(); report.excluded++; continue;
           }
           const old = db.prepare('SELECT * FROM files WHERE path=?').get(path) as FileRow | undefined;
-          if (!full && old && !old.excluded && !old.deleted && old.size_bytes === info.size && old.mtime_ms === info.mtimeMs) {
+          const needsIndex = info.size > 0 && !db.prepare('SELECT 1 FROM chunks WHERE path=? LIMIT 1').get(path);
+          if (!full && !needsIndex && old && !old.excluded && !old.deleted && old.size_bytes === info.size && old.mtime_ms === info.mtimeMs) {
             indexed++; report.unchanged++; continue;
           }
           const handle = await open(safe.realPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -244,6 +255,7 @@ export class ProjectMemoryService {
           const contentHash = hash(text);
           db.transaction(() => {
             if (old?.content_hash === contentHash && !old.excluded && !old.deleted) {
+              this.indexContent(path, text);
               db.prepare('UPDATE files SET mtime_ms=?,size_bytes=?,updated_at=? WHERE path=?').run(info.mtimeMs, info.size, this.timestamp(), path);
               report.unchanged++; return;
             }
@@ -255,6 +267,7 @@ export class ProjectMemoryService {
               excluded=0,secret_flagged=0,exclusion=NULL,deleted=0,updated_at=excluded.updated_at`)
               .run(path, monacoLanguageForFile(path), info.size, contentHash, info.mtimeMs, version, this.timestamp(), this.timestamp());
             db.prepare('INSERT INTO baselines VALUES(?,?,?,?,?)').run(path, version, deflateSync(text), contentHash, this.timestamp());
+            this.indexContent(path, text);
             report.updated++;
           })();
           indexed++;

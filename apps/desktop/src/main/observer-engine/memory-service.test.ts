@@ -7,6 +7,8 @@ import { inflateSync } from 'node:zlib';
 import Database from 'better-sqlite3';
 import { ProjectMemoryService } from './memory-service.ts';
 import { recentProjectId } from '../recent-projects.ts';
+import { searchMemoryChunks } from './database.ts';
+import { createHash } from 'node:crypto';
 
 async function fixture(run: (f: { root: string; data: string; service: ProjectMemoryService; db: () => Database.Database }) => Promise<void>, enabled = true) {
   const base = await mkdtemp(join(tmpdir(), 'memory-scan-'));
@@ -34,6 +36,28 @@ test('scan stores compressed baselines locally, increments changed versions and 
   } finally { connection.close(); }
   await service.close();
   assert.equal((await service.open(root, 'existing')).indexedFiles, 1);
+}));
+
+test('index backfills E1a baselines, updates atomically and purges searchable content on exclusion', async () => fixture(async ({ root, service, db }) => {
+  const source = 'export function searchable() {}\n' + Array.from({ length: 80 }, (_, i) => `const value${i} = ${i};`).join('\n');
+  await writeFile(join(root, 'main.ts'), source); await service.open(root, 'existing');
+  const connection = db();
+  try {
+    const chunks = connection.prepare('SELECT text,hash,line_start,line_end FROM chunks ORDER BY chunk_idx').all() as { text: string; hash: string; line_start: number; line_end: number }[];
+    assert.equal(chunks.length, 3);
+    assert.equal(chunks[0].hash, createHash('sha256').update(chunks[0].text).digest('hex'));
+    assert.equal((connection.prepare('SELECT count(*) n FROM symbols').get() as { n: number }).n, 81);
+    connection.exec('DELETE FROM chunks; DELETE FROM symbols');
+    assert.equal((await service.scan()).unchanged, 1);
+    assert.equal((connection.prepare('SELECT count(*) n FROM chunks').get() as { n: number }).n, 3);
+    assert.equal((connection.prepare('SELECT baseline_ver v FROM files').get() as { v: number }).v, 1);
+    assert.equal(searchMemoryChunks({ db: connection, searchMode: 'fts5' }, ['searchable']).length, 1);
+    await writeFile(join(root, 'main.ts'), 'const replacement = 1;'); await service.scan({ full: true });
+    assert.equal(searchMemoryChunks({ db: connection, searchMode: 'fts5' }, ['searchable']).length, 0);
+    service.configure({ exclusions: ['main.ts'] });
+    assert.equal(searchMemoryChunks({ db: connection, searchMode: 'fts5' }, ['replacement']).length, 0);
+    assert.equal((connection.prepare('SELECT count(*) n FROM symbols').get() as { n: number }).n, 0);
+  } finally { connection.close(); }
 }));
 
 test('mandatory secrets, user rules, generated dirs and lockfiles are metadata only', async () => fixture(async ({ root, service, db }) => {
