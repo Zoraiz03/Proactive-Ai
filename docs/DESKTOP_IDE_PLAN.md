@@ -1590,6 +1590,55 @@ headers return 401, and authorization data is not logged.
 
 ## Changelog
 
+### 2026-10-02 — Observer Engine Phase 0 baseline audit (P0-T1)
+
+- Read all of `OBSERVER_ENGINE_SPEC.md` v1.1, including §0, the independent
+  switches in §7.0 and the stop-after-each-phase requirement.
+- Baseline is commit `d2a9bbc` on `desktop-ide-foundation`. The workspace root
+  is an extracted folder without `.git`; the existing `.push-checkout` holds
+  the branch history. Commands below ran against the working project in the
+  workspace root, on Windows/PowerShell, Node `v24.13.0`, npm `11.6.2`.
+- Audit commands completed; the required desktop test gate remains failed.
+  No source changes, test skips, privacy relaxations or machine configuration
+  changes were introduced to make the baseline appear green.
+
+| Working directory | Command (PowerShell uses `npm.cmd`) | Result |
+|---|---|---|
+| `apps/desktop` | `npm run typecheck` | PASS, exit 0 |
+| `apps/desktop` | `npm test` | FAIL, exit 1: 255 tests, 250 pass, 4 fail, 1 existing skip |
+| repository root | `npm run lint` | PASS, exit 0; no ESLint warnings/errors |
+| repository root | `npm run build` | PASS, exit 0; all 14 static pages generated; warnings below |
+| `apps/chrome-extension` | `npm test` | PASS, exit 0; 11/11 tests |
+| `apps/chrome-extension` | `npm run build` | PASS, exit 0; Manifest V3 validation passed |
+
+Initial sandbox desktop/extension tests and root build failed with `spawn EPERM`.
+Approved retries outside that sandbox allowed subprocesses to run. The desktop
+retry still failed these existing tests:
+
+- `main/fix-code.test.ts:78`: guarded `main.py` runner assertion failed because
+  the Windows Python command resolves to the Microsoft Store alias, not an
+  available Python runtime.
+- `main/multi-file-change.test.ts:52`: secret/binary/symbolic-link test could not
+  create its symlink (`EPERM`).
+- `main/project-context.test.ts:97` and `:161`: escaping-symlink and stale-tray
+  tests likewise failed at symlink creation (`EPERM`).
+- Existing skipped test: Git process timeout/cancellation fixture uses a POSIX
+  shebang. This task did not add that skip.
+
+Full baseline logs are local `%TEMP%/proactive-phase0-*.log`; authoritative retry
+logs are `proactive-phase0-desktop-tests-retry.log`,
+`proactive-phase0-extension-tests-retry.log` and
+`proactive-phase0-root-build-retry.log`. Other successful logs are
+`proactive-phase0-desktop-typecheck.log`, `proactive-phase0-root-lint.log` and
+`proactive-phase0-extension-build.log`. Logs are not committed.
+
+Build warnings: webpack large-string cache serialization and Supabase's
+`process.version` use in the Edge Runtime. Desktop tests also emit Node's
+existing module-type warnings. These do not explain away the four test failures.
+Before claiming a green baseline, provide an actual Python runtime and Windows
+symlink creation privileges (Developer Mode or an appropriately privileged test
+environment), then rerun the desktop suite without weakening its assertions.
+
 ### 2026-09-04 — Phase 13D final UI/UX polish complete
 
 - Added responsive containment for compact windows, long paths and code, dialogs, action
