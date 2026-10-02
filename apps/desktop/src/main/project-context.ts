@@ -27,7 +27,7 @@ import { normalizeWorkspaceRelativePath, readWorkspaceTextFile, resolveWorkspace
 const GENERATED = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", "out", "vendor"]);
 const CODE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".java", ".c", ".cpp", ".h"];
 const CONFIG_FILES = ["package.json", "tsconfig.json", "vitest.config.ts", "vite.config.ts", "jest.config.js", "jest.config.ts", "pytest.ini", "pyproject.toml"];
-const RULE_FILES = ["AGENTS.md", ".proactive/rules.md", "README.md"];
+export const RULE_FILES = ["AGENTS.md", ".proactive/rules.md", "README.md"];
 
 export interface ProjectContextEngineOptions { maximumCandidates?: number }
 
@@ -40,7 +40,7 @@ export function redactProjectSecrets(content: string): { content: string; redact
 }
 
 export { detectCurrentSymbol } from '../shared/project-symbol.ts';
-function importSpecifiers(content: string): string[] {
+export function importSpecifiers(content: string): string[] {
   const values = new Set<string>();
   const patterns = [/(?:from\s+|import\s*\(|require\s*\()\s*["']([^"']+)["']/g, /(?:import|export)\s+[^;]*?\sfrom\s+["']([^"']+)["']/g];
   for (const pattern of patterns) {
@@ -50,14 +50,14 @@ function importSpecifiers(content: string): string[] {
   return Array.from(values);
 }
 
-function candidatePathsForImport(activePath: string, specifier: string): string[] {
+export function candidatePathsForImport(activePath: string, specifier: string): string[] {
   const raw = posix.normalize(posix.join(dirname(activePath).replaceAll("\\", "/"), specifier));
   if (raw.startsWith("../") || raw === "..") return [];
   if (extname(raw)) return [raw];
   return [...CODE_EXTENSIONS.map((extension) => `${raw}${extension}`), ...CODE_EXTENSIONS.map((extension) => `${raw}/index${extension}`)];
 }
 
-function testNameCandidates(activePath: string): string[] {
+export function testNameCandidates(activePath: string): string[] {
   const directory = dirname(activePath).replaceAll("\\", "/");
   const extension = extname(activePath);
   const stem = basename(activePath, extension);

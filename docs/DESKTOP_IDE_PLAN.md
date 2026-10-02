@@ -63,7 +63,7 @@ their original meaning.
 | Phase E1 | In Progress | E1a and E1b implementation complete; Electron runtime and packaged-launch acceptance pending |
 | Phase E1b (P1-T4, P1-T5) | In Progress | Chunks/symbols, validated memory IPC, typed preload and read-only Privacy MemoryPanel implemented; typecheck passed; desktop tests 312 passed, 0 failed, 1 existing skip; native/runtime verification pending |
 | Phase E2 (P2-T1 through P2-T5) | Implementation complete; runtime acceptance pending | Validated delta replay, Monaco capture with origin/flush rules, private transactional journals and 20-file LRU, save drift recovery, external-change rebaselines, compaction and retention implemented |
-| Phase E3 | Not Started | Context assembly, retrieval, budgets and manifest |
+| Phase E3 (P3-T1 through P3-T5) | In Progress | A-J context builders, bounded retrieval, edit bursts, feedback memory and local manifest preview; E4 remains out of scope |
 | Phase E4 | Not Started | Independent switches, engine governance, backend and outcomes; optional real streaming |
 | Phase E5 | Not Started | Opt-in Chrome page context v2 and bridge integration |
 | Phase E6 | Not Started | New-project wizard, brief, plan and phase-aware help |
