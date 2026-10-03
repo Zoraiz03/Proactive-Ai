@@ -21,6 +21,8 @@ import type { WorkspaceChange } from '../../shared/workspace';
 import type { EditBatch, JournalRow } from '../../shared/observer-engine.ts';
 import { editBursts } from '../../shared/edit-bursts.ts';
 import type { EditBurst } from '../../shared/engine-context.ts';
+import { storeSuggestion, storeOutcome, readFeedback } from './feedback-store.ts';
+import type { MemorySuggestion, SuggestionOutcome } from '../../shared/feedback-memory.ts';
 
 const GENERATED = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', 'coverage', 'vendor', '__pycache__', '.venv']);
 const LOCKFILES = /(?:^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|uv\.lock|Pipfile\.lock|composer\.lock|Gemfile\.lock|.*\.lock)$/i;
@@ -509,6 +511,23 @@ export class ProjectMemoryService {
       this.memory!.db.prepare('UPDATE files SET size_bytes=?,mtime_ms=? WHERE path=?').run(disk.size, disk.mtime, path);
     } catch (error) { if (this.active(epoch)) { this.exclude(path, 0, 0, (error as Error).message === 'memory_secret' ? 'secret_flagged' : 'unreadable'); this.scrub(); } }
     this.emit();
+  }
+
+  recordSuggestion(row: MemorySuggestion) {
+    if (row.workspaceId!==this.workspaceId || !this.active(this.generation) || this.contextFile(row.path).text===null) throw new Error('memory_suggestion_denied');
+    storeSuggestion(this.memory!.db,row,this.timestamp());
+  }
+  recordOutcome(workspaceId: string, id: string, outcome: SuggestionOutcome) {
+    if (workspaceId!==this.workspaceId || !this.active(this.generation)) throw new Error('memory_outcome_denied');
+    storeOutcome(this.memory!.db,id,outcome,this.timestamp());
+  }
+  feedback(): string {
+    if (!this.active(this.generation)) return '';
+    const checked = new Map<string,boolean>();
+    return readFeedback(this.memory!.db,path=>{
+      if (!checked.has(path)) checked.set(path,this.contextFile(path).text!==null);
+      return checked.get(path)!;
+    });
   }
 
   recentEdits(path: string, limit = 6): EditBurst[] {
