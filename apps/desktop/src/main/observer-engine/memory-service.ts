@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, open, opendir, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 import { DEFAULT_MEMORY_SETTINGS, type MemorySettings, type MemoryStatus, type ScanReport,
   type MemoryExclusion, type PurgeScope } from '../../shared/observer-engine.ts';
 import { redactContextSecrets } from '../../shared/context-tray.ts';
@@ -18,7 +18,9 @@ import { safeDiskText } from './safe-disk-text.ts';
 import { retrieveChunks, retrieveWeb } from './retrieval.ts';
 import type { ChunkHit, WebHit } from '../../shared/engine-context.ts';
 import type { WorkspaceChange } from '../../shared/workspace';
-import type { EditBatch } from '../../shared/observer-engine.ts';
+import type { EditBatch, JournalRow } from '../../shared/observer-engine.ts';
+import { editBursts } from '../../shared/edit-bursts.ts';
+import type { EditBurst } from '../../shared/engine-context.ts';
 
 const GENERATED = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', 'coverage', 'vendor', '__pycache__', '.venv']);
 const LOCKFILES = /(?:^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|uv\.lock|Pipfile\.lock|composer\.lock|Gemfile\.lock|.*\.lock)$/i;
@@ -507,6 +509,26 @@ export class ProjectMemoryService {
       this.memory!.db.prepare('UPDATE files SET size_bytes=?,mtime_ms=? WHERE path=?').run(disk.size, disk.mtime, path);
     } catch (error) { if (this.active(epoch)) { this.exclude(path, 0, 0, (error as Error).message === 'memory_secret' ? 'secret_flagged' : 'unreadable'); this.scrub(); } }
     this.emit();
+  }
+
+  recentEdits(path: string, limit = 6): EditBurst[] {
+    if (this.contextFile(path).text===null) return [];
+    try {
+      const rows = this.memory!.db.prepare('SELECT * FROM edit_journal WHERE path=? ORDER BY seq LIMIT 20001').all(path) as JournalRow[];
+      if (rows.length>20000) { this.warn('memory_burst_limit'); return []; }
+      const baselines = new Map<number,string>();
+      for (const version of new Set(rows.map(row=>row.base_ver))) {
+        const row = this.memory!.db.prepare('SELECT content,content_hash FROM baselines WHERE path=? AND version=?').get(path,version) as {content:Buffer;content_hash:string} | undefined;
+        if (!row) return [];
+        const text = inflateSync(row.content,{maxOutputLength:this.settings.maxFileBytes}).toString('utf8');
+        if (hash(text)!==row.content_hash) throw new Error('memory_burst_hash');
+        baselines.set(version,text);
+      }
+      return editBursts(path,baselines,rows,limit);
+    } catch (error) {
+      if ((error as Error).message==='memory_secret') { this.exclude(path,0,0,'secret_flagged'); this.scrub(); }
+      this.warn('memory_burst_unavailable'); return [];
+    }
   }
 
   contextFile(path: string): { text: string | null; reason?: 'excluded'|'secret'|'stale'|'none_found' } {
