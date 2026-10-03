@@ -12,6 +12,18 @@ import { createHash } from 'node:crypto';
 import type { EditBatch } from '../../shared/observer-engine.ts';
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
+test('context retrieval uses unsaved journal text, re-screens disk secrets and respects live exclusions', async () => fixture(async ({ root, service }) => {
+  await writeFile(join(root,'context.ts'),'widget'); await service.open(root,'existing');
+  service.applyEditBatch(edit('context.ts','widget',' changed'));
+  assert.equal(service.contextFile('context.ts').text,'widget changed');
+  assert.equal(service.searchChunks(['changed'],{limit:4})[0]?.text,'widget changed');
+  assert.equal(service.contextFile('../outside').text,null);
+  service.configure({exclusions:['context.ts']}); assert.deepEqual(service.searchChunks(['widget'],{limit:4}),[]);
+  service.configure({exclusions:[]}); await service.scan({full:true});
+  await writeFile(join(root,'context.ts'),'api_key="sk-'+ 'x'.repeat(40)+'"');
+  assert.equal(service.contextFile('context.ts').reason,'secret');
+  assert.equal(service.status().chunks,0);
+}));
 const edit = (path: string, before: string, inserted: string, clientSeq = 1): EditBatch => ({ path, clientSeq,
   expectedBaseHash: digest(before), deltas: [{ path, offset: before.length, removedLen: 0, inserted, origin: 'typing', ts: 1234567 }] });
 

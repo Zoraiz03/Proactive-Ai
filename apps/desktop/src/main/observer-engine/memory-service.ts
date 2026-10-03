@@ -15,6 +15,8 @@ import { recentProjectId } from '../recent-projects.ts';
 import { openMemoryDatabase, type MemoryDatabase } from './database.ts';
 import { JournalStore } from './journal-store.ts';
 import { safeDiskText } from './safe-disk-text.ts';
+import { retrieveChunks, retrieveWeb } from './retrieval.ts';
+import type { ChunkHit, WebHit } from '../../shared/engine-context.ts';
 import type { WorkspaceChange } from '../../shared/workspace';
 import type { EditBatch } from '../../shared/observer-engine.ts';
 
@@ -505,6 +507,50 @@ export class ProjectMemoryService {
       this.memory!.db.prepare('UPDATE files SET size_bytes=?,mtime_ms=? WHERE path=?').run(disk.size, disk.mtime, path);
     } catch (error) { if (this.active(epoch)) { this.exclude(path, 0, 0, (error as Error).message === 'memory_secret' ? 'secret_flagged' : 'unreadable'); this.scrub(); } }
     this.emit();
+  }
+
+  contextFile(path: string): { text: string | null; reason?: 'excluded'|'secret'|'stale'|'none_found' } {
+    if (!this.active(this.generation)) return { text: null, reason: 'excluded' };
+    try { if (!path || normalizeWorkspaceRelativePath(path).relativePath !== path) return { text: null, reason: 'excluded' }; }
+    catch { return { text: null, reason: 'excluded' }; }
+    try {
+      if (this.exclusion(path)) return { text: null, reason: 'excluded' };
+      const row = this.memory!.db.prepare('SELECT * FROM files WHERE path=?').get(path) as FileRow | undefined;
+      if (!row) return { text: null, reason: 'none_found' };
+      if (row.excluded || row.deleted) return { text: null, reason: 'excluded' };
+      safeDiskText(this.root,path,this.settings.maxFileBytes); // Catch replaced links and secrets before serving cached text.
+      const text = this.readCurrent(path);
+      if (text === null) return { text: null, reason: 'stale' };
+      if (redactContextSecrets(text).redacted) throw new Error('memory_secret');
+      return { text };
+    } catch (error) {
+      const secret = (error as Error).message === 'memory_secret';
+      this.exclude(path,0,0,secret ? 'secret_flagged' : 'unreadable'); this.scrub();
+      return { text: null, reason: secret ? 'secret' : 'stale' };
+    }
+  }
+  screenContext(path: string, text: string): boolean {
+    if (this.contextFile(path).text === null) return false;
+    if (Buffer.byteLength(text)>this.settings.maxFileBytes || text.includes('\0')) return false;
+    if (redactContextSecrets(text).redacted) { this.exclude(path,0,0,'secret_flagged'); this.scrub(); this.emit(); return false; }
+    return true;
+  }
+  searchChunks(terms: string[], opts: { limit: number; excludePath?: string }): ChunkHit[] {
+    if (!this.active(this.generation)) return [];
+    const checked = new Map<string,string | null>();
+    return retrieveChunks(this.memory!,terms,50,opts.excludePath).filter(hit=>{
+      if (!checked.has(hit.path)) checked.set(hit.path,this.contextFile(hit.path).text);
+      const text = checked.get(hit.path);
+      return text != null && text.split('\n').slice(hit.lineStart-1,hit.lineEnd).join('\n').replaceAll('\r','')===hit.text.replaceAll('\r','');
+    }).slice(0,Math.max(1,Math.min(50,opts.limit)));
+  }
+  searchWeb(terms: string[], limit: number): WebHit[] {
+    return this.active(this.generation) ? retrieveWeb(this.memory!,terms,this.timestamp(),limit) : [];
+  }
+  /** E4 calls only after dispatch; local previews must not change usage counters. */
+  markWebSent(ids: readonly string[]) {
+    if (!this.active(this.generation)) return;
+    this.memory!.db.transaction(()=>{ for (const id of new Set(ids.slice(0,3))) this.memory!.db.prepare('UPDATE web_captures SET use_count=use_count+1 WHERE id=? AND expires_at>?').run(id,this.timestamp()); })();
   }
 
   status(): MemoryStatus {

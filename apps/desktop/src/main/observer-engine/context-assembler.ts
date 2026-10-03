@@ -1,5 +1,5 @@
 import { detectCurrentSymbol, RULE_FILES, importSpecifiers, candidatePathsForImport, testNameCandidates } from '../project-context.ts';
-import { redactContextSecrets } from '../../shared/context-tray.ts';
+import { retrievalTerms } from '../../shared/context-ranking.ts';
 import { finalizeContext, type ContextSeed, type ContextBlock, type ChunkHit, type WebHit, type EditBurst } from '../../shared/engine-context.ts';
 import type { ContextManifest } from '../../shared/observer-engine.ts';
 
@@ -61,8 +61,4 @@ export function assembleContext(seed: ContextSeed, source: ContextSource) {
   if (!web.length) omitted.push({ id: 'I', reason: 'none_found' });
   add('J','feedback_memory',seed.path,source.feedback(seed.path));
   return finalizeContext(seed.workspaceId, blocks, seed.maximumCharacters, omitted);
-}
-const STOP = new Set(['the','and','for','with','from','this','that','return','const','let','var','function','class','import','export','true','false','null','undefined']);
-export function retrievalTerms(values: readonly string[]): string[] {
-  return [...new Set(values.flatMap(value => redactContextSecrets(value).redacted ? [] : value.toLowerCase().match(/[\p{L}\p{N}_]{3,}/gu) ?? []))].filter(term=>!STOP.has(term)).slice(0,24);
 }
