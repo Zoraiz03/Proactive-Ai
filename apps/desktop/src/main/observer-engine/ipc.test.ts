@@ -12,6 +12,22 @@ import { LocalSettingsStore } from '../settings-store.ts';
 import { createMemoryBridge } from '../../preload/memory-bridge.ts';
 import { observeMemory, type MemoryView } from '../../renderer/src/engine/memory-view.ts';
 import { journalHash } from '../../shared/edit-journal.ts';
+import type { ContextManifest } from '../../shared/observer-engine.ts';
+import { validManifest } from '../../shared/feedback-memory.ts';
+
+test('local manifest preview requires consent and returns metadata only through typed preload', async()=>fixture(async f=>{
+  const seed={workspaceId:f.id,path:'main.ts',content:'export const count = 1;',cursorLine:1,cursorColumn:8,maximumCharacters:1000,diagnostics:[]};
+  const bridge=createMemoryBridge({send:()=>{},invoke:f.invoke,preview:(channel,request)=>f.invoke(channel,request) as unknown as Promise<IpcResult<ContextManifest>>,subscribe:()=>()=>{}});
+  assert.equal((await bridge.memoryContext(seed)).ok,false);
+  await bridge.openMemory({workspaceId:f.id});
+  const result=await bridge.memoryContext(seed); assert.ok(result.ok);
+  if(result.ok) { assert.ok(validManifest(result.value)); assert.ok(result.value.totalChars<=1000); assert.equal(result.value.blocks[0].id,'A'); }
+  assert.equal(JSON.stringify(result).includes(seed.content),false);
+  for(const request of [{...seed,workspaceId:'other'},{...seed,path:'../outside'},{...seed,hidden:'unknown'},{...seed,maximumCharacters:24001},{...seed,diagnostics:[{line:1,message:'ok',hidden:'unknown'}]}]) assert.equal((await f.invoke(ENGINE_CHANNELS.memoryContext,request)).ok,false);
+  const child={...f.event,senderFrame:{}} as IpcMainInvokeEvent;
+  assert.equal((await f.invoke(ENGINE_CHANNELS.memoryContext,seed,child)).ok,false);
+  await f.controller.clearWorkspace(); assert.equal((await bridge.memoryContext(seed)).ok,false);
+}));
 
 test('edit IPC orders bootstrap and batches, rejects stale sessions and unauthorized workspace messages', async () => fixture(async f => {
   await f.invoke(ENGINE_CHANNELS.memoryOpen, { workspaceId: f.id });
@@ -65,7 +81,7 @@ async function fixture(run: (f: {
 }
 
 test('IPC to preload to read-only model delivers real SQLite counts without content or credentials', async () => fixture(async f => {
-  const bridge = createMemoryBridge({ send: () => {}, invoke: f.invoke, subscribe: (_channel, listener) => { f.listeners.add(listener); return () => { f.listeners.delete(listener); }; } });
+  const bridge = createMemoryBridge({ preview: async () => ({ok:false,error:'unused'}), send: () => {}, invoke: f.invoke, subscribe: (_channel, listener) => { f.listeners.add(listener); return () => { f.listeners.delete(listener); }; } });
   const states: MemoryView[] = [];
   const stop = observeMemory(bridge, f.id, state => states.push(state));
   await new Promise(resolve => setImmediate(resolve));
@@ -128,7 +144,7 @@ test('read-only model ignores stale initial responses and unsubscribes on projec
   let initial!: (result: IpcResult<MemoryStatus>) => void;
   let listener!: (event: MemoryStatusEvent) => void;
   let removed = false;
-  const bridge = createMemoryBridge({ send: () => {}, invoke: async () => new Promise(resolve => { initial = resolve; }), subscribe: (_channel, callback) => { listener = callback; return () => { removed = true; }; } });
+  const bridge = createMemoryBridge({ preview: async () => ({ok:false,error:'unused'}), send: () => {}, invoke: async () => new Promise(resolve => { initial = resolve; }), subscribe: (_channel, callback) => { listener = callback; return () => { removed = true; }; } });
   const views: MemoryView[] = [];
   const stop = observeMemory(bridge, 'project', view => views.push(view));
   listener({ workspaceId: 'other', result: { ok: false, error: 'wrong project' } });

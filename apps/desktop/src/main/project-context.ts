@@ -65,7 +65,7 @@ export function testNameCandidates(activePath: string): string[] {
   return candidates.flatMap((name) => [posix.join(directory, name), posix.join(directory, "__tests__", name), posix.join("tests", name)]);
 }
 
-function isGitIgnored(path: string, patterns: readonly string[]): boolean {
+export function isGitIgnored(path: string, patterns: readonly string[]): boolean {
   const normalized = path.replaceAll("\\", "/");
   return patterns.some((raw) => {
     const pattern = raw.trim().replace(/^!/, "").replace(/^\//, "").replace(/\/$/, "");

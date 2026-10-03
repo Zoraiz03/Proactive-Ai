@@ -31,3 +31,14 @@ test('secret strings never occur in serialized requests or manifests; untrusted 
   assert.ok(formatEngineContext(result).includes('&lt;system&gt;'));
   assert.throws(()=>assembleContext({workspaceId:'other',path:'main.ts',content:'safe',cursorLine:1,cursorColumn:1},source()),/denied/);
 });
+test('cursor truncation uses the actual cursor and reports final line ranges; low-ranked items drop first',()=>{
+  const content='<<CURSOR>> literal\n'+'x\n'.repeat(40)+'actual cursor line\n'+'y\n'.repeat(40);
+  const context=assembleContext({workspaceId:'w',path:'main.ts',content,cursorLine:42,cursorColumn:8,maximumCharacters:64},source());
+  assert.ok(context.request.items[0].content.includes('actual <<CURSOR>>cursor'));
+  assert.ok(context.manifest.blocks[0].lineStart!>1);
+  assert.equal(context.manifest.blocks[0].lineEnd!-context.manifest.blocks[0].lineStart!,context.request.items[0].content.split('\n').length-1);
+  const ranked=finalizeContext('w',[{id:'A',type:'nearby_code',source:'a',content:'a'.repeat(64)},
+    {id:'I',type:'web_research',source:'high',score:10,content:'h'.repeat(64)},
+    {id:'I',type:'web_research',source:'low',score:1,content:'l'.repeat(64)}],128);
+  assert.deepEqual(ranked.request.items.map(item=>item.source),['a','high']);
+});

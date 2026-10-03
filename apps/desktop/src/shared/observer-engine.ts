@@ -1,7 +1,8 @@
 // Contracts only: no Node, Electron, filesystem or database imports.
 import type { IpcResult } from './workspace';
+import type { ContextSeed } from './engine-context';
 export const ENGINE_CHANNELS = {
-  memoryOpen: 'memory:open', memoryStatus: 'memory:status', memoryEdits: 'memory:edits', memoryBuffer: 'memory:buffer',
+  memoryOpen: 'memory:open', memoryStatus: 'memory:status', memoryEdits: 'memory:edits', memoryBuffer: 'memory:buffer', memoryContext: 'memory:context',
   memoryPause: 'memory:pause', memoryPurge: 'memory:purge', configure: 'engine:configure',
   edit: 'engine:edit', activity: 'engine:activity', state: 'engine:state',
   outcome: 'engine:outcome', resume: 'engine:resume', stream: 'engine:stream',
@@ -52,6 +53,7 @@ export interface MemoryPauseRequest extends MemoryRequest { paused: boolean }
 export interface MemoryPurgeRequest extends MemoryRequest { scope: PurgeScope }
 export interface MemoryStatusEvent { workspaceId: string | null; result: IpcResult<MemoryStatus> }
 export interface EngineBridge {
+  memoryContext(request: ContextSeed): Promise<IpcResult<ContextManifest>>;
   beginBuffer(request: MemoryBufferRequest): Promise<IpcResult<MemoryStatus>>;
   memoryEdits(request: MemoryEditsRequest): void;
   openMemory(request: MemoryRequest): Promise<IpcResult<MemoryStatus>>;

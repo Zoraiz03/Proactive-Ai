@@ -2991,6 +2991,13 @@ export default function App({ user, onSignOut }: AppProps) {
         onAddContext={() => { if (documentationUpdateRelationship) void addDocumentationRelationshipContext(documentationUpdateRelationship); }}
       />}
       <SettingsPanel memoryWorkspaceId={openedWorkspace?.workspaceId}
+        memoryContextSeed={openedWorkspace && activeTab ? { workspaceId:openedWorkspace.workspaceId,
+          path:activeTab.file.relativePath,content:activeTab.draft,
+          cursorLine:observerSnapshot?.relativePath===activeTab.file.relativePath?observerSnapshot.cursorLine:1,
+          cursorColumn:observerSnapshot?.relativePath===activeTab.file.relativePath?observerSnapshot.cursorColumn:1,
+          maximumCharacters:Math.min(16000,syncedSettings.maximumContextChars),
+          diagnostics:syncedSettings.includeDiagnostics ? (fixDiagnostics?.path===activeTab.file.relativePath ? fixDiagnostics.diagnostics.slice(0,100).map(d=>({line:d.line??1,message:d.message.slice(0,2000)})) : []) : [],
+        } : undefined}
         open={settingsOpen}
         local={localSettings}
         synced={syncedSettings}

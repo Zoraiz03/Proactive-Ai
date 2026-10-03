@@ -1,5 +1,6 @@
 import { detectCurrentSymbol, RULE_FILES, importSpecifiers, candidatePathsForImport, testNameCandidates } from '../project-context.ts';
 import { retrievalTerms } from '../../shared/context-ranking.ts';
+import { redactContextSecrets } from '../../shared/context-tray.ts';
 import { finalizeContext, type ContextSeed, type ContextBlock, type ChunkHit, type WebHit, type EditBurst } from '../../shared/engine-context.ts';
 import type { ContextManifest } from '../../shared/observer-engine.ts';
 
@@ -25,14 +26,16 @@ export function assembleContext(seed: ContextSeed, source: ContextSource) {
   const lines = seed.content.split('\n'), cursor = Math.min(seed.cursorLine, lines.length), start = Math.max(0, cursor - 26), end = Math.min(lines.length, cursor + 25);
   const window = lines.slice(start, end); const index = cursor - 1 - start, column = Math.min(seed.cursorColumn - 1, window[index].length);
   window[index] = window[index].slice(0,column) + '<<CURSOR>>' + window[index].slice(column);
-  add('A','nearby_code',seed.path,window.join('\n'),{ lineStart: start + 1, lineEnd: end });
+  add('A','nearby_code',seed.path,window.join('\n'),{ lineStart: start + 1, lineEnd: end, cursorOffset:window.slice(0,index).reduce((n,line)=>n+line.length+1,0)+column });
   const symbol = detectCurrentSymbol(seed.content, cursor);
   add('B','current_symbol',seed.path,symbol?.content ?? '',symbol ? { lineStart: symbol.lineStart, lineEnd: symbol.lineEnd } : {});
   add('C','file_outline',seed.path,source.outline(seed.path));
   add('D','edit_trail',seed.path,source.edits(seed.path).slice(-6).map(burst => `added lines ${burst.addedLines.join('-')}; +${burst.addedChars} chars, -${burst.removedChars} chars: ${burst.preview}`).join('\n'));
   const brief = source.brief();
   const imports = importSpecifiers(seed.content);
-  const terms = retrievalTerms([lines.slice(Math.max(0,cursor-16),cursor+15).join('\n'), ...imports, seed.path.split('/').at(-1) ?? '', brief ?? '', seed.diagnostics?.at(-1)?.message ?? '']);
+  let stack='';
+  try { stack=JSON.stringify(JSON.parse(brief ?? '{}').stack ?? ''); } catch { /* Invalid brief contributes no query terms. */ }
+  const terms = retrievalTerms([lines.slice(Math.max(0,cursor-16),cursor+15).join('\n'), ...imports, seed.path.split('/').at(-1) ?? '', stack, seed.diagnostics?.at(-1)?.message ?? '']);
   const related = new Set<string>();
   const offer = (path: string, score: number) => {
     if (path === seed.path || related.has(path) || related.size >= 4) return false;
@@ -51,7 +54,8 @@ export function assembleContext(seed: ContextSeed, source: ContextSource) {
   let rules = 0;
   for (const path of RULE_FILES) {
     const file = source.read(path);
-    if (file.text !== null) { add('G','project_rule',path,file.text.slice(0,Math.max(0,1000-rules)),{ truncated: file.text.length > 1000-rules }); rules += Math.min(file.text.length,1000-rules); }
+    if (file.text !== null && redactContextSecrets(file.text).redacted) omitted.push({id:'G',reason:'secret'});
+    else if (file.text !== null) { add('G','project_rule',path,file.text.slice(0,Math.max(0,1000-rules)),{ truncated: file.text.length > 1000-rules }); rules += Math.min(file.text.length,1000-rules); }
     else omitted.push({ id: 'G', reason: file.reason ?? 'none_found' });
   }
   const diagnostics = [...(seed.diagnostics ?? [])].filter(d => Math.abs(d.line-cursor)<=25).sort((a,b)=>Math.abs(a.line-cursor)-Math.abs(b.line-cursor)).slice(0,3);

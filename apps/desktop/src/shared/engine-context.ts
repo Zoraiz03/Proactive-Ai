@@ -7,6 +7,7 @@ export type BlockId = ContextManifest['blocks'][number]['id'];
 export interface ContextBlock {
   id: BlockId; type: string; source: string; content: string;
   lineStart?: number; lineEnd?: number; score?: number; webCaptureId?: string;
+  cursorOffset?: number;
   redacted?: boolean; truncated?: boolean;
 }
 export interface AssembledContext {
@@ -27,9 +28,8 @@ export interface ChunkHit { path: string; text: string; lineStart: number; lineE
 export interface WebHit { id: string; text: string; title: string; hostname: string; url: string; capturedAt: number; pinned: boolean; score: number }
 export const BLOCK_CAPS: Record<BlockId, number> = { A: 3000, B: 2500, C: 600, D: 1800, E: 1200, F: 1200, G: 1000, H: 900, I: 1200, J: 600 };
 const DROP: BlockId[] = ['J','C','G','I','E','D','F','B','H'];
-export function aroundCursor(text: string, cap: number): string {
+export function aroundCursor(text: string, cap: number, marker = text.indexOf('<<CURSOR>>')): string {
   if (text.length <= cap) return text;
-  const marker = text.indexOf('<<CURSOR>>');
   const center = marker < 0 ? 0 : marker + 5;
   const start = Math.max(0, Math.min(text.length - cap, center - Math.floor(cap / 2)));
   return text.slice(start, start + cap);
@@ -45,8 +45,12 @@ export function finalizeContext(workspaceId: string, candidates: ContextBlock[],
     }
     if (!block.content) return [];
     const limit = BLOCK_CAPS[block.id];
-    const content = block.id === 'A' ? aroundCursor(block.content, Math.min(cap, limit)) : block.content.slice(0, limit);
-    return [{ ...block, content, redacted: block.redacted ?? false, truncated: !!block.truncated || content.length < block.content.length }];
+    const marker=block.cursorOffset ?? block.content.indexOf('<<CURSOR>>');
+    const content = block.id === 'A' ? aroundCursor(block.content, Math.min(cap, limit),marker) : block.content.slice(0, limit);
+    const startOffset = block.id==='A' && content.length<block.content.length ? Math.max(0,Math.min(block.content.length-content.length,marker+5-Math.floor(content.length/2))) : 0;
+    const lineStart = block.lineStart===undefined ? undefined : block.lineStart + (block.content.slice(0,startOffset).match(/\n/g)?.length ?? 0);
+    const range = lineStart===undefined ? {} : {lineStart,lineEnd:lineStart+(content.match(/\n/g)?.length ?? 0)};
+    return [{ ...block, ...range, content, redacted: block.redacted ?? false, truncated: !!block.truncated || content.length < block.content.length }];
   });
   if (!items.some(block => block.id === 'A')) throw new Error('engine_context_active_unavailable');
   const total = () => items.reduce((sum, item) => sum + item.content.length, 0);
@@ -58,7 +62,7 @@ export function finalizeContext(workspaceId: string, candidates: ContextBlock[],
     }
   }
   items.sort((a,b) => a.id.localeCompare(b.id) || (b.score ?? 0) - (a.score ?? 0));
-  const totalCharacters = total(), estimatedTokens = projectContextCost(' '.repeat(totalCharacters)).estimatedTokens;
+  const {estimatedCharacters:totalCharacters,estimatedTokens}=projectContextCost(items.map(item=>item.content).join(''));
   return { workspaceId, request: { items, totalCharacters, estimatedTokens }, manifest: {
     totalChars: totalCharacters, estTokens: estimatedTokens,
     blocks: items.map(item => ({ id: item.id, type: item.type, source: item.source,

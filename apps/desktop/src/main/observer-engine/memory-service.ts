@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, existsSync } from 'node:fs';
 import { chmod, lstat, mkdir, open, opendir, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { deflateSync, inflateSync } from 'node:zlib';
@@ -23,6 +23,9 @@ import { editBursts } from '../../shared/edit-bursts.ts';
 import type { EditBurst } from '../../shared/engine-context.ts';
 import { storeSuggestion, storeOutcome, readFeedback } from './feedback-store.ts';
 import type { MemorySuggestion, SuggestionOutcome } from '../../shared/feedback-memory.ts';
+import { assembleContext } from './context-assembler.ts';
+import type { ContextSeed } from '../../shared/engine-context.ts';
+import { isGitIgnored } from '../project-context.ts';
 
 const GENERATED = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', 'coverage', 'vendor', '__pycache__', '.venv']);
 const LOCKFILES = /(?:^|\/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|poetry\.lock|uv\.lock|Pipfile\.lock|composer\.lock|Gemfile\.lock|.*\.lock)$/i;
@@ -513,6 +516,35 @@ export class ProjectMemoryService {
     this.emit();
   }
 
+  assemble(seed: ContextSeed) {
+    if (seed.workspaceId!==this.workspaceId || !this.active(this.generation)) throw new Error('engine_context_denied');
+    return assembleContext(seed,{
+      workspaceId:this.workspaceId!, read:path=>this.contextFile(path), screen:(path,text)=>this.screenContext(path,text),
+      outline:path=>{
+        const current=this.contextFile(path).text; if (current===null) return '';
+        const symbols=current===seed.content ? this.memory!.db.prepare('SELECT kind,name,line_start lineStart,line_end lineEnd FROM symbols WHERE path=? ORDER BY line_start,name').all(path) as {kind:string;name:string;lineStart:number;lineEnd:number}[] : memorySymbols(seed.content,monacoLanguageForFile(path));
+        return symbols.map(symbol=>`${symbol.kind} ${symbol.name} lines ${symbol.lineStart}-${symbol.lineEnd}`).join('\n');
+      },
+      brief:()=>this.contextBrief(), chunks:(terms,excludePath)=>this.searchChunks(terms,{limit:20,excludePath}),
+      web:terms=>this.searchWeb(terms,3), edits:path=>this.recentEdits(path,6), feedback:()=>this.feedback(),
+    });
+  }
+  private contextBrief(): string | null {
+    const path='.proactive/project.json';
+    if (this.exclusion(path)) return null;
+    const file=this.memory!.db.prepare('SELECT excluded,deleted FROM files WHERE path=?').get(path) as FileRow | undefined;
+    if (file && (file.excluded || file.deleted)) return null;
+    if (file && this.contextFile(path).text===null) return null;
+    const stored=this.memory!.db.prepare('SELECT json FROM project_brief WHERE id=1').get() as {json:string} | undefined;
+    const raw=stored?.json ?? this.contextFile(path).text;
+    if (!raw || raw.length>20000 || redactContextSecrets(raw).redacted) return null;
+    try {
+      const value=JSON.parse(raw) as Record<string,unknown>;
+      if (!value || typeof value!=='object' || Array.isArray(value)) return null;
+      return JSON.stringify(Object.fromEntries(['goal','stack','milestones','currentPhase','current_phase','phase'].filter(key=>Object.hasOwn(value,key)).map(key=>[key,value[key]])));
+    } catch { return null; }
+  }
+
   recordSuggestion(row: MemorySuggestion) {
     if (row.workspaceId!==this.workspaceId || !this.active(this.generation) || this.contextFile(row.path).text===null) throw new Error('memory_suggestion_denied');
     storeSuggestion(this.memory!.db,row,this.timestamp());
@@ -556,6 +588,12 @@ export class ProjectMemoryService {
     catch { return { text: null, reason: 'excluded' }; }
     try {
       if (this.exclusion(path)) return { text: null, reason: 'excluded' };
+      if (existsSync(join(this.root,'.gitignore'))) {
+        try {
+          const rules=safeDiskText(this.root,'.gitignore',100000).split(/\r?\n/).map(line=>line.trim()).filter(line=>line && !line.startsWith('#')).slice(0,1000);
+          if (isGitIgnored(path,rules)) return {text:null,reason:'excluded'};
+        } catch { return {text:null,reason:'stale'}; }
+      }
       const row = this.memory!.db.prepare('SELECT * FROM files WHERE path=?').get(path) as FileRow | undefined;
       if (!row) return { text: null, reason: 'none_found' };
       if (row.excluded || row.deleted) return { text: null, reason: 'excluded' };

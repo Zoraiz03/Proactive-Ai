@@ -1,5 +1,6 @@
 import type { BrowserWindow, IpcMain, IpcMainInvokeEvent, IpcMainEvent } from 'electron';
 import type { MemoryBufferRequest, MemoryEditsRequest } from '../../shared/observer-engine.ts';
+import type { ContextSeed } from '../../shared/engine-context.ts';
 import { ENGINE_CHANNELS, type MemoryStatus, type MemoryStatusEvent, type PurgeScope } from '../../shared/observer-engine.ts';
 import type { IpcResult } from '../../shared/workspace';
 import { ProjectMemoryService } from './memory-service.ts';
@@ -56,7 +57,26 @@ export function registerMemoryIpc(deps: {
     const local = await settings.get();
     return { exclusions: local.aiContextExclusions };
   };
-  const channels = [ENGINE_CHANNELS.memoryBuffer, ENGINE_CHANNELS.memoryOpen, ENGINE_CHANNELS.memoryStatus, ENGINE_CHANNELS.memoryPause, ENGINE_CHANNELS.memoryPurge];
+  const channels = [ENGINE_CHANNELS.memoryContext, ENGINE_CHANNELS.memoryBuffer, ENGINE_CHANNELS.memoryOpen, ENGINE_CHANNELS.memoryStatus, ENGINE_CHANNELS.memoryPause, ENGINE_CHANNELS.memoryPurge];
+  deps.ipc.handle(ENGINE_CHANNELS.memoryContext, async (event, request: ContextSeed, ...extra: unknown[]) => {
+    const keys=['workspaceId','path','content','cursorLine','cursorColumn'];
+    if (request && typeof request==='object') for (const key of ['maximumCharacters','diagnostics']) if (Object.hasOwn(request,key)) keys.push(key);
+    if (extra.length || !valid(event,request,keys) || !validScope({path:request.path}) || typeof request.content!=='string' ||
+      Buffer.byteLength(request.content)>2*1024*1024 || !Number.isSafeInteger(request.cursorLine) || request.cursorLine<1 ||
+      !Number.isSafeInteger(request.cursorColumn) || request.cursorColumn<1 || (request.maximumCharacters!==undefined && (!Number.isInteger(request.maximumCharacters) ||
+      request.maximumCharacters<64 || request.maximumCharacters>24000)) || (request.diagnostics!==undefined && (!Array.isArray(request.diagnostics) || request.diagnostics.length>100 ||
+      request.diagnostics.some(d=>!exact(d,['line','message']) || !Number.isSafeInteger(d.line) || Number(d.line)<1 || typeof d.message!=='string' || d.message.length>2000)))) return denied();
+    const epoch=generation;
+    return serial(async()=>{
+      if (!current(epoch,event) || !consent || service.status().paused) return denied();
+      try {
+        const options=await policy(); if (!current(epoch,event)) return denied();
+        service.configure(options);
+        // Preview is local: return metadata only, never dispatch or increment web use counters.
+        return {ok:true,value:service.assemble(request).manifest};
+      } catch { return {ok:false,error:'Context preview is unavailable or excluded by privacy settings.'}; }
+    });
+  });
   const sessionValid = (request: { sessionId: unknown }) => typeof request.sessionId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(request.sessionId);
   deps.ipc.handle(ENGINE_CHANNELS.memoryBuffer, async (event, request: MemoryBufferRequest, ...extra: unknown[]) => {
     if (extra.length || !valid(event, request, ['workspaceId','sessionId','path','content']) || !sessionValid(request) ||

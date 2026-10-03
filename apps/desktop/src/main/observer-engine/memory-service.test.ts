@@ -10,14 +10,45 @@ import { recentProjectId } from '../recent-projects.ts';
 import { searchMemoryChunks } from './database.ts';
 import { createHash } from 'node:crypto';
 import type { EditBatch } from '../../shared/observer-engine.ts';
+import type { ContextSeed } from '../../shared/engine-context.ts';
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
+test('real SQLite assembles all A-J blocks, verifies manifest and keeps preview isolated from sends', async () => fixture(async ({ root, service, db }) => {
+  const content="import { widget } from './related';\nfunction sample() {\n  return widget;\n}";
+  await writeFile(join(root,'main.ts'),content); await writeFile(join(root,'related.ts'),'export const widget = 1;');
+  await writeFile(join(root,'AGENTS.md'),'Use concise code.'); await mkdir(join(root,'.proactive'));
+  await writeFile(join(root,'.proactive','project.json'),JSON.stringify({goal:'Build widgets',stack:['typescript'],milestones:[{id:'m1',title:'Editor'}],currentPhase:'build'}));
+  const status=await service.open(root,'existing'); service.applyEditBatch(edit('main.ts',content,'\n// widget edit'));
+  const seed:ContextSeed={workspaceId:status.workspaceId!,path:'main.ts',content:content+'\n// widget edit',cursorLine:3,cursorColumn:4,diagnostics:[{line:3,message:'Check widget type'}]};
+  const initial=service.assemble(seed);
+  service.recordSuggestion({workspaceId:seed.workspaceId,id:'feedback',path:'main.ts',kind:'correction',triggerReason:'manual',manifest:initial.manifest,explanation:'Use a different widget',reason:'example'});
+  service.recordOutcome(seed.workspaceId,'feedback','dismissed');
+  const connection=db();
+  try {
+    connection.prepare("INSERT INTO web_captures(id,captured_at,expires_at,source,url,hostname,title,text,content_hash) VALUES('web',1234000,9999999,'selection','https://example.org/widget','example.org','Widget docs',?,?)").run('widget reference',digest('widget reference'));
+    const context=service.assemble(seed);
+    assert.deepEqual([...new Set(context.request.items.map(item=>item.id))],['A','B','C','D','E','F','G','H','I','J']);
+    assert.equal(context.manifest.totalChars,context.request.totalCharacters);
+    context.request.items.forEach((item,index)=>assert.equal(context.manifest.blocks[index].hash,digest(item.content)));
+    assert.equal((connection.prepare('SELECT use_count n FROM web_captures').get() as {n:number}).n,0);
+    service.markWebSent(context.request.items.flatMap(item=>item.webCaptureId?[item.webCaptureId]:[]));
+    assert.equal((connection.prepare('SELECT use_count n FROM web_captures').get() as {n:number}).n,1);
+    assert.throws(()=>service.assemble({...seed,workspaceId:'other'}),/denied/);
+    assert.throws(()=>service.recordOutcome('other','feedback','accepted'),/denied/);
+    service.configure({exclusions:['related.ts']}); assert.ok(!JSON.stringify(service.assemble(seed)).includes('export const widget'));
+    assert.throws(()=>service.assemble({...seed,content:'api_key="sk-'+ 'x'.repeat(40)+'"'}),/denied/);
+    assert.equal(service.contextFile('main.ts').text,null);
+  } finally { connection.close(); }
+}));
 test('context retrieval uses unsaved journal text, re-screens disk secrets and respects live exclusions', async () => fixture(async ({ root, service }) => {
   await writeFile(join(root,'context.ts'),'widget'); await service.open(root,'existing');
   service.applyEditBatch(edit('context.ts','widget',' changed'));
   assert.equal(service.contextFile('context.ts').text,'widget changed');
   assert.equal(service.searchChunks(['changed'],{limit:4})[0]?.text,'widget changed');
   assert.equal(service.contextFile('../outside').text,null);
+  await writeFile(join(root,'.gitignore'),'context.ts\n');
+  assert.equal(service.contextFile('context.ts').reason,'excluded');
+  await rm(join(root,'.gitignore'));
   service.configure({exclusions:['context.ts']}); assert.deepEqual(service.searchChunks(['widget'],{limit:4}),[]);
   service.configure({exclusions:[]}); await service.scan({full:true});
   await writeFile(join(root,'context.ts'),'api_key="sk-'+ 'x'.repeat(40)+'"');
