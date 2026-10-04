@@ -89,6 +89,6 @@ test("UI exposes explicit attachment, complete-file confirmation, stale choices,
   assert.match(app, /Attach complete file/); assert.match(app, /setContextTrayItems/); assert.match(app, /trayItems: contextTrayItems/);
   assert.match(tray, /Refresh/); assert.match(tray, /Keep original/); assert.match(tray, /Remove/); assert.match(tray, /Local and session-only/); assert.match(settings, /Short-lived pairing code/); assert.match(incoming, /Add to Context Tray/); assert.match(incoming, /Reject/);
   assert.match(preview, /Manually attached/); assert.match(preview, /Automatic/); assert.match(preview, /Resolve or remove/);
-  assert.match(explorer, /Add to Context/); assert.match(bottom, /Add Selected Terminal to Context/); assert.match(bottom, /Add Latest Run Failure/);
+  assert.match(explorer, /Add to Context/); assert.match(bottom, /Add Selected Terminal to Context/); assert.match(bottom, /aria-label="Selected Output"/); assert.match(bottom, /aria-label="Run Failure"/);
   assert.doesNotMatch(tray, /observer\.ask|fetch\(/); assert.doesNotMatch(explorer, /observer\.ask/); assert.doesNotMatch(bottom, /observer\.ask/);
 });

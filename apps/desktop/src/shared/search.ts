@@ -13,6 +13,7 @@ export const SEARCH_LIMITS = {
   maximumResults: 2_000,
   defaultResults: 500,
   preview: 260,
+  fileSuggestions: 50,
 } as const;
 
 export interface WorkspaceSearchRequest {
@@ -36,14 +37,22 @@ export interface WorkspaceSearchMatch {
   previewMatchLength: number;
 }
 
+export interface WorkspaceFileSuggestion {
+  relativePath: string;
+  matchIndices: number[];
+}
+
 export interface WorkspaceSearchBatch {
   searchId: string;
   matches: WorkspaceSearchMatch[];
+  files?: WorkspaceFileSuggestion[];
 }
 
 export interface WorkspaceSearchCompletion {
   searchId: string;
   matchCount: number;
+  fileCount: number;
+  files?: WorkspaceFileSuggestion[];
   truncated: boolean;
   cancelled: boolean;
 }

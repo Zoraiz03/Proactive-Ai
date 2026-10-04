@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { BrowserWindow, ipcMain, safeStorage, type IpcMainInvokeEvent } from "electron";
 import { AUTH_CHANNELS, type DesktopAuthState, type DesktopSignInRequest } from "../shared/auth";
 import { EncryptedAuthSessionStore, type SessionEncryption } from "./auth-session-store";
-import { DesktopAuthController } from "./auth-controller";
+import { DesktopAuthController, isDesktopAuthConfigurationValid } from "./auth-controller";
 import { SupabaseDesktopAuthProvider } from "./supabase-auth-provider";
 
 declare const __DESKTOP_SUPABASE_URL__: string;
@@ -34,7 +34,7 @@ export function registerAuthIpc(
 ): { controller: DesktopAuthController; cleanup: () => void } {
   const url = __DESKTOP_SUPABASE_URL__.trim();
   const publishableKey = __DESKTOP_SUPABASE_PUBLISHABLE_KEY__.trim();
-  const configured = /^https:\/\//.test(url) && publishableKey.length > 20;
+  const configured = isDesktopAuthConfigurationValid(url, publishableKey);
   const controller = new DesktopAuthController(
     configured ? new SupabaseDesktopAuthProvider(url, publishableKey) : null,
     configured
@@ -77,4 +77,3 @@ export function registerAuthIpc(
     },
   };
 }
-

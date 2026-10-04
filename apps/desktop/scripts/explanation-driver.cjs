@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
 module.exports = async (win, js, wait) => {
  const click = label => js(`Array.from(document.querySelectorAll('button')).find(b => b.textContent === ${JSON.stringify(label)}).click()`);
+ const explain = () => js('document.querySelector(".observer-ask").click()');
  const input = (label, value) => js(`{ const e=document.querySelector('[aria-label="${label}"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(value)}); e.dispatchEvent(new Event('input',{bubbles:true})); }`);
  await wait('Boolean(document.querySelector(\'[aria-label="Explanation guidance"]\'))');
- await input('Explanation guidance','Explain for a beginner'); await click('Ask Observer');
+ await input('Explanation guidance','Explain for a beginner'); await explain();
  await wait('Boolean(document.querySelector(\'[aria-labelledby="context-preview-title"]\'))');
  assert.equal(await js('window.fixture.calls.length'),0);
  assert.match(await js('document.querySelector(".context-preview").textContent'), /Explain for a beginner/);
@@ -39,10 +40,10 @@ module.exports = async (win, js, wait) => {
  assert.match(await js('document.querySelector(".explanation-conversation [role=alert]").textContent'), /Privacy/);
  await click('New explanation / Clear conversation'); await wait('!document.querySelector(".explanation-conversation")');
  await js('window.fixture.allow(); window.fixture.delay()');
- await click('Ask Observer'); await click('Send to Observer'); await wait('document.querySelector(".explanation-conversation").textContent.includes("Waiting for the provider")');
+ await explain(); await click('Send to Observer'); await wait('document.querySelector(".explanation-conversation").textContent.includes("Waiting for the provider")');
  await click('New explanation / Clear conversation'); await js('window.fixture.release()');
  await new Promise(r=>setTimeout(r,100)); assert.equal(await js('Boolean(document.querySelector(".explanation-conversation"))'),false);
- await js('window.fixture.delay()'); await click('Ask Observer'); await click('Send to Observer'); await wait('document.querySelector(".explanation-conversation").textContent.includes("Waiting for the provider")');
+ await js('window.fixture.delay()'); await explain(); await click('Send to Observer'); await wait('document.querySelector(".explanation-conversation").textContent.includes("Waiting for the provider")');
  await click('Switch project'); await wait('!document.querySelector(".explanation-conversation")');
  await js('window.fixture.release()'); await new Promise(r=>setTimeout(r,100));
  assert.equal(await js('Boolean(document.querySelector(".explanation-conversation"))'),false);

@@ -97,11 +97,21 @@ export default function DocumentationImpactPanel(props: Props) {
   if (!props.settings.documentationImpactEnabled) return <div className="documentation-impact-state">Documentation Impact is disabled in Settings.</div>;
   if (!props.workspaceOpen) return <div className="documentation-impact-state">Open a workspace to detect documentation relationships.</div>;
   return <section className="documentation-impact-panel" aria-label="Documentation Impact">
-    <header><strong>Documentation Impact</strong><span>Local deterministic scan</span></header>
+    <header>
+      <div className="sidebar-toolbar-title"><span className="sidebar-toolbar-icon" aria-hidden="true">¶</span><strong>Documentation Impact</strong></div>
+      <span className="documentation-scan-badge">Local scan</span>
+    </header>
     {state === "scanning" && <div className="documentation-impact-state">Scanning changed code and local documentation…</div>}
     {state === "error" && <div className="documentation-impact-state error">The scan failed safely. No files were sent anywhere.</div>}
-    {state === "ready" && gitState !== "repository" && <div className="documentation-impact-notice">Git is unavailable for this workspace. Results are limited to changes saved or open in this IDE session.</div>}
-    {state === "ready" && visible.length === 0 && <div className="documentation-impact-state">No documentation relationships may need review at the current confidence level.</div>}
+    {state === "ready" && gitState !== "repository" && <div className="documentation-impact-notice">
+      <span aria-hidden="true">ⓘ</span>
+      <div><strong>Git is unavailable</strong><p>Results are limited to changes saved or open in this IDE session.</p></div>
+    </div>}
+    {state === "ready" && visible.length === 0 && <div className="documentation-impact-state sidebar-empty-state">
+      <span className="sidebar-empty-icon" aria-hidden="true">✓</span>
+      <strong>No documentation updates found</strong>
+      <p>No relationships need review at the current confidence level.</p>
+    </div>}
     {visible.map((item) => <article className="documentation-impact-card" key={item.id}>
       <div className="documentation-impact-heading"><strong>{item.status === "current" ? "Current" : "May need review"}</strong><span className={`confidence ${item.confidence}`}>{item.confidence}</span></div>
       <small className="relationship-state">State: {item.status}</small>

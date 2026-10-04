@@ -63,6 +63,41 @@ export function offsetForPosition(content: string, position: TextPosition): numb
   return offset + position.column - 1;
 }
 
+function offsetForAbsolutePosition(content: string, lineStart: number, position: TextPosition): number | null {
+  const relativeLine = position.line - lineStart + 1;
+  return relativeLine < 1 ? null : offsetForPosition(content, { line: relativeLine, column: position.column });
+}
+
+function absolutePositionForOffset(content: string, lineStart: number, offset: number): TextPosition {
+  const prefix = content.slice(0, offset);
+  const lastNewline = prefix.lastIndexOf("\n");
+  const line = lineStart + prefix.split("\n").length - 1;
+  return { line, column: offset - lastNewline };
+}
+
+export function reconcileStructuredObserverEditRange(
+  edit: StructuredObserverEdit,
+  sourceContent: string,
+  sourceLineStart: number
+): StructuredObserverEdit | null {
+  const startOffset = offsetForAbsolutePosition(sourceContent, sourceLineStart, edit.range.start);
+  const endOffset = offsetForAbsolutePosition(sourceContent, sourceLineStart, edit.range.end);
+  if (
+    startOffset !== null && endOffset !== null && endOffset >= startOffset &&
+    sourceContent.slice(startOffset, endOffset) === edit.expectedOriginalText
+  ) return edit;
+  if (!edit.expectedOriginalText) return null;
+  const uniqueOffset = sourceContent.indexOf(edit.expectedOriginalText);
+  if (uniqueOffset < 0 || sourceContent.indexOf(edit.expectedOriginalText, uniqueOffset + 1) >= 0) return null;
+  return {
+    ...edit,
+    range: {
+      start: absolutePositionForOffset(sourceContent, sourceLineStart, uniqueOffset),
+      end: absolutePositionForOffset(sourceContent, sourceLineStart, uniqueOffset + edit.expectedOriginalText.length),
+    },
+  };
+}
+
 export function validateAndBuildProposedEdit(value: unknown, base: ObserverEditBase, currentContent: string, currentHash: string): EditValidationResult {
   const edit = parseStructuredObserverEdit(value);
   if (!edit) return { ok: false, reason: "malformed", message: "Observer returned a malformed structured edit." };

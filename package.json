@@ -14,7 +14,8 @@
     "test:fix-code": "node --experimental-strip-types scripts/fix-code.test.ts",
     "test:explanation": "node --experimental-strip-types scripts/explanation.test.ts",
     "test:observer-reliability": "node --test scripts/observer-reliability.test.ts",
-    "test:live-observer": "node --test scripts/live-observer-context.test.ts apps/desktop/src/main/live-observer.test.ts"
+    "test:live-observer": "node --test scripts/live-observer-context.test.ts apps/desktop/src/main/live-observer.test.ts",
+    "test:live-provider": "node --env-file=.env.local --experimental-strip-types scripts/live-observer-provider-e2e.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

@@ -1,14 +1,22 @@
 const assert=require('node:assert/strict');
 module.exports=async(win,js,wait)=>{
  const click=async label=>{await wait(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`);return js(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent===${JSON.stringify(label)}).click()`);};
+ const ask=async()=>{await wait('Boolean(document.querySelector(".observer-ask:not(:disabled)"))');return js('document.querySelector(".observer-ask").click()');};
  const input=(label,value)=>js(`{const e=document.querySelector('[aria-label="${label}"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));}`);
  const summary=()=>js('window.fixture.summary()');
  await wait('window.monaco?.editor.getEditors().length>0');
  await wait('Boolean(document.querySelector(\'[aria-label="Fix Code problem"]\'))');
  assert.match(await js('document.body.textContent'),/Fix Code/);
- await input('Fix Code problem','Return the sum.');await click('Ask Observer');await wait('Boolean(document.querySelector(".context-preview"))');
+ await input('Fix Code problem','Return the sum.');await ask();await wait('Boolean(document.querySelector(".context-preview"))');
  assert.equal((await summary()).calls.length,0);
  assert.match(await js('document.querySelector(".context-preview").textContent'),/Entire active buffer/);
+ const previewLayout=await js(`(()=>{const dialog=document.querySelector('.context-preview');const close=dialog.querySelector('[aria-label="Close Context Preview"]');const footer=dialog.querySelector('footer');const buttons=Array.from(footer.querySelectorAll('button'));const cancel=buttons.find(button=>button.textContent==='Cancel');const send=buttons.find(button=>button.textContent==='Send to Observer');const dialogRect=dialog.getBoundingClientRect();const closeRect=close.getBoundingClientRect();const sendRect=send.getBoundingClientRect();return{width:dialogRect.width,closeWidth:closeRect.width,closeHeight:closeRect.height,footerPosition:getComputedStyle(footer).position,sendHeight:sendRect.height,sendBackground:getComputedStyle(send).backgroundColor,cancelBackground:getComputedStyle(cancel).backgroundColor};})()`);
+ assert.ok(previewLayout.width<=780,`Context Preview should stay compact, got ${previewLayout.width}px`);
+ assert.ok(previewLayout.closeWidth<=36&&previewLayout.closeHeight<=36,'Context Preview close control should be compact');
+ assert.equal(previewLayout.footerPosition,'sticky');
+ assert.ok(previewLayout.sendHeight>=36,'Send to Observer should remain a prominent target');
+ assert.notEqual(previewLayout.sendBackground,previewLayout.cancelBackground,'Primary and secondary actions should be visually distinct');
+ assert.equal(await js('document.querySelectorAll(\'[aria-label="Context package metrics"] > span\').length'),3);
  await js('window.fixture.consent(false)');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("cancelled")');
  assert.equal((await summary()).calls.length,0);
  await click('Refresh Fix Code preview');await js('window.fixture.consent(true)');await click('Send to Observer');
@@ -27,7 +35,7 @@ module.exports=async(win,js,wait)=>{
  // Selection comes through production Monaco selection -> EditorWorkspace callback.
  await js('window.monaco.editor.getEditors().find(e=>!e.getOption(window.monaco.editor.EditorOption.readOnly)).setSelection({startLineNumber:1,startColumn:28,endLineNumber:1,endColumn:33})');
  await wait('document.querySelector(".observer-context-summary").textContent.includes("selection")');
- await js('window.fixture.mode("no_problem")');await click('Ask Observer');await wait('Boolean(document.querySelector(".context-preview"))');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("No clear problem found")');
+ await js('window.fixture.mode("no_problem")');await ask();await wait('Boolean(document.querySelector(".context-preview"))');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("No clear problem found")');
  const selected=(await summary()).calls.at(-1);assert.equal(selected.fixCode.scope,'selection');assert.equal(selected.contextPackage.items.find(i=>i.type==='selected_code').content,'a - b');assert.equal(await js('Array.from(document.querySelectorAll("button")).some(b=>b.textContent==="Review correction diff")'),false);
  await js('window.fixture.mode("invalid")');await click('Refresh Fix Code preview');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"] [role=alert]\')');assert.match(await js('document.querySelector(\'[aria-label="Fix Code result"] [role=alert]\').textContent'),/expected original text/i);
  await js('window.fixture.mode("correction")');await click('Refresh Fix Code preview');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("Correction proposed")');
@@ -36,6 +44,6 @@ module.exports=async(win,js,wait)=>{
  await js('window.fixture.permit(true);window.fixture.mode("no_problem");window.fixture.delay()');await click('Refresh Fix Code preview');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("Diagnosing")');assert.equal(await js('document.querySelector(".observer-ask").disabled'),true);
  await click('Cancel request');assert.equal((await summary()).aborted,true);await js('window.fixture.release()');await new Promise(r=>setTimeout(r,80));assert.equal(await js('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("No clear problem found")'),false);
  await js('window.fixture.delay()');await click('Refresh Fix Code preview');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("Diagnosing")');await click('Switch project');await wait('!document.querySelector(\'[aria-label="Fix Code result"]\')');await js('window.fixture.release()');await new Promise(r=>setTimeout(r,80));assert.equal(await js('Boolean(document.querySelector(\'[aria-label="Fix Code result"]\'))'),false);
- const sentBefore=(await summary()).calls.length;await click('Ask Observer');await wait('Boolean(document.querySelector(".context-preview"))');await js('window.setSource(window.fixtureState.content+"\\n// edited after preview")');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("Nothing was sent")');assert.equal((await summary()).calls.length,sentBefore);
+ const sentBefore=(await summary()).calls.length;await ask();await wait('Boolean(document.querySelector(".context-preview"))');await js('window.setSource(window.fixtureState.content+"\\n// edited after preview")');await click('Send to Observer');await wait('document.querySelector(\'[aria-label="Fix Code result"]\').textContent.includes("Nothing was sent")');assert.equal((await summary()).calls.length,sentBefore);
  console.log('PASS Fix Code Electron: Monaco scope wiring, optional problem, exact unsaved preview, denied consent/no early send, safe Markdown, clarification reuse, no-problem, invalid edits, actual diff/explicit Apply, checkpoint Undo, stale source, privacy, duplicate prevention, cancellation/late response/project isolation. Provider mocked; fixture application callbacks, native App Run again/save dialog not exercised.');
 };

@@ -8,7 +8,7 @@ import {
   OBSERVER_PROVIDERS,
   OBSERVER_PROVIDER_LABELS,
 } from "../../shared/observer";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ProactiveAction, ProactiveNudge } from "../../shared/proactive-observer";
 import type { UsefulnessFeedback } from "../../shared/proactive-insights";
 import type { ContextTrayItem } from "../../shared/context-tray";
@@ -33,6 +33,7 @@ interface ObserverPanelProps {
   explainQuestion?: string;
   onExplainQuestionChange?: (value: string) => void;
   automaticRunEnabled: boolean;
+  liveObserverCard: ReactNode;
   automaticRunCard: ReactNode;
   mode: ObserverMode;
   modes: readonly ObserverMode[];
@@ -75,6 +76,7 @@ export default function ObserverPanel({
   fixCard, fixVerificationCard, fixProblem = "", onFixProblemChange,
   explanationCard, explainQuestion = "", onExplainQuestionChange,
   automaticRunEnabled,
+  liveObserverCard,
   automaticRunCard,
   mode,
   modes,
@@ -112,7 +114,11 @@ export default function ObserverPanel({
   onKeepOriginalContextItem,
   onTruncateContextItem,
 }: ObserverPanelProps) {
-  const conversationCard = explanationCard ?? fixCard;
+  type ObserverTab = "ask" | "live" | "failed-runs" | "context";
+  const isExplanationMode = (value: ObserverMode) => value === "explain" || value === "explain_document";
+  const explanationModeActive = isExplanationMode(mode);
+  const [activeTab, setActiveTab] = useState<ObserverTab>("ask");
+  const conversationCard = activeTab === "ask" ? (explanationModeActive ? explanationCard : fixCard) : null;
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -131,15 +137,33 @@ export default function ObserverPanel({
         </div>
         <span className={`observer-status observer-status-${status}`} role="status">
           <span aria-hidden="true" />
-          {mode === "explain" && status === "ready" ? "Explanation ready" : OBSERVER_STATUS_LABELS[status]}
+          {explanationModeActive && status === "ready" ? "Explanation ready" : OBSERVER_STATUS_LABELS[status]}
         </span>
       </header>
 
-      <section className="observer-controls" aria-label="Observer request controls">
+      <nav className="observer-tabs" role="tablist" aria-label="Observer functionality">
+        {([
+          ["ask", "Ask Observer"],
+          ["live", "Live"],
+          ["failed-runs", "Failed Runs"],
+          ["context", "Context"],
+        ] as const).map(([tab, label]) => (
+          <button key={tab} id={`observer-tab-${tab}`} type="button" role="tab" data-observer-tab={tab} aria-selected={activeTab === tab} aria-controls={`observer-panel-${tab}`} tabIndex={activeTab === tab ? 0 : -1} onClick={() => setActiveTab(tab)}>{label}</button>
+        ))}
+      </nav>
+
+      <div id={`observer-panel-${activeTab}`} className="observer-tab-panel" role="tabpanel" data-observer-panel={activeTab} aria-labelledby={`observer-tab-${activeTab}`}>
+      {activeTab === "ask" && <section className="observer-controls" aria-label="Ask Observer controls">
+        <div className="observer-request-card">
+        <div className="observer-request-heading">
+          <div><span>Manual request</span><h3>Create a focused request</h3></div>
+          <span className="observer-request-mode-badge">{OBSERVER_MODE_LABELS[mode]}</span>
+        </div>
         <div className="observer-control-grid">
           <label>
             <span>Request mode</span>
             <select
+              className="observer-enhanced-select"
               value={mode}
               onChange={(event) => onModeChange(event.target.value as ObserverMode)}
               disabled={status === "thinking" || Boolean(conversationCard)}
@@ -152,6 +176,7 @@ export default function ObserverPanel({
           <label>
             <span>Provider</span>
             <select
+              className="observer-enhanced-select"
               value={provider}
               onChange={(event) => onProviderChange(event.target.value as ObserverProvider)}
               disabled={status === "thinking" || Boolean(conversationCard)}
@@ -162,8 +187,8 @@ export default function ObserverPanel({
             </select>
           </label>
         </div>
-        {mode === "explain" && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="Explain this for a beginner" /><small>Selected code, otherwise the current function or nearby lines. Preview before sending. Context Tray and other files are not included in Explain.</small></label>}
-        {mode === "fix_error" && onFixProblemChange && <label className="observer-multi-file-request"><span>What should this code do, or what is going wrong?</span><textarea aria-label="Fix Code problem" rows={3} maxLength={500} value={fixProblem} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e=>onFixProblemChange(e.target.value)} placeholder="Optional: describe the expected behavior or problem" /><small>Selected code plus bounded surrounding lines, otherwise the entire active file including unsaved changes. Preview before sending. No Context Tray or other files.</small></label>}
+        {explanationModeActive && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="For example: Explain this for a beginner" /><small>Uses selected code, or the current function and nearby lines. You will preview the focused context before it is sent; Context Tray items and other files stay excluded.</small></label>}
+        {mode === "fix_error" && onFixProblemChange && <label className="observer-multi-file-request"><span>What should this code do, or what is going wrong?</span><textarea aria-label="Fix Code problem" rows={3} maxLength={500} value={fixProblem} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e=>onFixProblemChange(e.target.value)} placeholder="Optional: describe the expected behavior or problem" /><small>Uses the selection and bounded surroundings, or the active file including unsaved changes. You will preview everything before it is sent.</small></label>}
         {mode === "plan_multi_file" && <label className="observer-multi-file-request">
           <span>Describe the change</span>
           <textarea value={multiFileDescription} maxLength={500} rows={5} disabled={status === "thinking"} onChange={(event) => onMultiFileDescriptionChange(event.target.value)} placeholder="Describe the outcome that may require coordinated changes across files." />
@@ -171,9 +196,9 @@ export default function ObserverPanel({
         </label>}
         <div className={`observer-context-summary ${contextSummary ? "ready" : "empty"}`}>
           <span aria-hidden="true">◎</span>
-          <p>{contextSummary ?? (mode === "fix_error"
+          <div><strong>Context preview</strong><p>{contextSummary ?? (mode === "fix_error"
             ? "Select code or open a file for Fix Code; diagnostics are optional."
-            : "Open a supported code or Markdown file to choose focused context.")}</p>
+            : "Open a supported code or Markdown file to choose focused context.")}</p></div>
         </div>
         <div className="observer-primary-actions">
           <button
@@ -183,16 +208,18 @@ export default function ObserverPanel({
             disabled={!canAsk}
             title="Ask Observer (Ctrl+Enter / Cmd+Enter)"
           >
-            {status === "thinking" ? "Asking Observer…" : "Ask Observer"}
+            {status === "thinking" ? explanationModeActive ? "Explaining…" : "Asking Observer…" : explanationModeActive ? "Explain" : "Ask Observer"}
           </button>
           <button type="button" className="observer-undo" onClick={onUndo} disabled={!canUndo}>Undo</button>
         </div>
-        <span className="observer-shortcut">Ask with Ctrl/⌘ + Enter</span>
-      </section>
+        <span className="observer-shortcut">{explanationModeActive ? "Explain" : "Ask"} with Ctrl/⌘ + Enter</span>
+        </div>
+      </section>}
 
       <div className="observer-scroll-region">
-        {automaticRunCard}
-        {mode !== "explain" && mode !== "fix_error" && <ContextTray
+        {activeTab === "live" && liveObserverCard}
+        {activeTab === "failed-runs" && automaticRunCard}
+        {activeTab === "context" && <ContextTray
           items={contextTrayItems}
           maximumCharacters={maximumContextCharacters}
           webContextStatus={webContextStatus}
@@ -204,7 +231,7 @@ export default function ObserverPanel({
           onTruncate={onTruncateContextItem}
         />}
 
-        {proactiveNudge && (
+        {activeTab === "ask" && proactiveNudge && (
           <article className="proactive-nudge" aria-label="Proactive Observer suggestion">
             <div className="proactive-nudge-heading">
               <span>Local proactive signal</span>
@@ -231,7 +258,7 @@ export default function ObserverPanel({
           </article>
         )}
 
-        {usefulnessPrompt && (
+        {activeTab === "ask" && usefulnessPrompt && (
           <section className="observer-usefulness" aria-label="Optional Observer usefulness feedback">
             <strong>Was this Observer nudge useful?</strong>
             <span>{usefulnessPrompt.title} · optional local feedback</span>
@@ -240,13 +267,14 @@ export default function ObserverPanel({
         )}
 
         {conversationCard}
-        {fixVerificationCard}
-        {!conversationCard && <div className="observer-result" aria-live="polite">
+        {activeTab === "ask" && fixVerificationCard}
+        {activeTab === "ask" && !conversationCard && <div className="observer-result" aria-live="polite">
           {status === "idle" && (
             <div className="observer-empty">
               <span className="observer-state-emblem" aria-hidden="true"><span /></span>
-              <strong>Ready when you are</strong>
-              <p>{automaticRunEnabled ? "Auto-explain is enabled for failed runs. Ask Observer remains available for manual help." : "Ask Observer for help, or explicitly enable Auto-explain for failed runs."}</p>
+              <div className="observer-empty-copy"><span className="observer-state-label">Manual assistant</span><strong>Ready for focused help</strong>
+              <p>{automaticRunEnabled ? "Auto-explain is watching failed runs, and manual help remains available here." : "Choose a request mode and describe what you need. Observer will prepare only the relevant context."}</p></div>
+              <div className="observer-empty-features"><span>✓ Preview before sending</span><span>✓ No automatic edits</span></div>
             </div>
           )}
           {status === "thinking" && (
@@ -292,9 +320,10 @@ export default function ObserverPanel({
           )}
         </div>}
       </div>
+      </div>
 
-      <div className="observer-privacy-note">
-        Manual requests show Context Preview. Auto-explain, when explicitly enabled, sends bounded failed-run context without another preview. No project-wide upload or automatic edits.
+      <div className="observer-privacy-note observer-trust-note">
+        <span aria-hidden="true">✓</span><div><strong>Privacy first</strong><p>Manual requests always show Context Preview. Automatic features send only bounded context when you enable them. No project-wide uploads or automatic edits.</p></div>
       </div>
     </div>
   );

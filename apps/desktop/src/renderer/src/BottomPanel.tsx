@@ -236,8 +236,10 @@ export default function BottomPanel({
 
   const addSelectedOutput = () => {
     const selection = window.getSelection();
-    const content = selection?.toString().trim() ?? "";
-    if (!content || !selection?.anchorNode || !outputHostRef.current?.contains(selection.anchorNode)) { onStatus("Select visible Output text before adding it to Context.", "error"); return; }
+    const selectedContent = selection?.toString().trim() ?? "";
+    const selectedFromOutput = Boolean(selectedContent && selection?.anchorNode && outputHostRef.current?.contains(selection.anchorNode));
+    const content = selectedFromOutput ? selectedContent : [run?.stdout, run?.stderr].filter(Boolean).join("\n").trim();
+    if (!content) { onStatus("Select visible Output text or run a file before adding it to Context.", "error"); return; }
     onAddSelectedOutput(content, "output");
   };
 
@@ -318,7 +320,23 @@ export default function BottomPanel({
         tabIndex={-1}
         aria-label="IDE output"
       >
-        <div className="output-context-actions"><button type="button" onClick={addSelectedOutput}>Add Selected Output to Context</button><button type="button" onClick={onAddRunFailure} disabled={run?.status !== "failed"}>Add Latest Run Failure</button><button type="button" onClick={onAddTaskFailure} disabled={!hasTaskFailure}>Add Failed Test/Build</button></div>
+        <div className="output-context-actions" aria-label="Add output evidence to Context">
+          <span className="output-context-label">Add to Context</span>
+          <div className="output-context-action-buttons">
+            <button className="primary output-context-primary" type="button" onClick={addSelectedOutput} aria-label="Selected Output" title="Add selected Output text to Context">
+              <span aria-hidden="true">＋</span>
+              Selected Output
+            </button>
+            <button type="button" onClick={onAddRunFailure} disabled={run?.status !== "failed"} aria-label="Run Failure" title={run?.status === "failed" ? "Add the latest failed run to Context" : "Available after a file run fails"}>
+              <span aria-hidden="true">!</span>
+              Run Failure
+            </button>
+            <button type="button" onClick={onAddTaskFailure} disabled={!hasTaskFailure} aria-label="Failed Test" title={hasTaskFailure ? "Add the failed test or build to Context" : "Available after a test or build fails"}>
+              <span aria-hidden="true">×</span>
+              Failed Test
+            </button>
+          </div>
+        </div>
         {!run && messages.length === 0 ? (
           <div className="output-empty">IDE status messages will appear here.</div>
         ) : (

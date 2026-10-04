@@ -6,6 +6,7 @@ import {
   SEARCH_LIMITS,
   type WorkspaceSearchBatch,
   type WorkspaceSearchCompletion,
+  type WorkspaceFileSuggestion,
   type WorkspaceSearchMatch,
   type WorkspaceSearchRequest,
 } from "../shared/search.ts";
@@ -86,6 +87,66 @@ export function buildRipgrepSearchArguments(request: WorkspaceSearchRequest): st
   return args;
 }
 
+export function buildRipgrepFileArguments(): string[] {
+  const args = ["--files", "--hidden", "--no-follow", "--no-require-git", "--no-config"];
+  for (const extension of SUPPORTED_EXTENSIONS) {
+    const insensitiveExtension = extension.split("").map((character) => `[${character.toLowerCase()}${character.toUpperCase()}]`).join("");
+    args.push("--type-add", `proactive:*.${insensitiveExtension}`);
+  }
+  args.push("--type", "proactive");
+  for (const directory of IGNORED_DIRECTORIES) {
+    args.push("--iglob", `!${directory}/**`, "--iglob", `!**/${directory}/**`);
+  }
+  for (const secret of SECRET_GLOBS) {
+    args.push("--iglob", `!${secret}`, "--iglob", `!**/${secret}`);
+  }
+  return args;
+}
+
+function fuzzyFileMatch(relativePath: string, rawQuery: string): { matchIndices: number[]; score: number } | null {
+  const query = rawQuery.trim().toLocaleLowerCase();
+  const candidate = relativePath.toLocaleLowerCase();
+  if (!query) return null;
+  const basenameStart = relativePath.lastIndexOf("/") + 1;
+  const basename = candidate.slice(basenameStart);
+  const direct = candidate.indexOf(query);
+  if (direct >= 0) {
+    const matchIndices = Array.from({ length: query.length }, (_, index) => direct + index);
+    const inBasename = direct >= basenameStart;
+    const atBasenameStart = direct === basenameStart;
+    return { matchIndices, score: (atBasenameStart ? 0 : inBasename ? 20 : 50) + direct + relativePath.length / 1_000 };
+  }
+  const matchIndices: number[] = [];
+  let cursor = 0;
+  for (const character of query) {
+    const index = candidate.indexOf(character, cursor);
+    if (index < 0) return null;
+    matchIndices.push(index);
+    cursor = index + 1;
+  }
+  const gaps = matchIndices.at(-1)! - matchIndices[0] - matchIndices.length + 1;
+  const basenamePenalty = matchIndices[0] >= basenameStart ? 0 : 40;
+  const boundaryBonus = basename.startsWith(query[0]) ? -10 : 0;
+  return { matchIndices, score: 100 + basenamePenalty + boundaryBonus + gaps * 4 + matchIndices[0] + relativePath.length / 1_000 };
+}
+
+export function rankWorkspaceFileSuggestions(
+  paths: readonly string[],
+  request: WorkspaceSearchRequest
+): WorkspaceFileSuggestion[] {
+  return paths.flatMap((relativePath): Array<WorkspaceFileSuggestion & { score: number }> => {
+    if (
+      !isSupportedWorkspaceTextFile(relativePath) || isIgnoredSearchPath(relativePath) ||
+      isDefaultSearchSecret(relativePath) ||
+      !searchPathMatchesPatterns(relativePath, request.includePattern, request.excludePattern)
+    ) return [];
+    const match = fuzzyFileMatch(relativePath, request.query);
+    return match ? [{ relativePath, matchIndices: match.matchIndices, score: match.score }] : [];
+  }).sort((left, right) => left.score - right.score || left.relativePath.localeCompare(right.relativePath))
+    .slice(0, SEARCH_LIMITS.fileSuggestions)
+    .map(({ relativePath, matchIndices }) => ({ relativePath, matchIndices }));
+}
+
 function textValue(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const text = (value as { text?: unknown }).text;
@@ -150,7 +211,7 @@ export interface WorkspaceSearchServiceOptions {
 }
 
 export class WorkspaceSearchService {
-  private active: { searchId: string; process: Pick<ChildProcess, "kill">; cancelled: boolean } | null = null;
+  private active: { searchId: string; process: Pick<ChildProcess, "kill"> | null; cancelled: boolean } | null = null;
   private readonly binaryPath: string;
 
   constructor(options: WorkspaceSearchServiceOptions = {}) {
@@ -160,7 +221,7 @@ export class WorkspaceSearchService {
   cancel(searchId?: string): boolean {
     if (!this.active || (searchId && this.active.searchId !== searchId)) return false;
     this.active.cancelled = true;
-    this.active.process.kill();
+    this.active.process?.kill();
     return true;
   }
 
@@ -170,7 +231,35 @@ export class WorkspaceSearchService {
     onBatch: (batch: WorkspaceSearchBatch) => void
   ): Promise<WorkspaceSearchCompletion> {
     this.cancel();
-    return new Promise((resolve, reject) => {
+    const active = { searchId: request.searchId, process: null as Pick<ChildProcess, "kill"> | null, cancelled: false };
+    this.active = active;
+    const discoverFiles = () => new Promise<WorkspaceFileSuggestion[]>((resolve, reject) => {
+      const child = spawn(this.binaryPath, buildRipgrepFileArguments(), {
+        cwd: rootPath,
+        shell: false,
+        windowsHide: true,
+        env: searchProcessEnvironment(process.env) as NodeJS.ProcessEnv,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      active.process = child;
+      let stdout = "";
+      let stderr = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+      child.stderr.setEncoding("utf8");
+      child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-4_000); });
+      child.once("error", reject);
+      child.once("close", (code) => {
+        if (active.cancelled) return resolve([]);
+        if (code !== 0 && code !== 1) return reject(new Error(stderr.trim() || "Workspace file discovery failed."));
+        const paths = stdout.split(/\r?\n/).flatMap((candidate) => {
+          const safe = safeRelativePath(rootPath, candidate);
+          return safe ? [safe] : [];
+        });
+        resolve(rankWorkspaceFileSuggestions(paths, request));
+      });
+    });
+    const searchContent = () => new Promise<WorkspaceSearchCompletion>((resolve, reject) => {
       const child = spawn(this.binaryPath, buildRipgrepSearchArguments(request), {
         cwd: rootPath,
         shell: false,
@@ -178,8 +267,7 @@ export class WorkspaceSearchService {
         env: searchProcessEnvironment(process.env) as NodeJS.ProcessEnv,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      const active = { searchId: request.searchId, process: child, cancelled: false };
-      this.active = active;
+      active.process = child;
       let stdout = "";
       let stderr = "";
       let matchCount = 0;
@@ -217,23 +305,29 @@ export class WorkspaceSearchService {
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-4_000); });
       child.once("error", (error) => {
-        if (this.active === active) this.active = null;
         reject(error);
       });
       child.once("close", (code) => {
         if (stdout) consumeLine(stdout);
         flush();
-        if (this.active === active) this.active = null;
         if (active.cancelled) {
-          resolve({ searchId: request.searchId, matchCount, truncated: false, cancelled: true });
+          resolve({ searchId: request.searchId, matchCount, fileCount: 0, truncated: false, cancelled: true });
         } else if (truncated) {
-          resolve({ searchId: request.searchId, matchCount, truncated: true, cancelled: false });
+          resolve({ searchId: request.searchId, matchCount, fileCount: 0, truncated: true, cancelled: false });
         } else if (code === 0 || code === 1) {
-          resolve({ searchId: request.searchId, matchCount, truncated: false, cancelled: false });
+          resolve({ searchId: request.searchId, matchCount, fileCount: 0, truncated: false, cancelled: false });
         } else {
           reject(new Error(stderr.trim() || "Workspace search failed."));
         }
       });
+    });
+    return discoverFiles().then(async (files) => {
+      if (active.cancelled) return { searchId: request.searchId, matchCount: 0, fileCount: 0, truncated: false, cancelled: true };
+      if (files.length) onBatch({ searchId: request.searchId, matches: [], files });
+      const completion = await searchContent();
+      return { ...completion, fileCount: files.length, files };
+    }).finally(() => {
+      if (this.active === active) this.active = null;
     });
   }
 }

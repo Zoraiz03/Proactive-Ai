@@ -1,11 +1,19 @@
 const assert = require('node:assert/strict');
 module.exports = async function run(win, js, wait) {
- const status = value => wait(`document.querySelector('[data-live-status="${value}"]') !== null`);
+ const status = async value => {
+  try { await wait(`document.querySelector('[data-live-status="${value}"]') !== null`); }
+  catch (error) {
+   console.error('Live trigger status mismatch:', await js('({status:document.querySelector("[data-live-status]")?.getAttribute("data-live-status"),message:document.querySelector("[data-live-status]")?.textContent,summary:null})'));
+   console.error('Live trigger fixture summary:', await js('window.fixture.summary()'));
+   throw error;
+  }
+ };
  const advance = ms => js(`window.fixture.advance(${ms})`);
  const count = () => js('window.fixture.summary().then(s=>s.requests.length)');
  const type = text => js(`window.monaco.editor.getEditors()[0].trigger('keyboard','type',{text:${JSON.stringify(text)}})`);
  await wait('window.monaco?.editor.getEditors().length > 0');
  await status('off');
+ await js('const select=document.querySelector(\'select[aria-label="Live Observer pause"]\');select.value="4000";select.dispatchEvent(new Event("change",{bubbles:true}))');
  await js('document.querySelector(\'[aria-label="Live Observer"]\').click()'); await status('idle');
  await js('window.monaco.editor.getEditors()[0].setPosition({lineNumber:1,column:6})');
  await advance(10000); assert.equal(await count(),0);

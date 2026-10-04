@@ -223,8 +223,23 @@ function isDirty(tab: EditorTab): boolean {
   return tab.draft !== tab.file.content;
 }
 
-function PanelTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="panel-title">{children}</h2>;
+export function EditorPanelHeader({ openFileCount }: { openFileCount: number }) {
+  const fileStatus = openFileCount === 1 ? "1 open file" : `${openFileCount} open files`;
+  return (
+    <header className="panel-title editor-panel-header" aria-label="Editor workspace">
+      <h2 className="editor-panel-title">Editor</h2>
+      <span className="editor-panel-status" aria-label={fileStatus}>{fileStatus}</span>
+    </header>
+  );
+}
+
+export function TopBarSettingsButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="settings-button" onClick={onClick} title="Settings (Ctrl+, / Cmd+,)">
+      <span className="settings-button-icon" aria-hidden="true">⚙</span>
+      <span className="settings-button-label">Settings</span>
+    </button>
+  );
 }
 
 function Placeholder({ icon, children }: { icon: string; children: React.ReactNode }) {
@@ -2617,7 +2632,7 @@ export default function App({ user, onSignOut }: AppProps) {
         <div className="brand-mark" aria-hidden="true"><span /></div>
         <h1>Proactive·AI <span>IDE</span></h1>
         <span className="phase-label">Secure workspace</span>
-        <button type="button" className="settings-button" onClick={() => setSettingsOpen(true)} title="Settings (Ctrl+, / Cmd+,)">⚙ Settings</button>
+        <TopBarSettingsButton onClick={() => setSettingsOpen(true)} />
         <details className="user-menu">
           <summary title={user.email}>
             <span className="user-avatar" aria-hidden="true">{(user.name || user.email).slice(0, 1).toUpperCase()}</span>
@@ -2691,7 +2706,7 @@ export default function App({ user, onSignOut }: AppProps) {
         <button type="button" className="pane-resizer sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" aria-valuemin={PANE_LIMITS.sidebar.min} aria-valuemax={PANE_LIMITS.sidebar.max} aria-valuenow={paneSizes.sidebar} onPointerDown={(event) => beginPaneResize("sidebar", event)} onKeyDown={(event) => handlePaneResizeKey("sidebar", event)} />
 
         <main className="panel editor-panel">
-          <PanelTitle>Editor</PanelTitle>
+          <EditorPanelHeader openFileCount={tabs.length} />
           {!workspaceOpen ? (
             <WelcomeScreen
               onBeforeOpen={canOpenWorkspace}
@@ -2816,7 +2831,8 @@ export default function App({ user, onSignOut }: AppProps) {
               onRefresh={activePath === explanation.snapshot?.path && activeObserverMode === "explain" && observerRequest ? () => void askObserver(true) : undefined} />}
 
             automaticRunEnabled={automaticRunState.enabled}
-            automaticRunCard={<><LiveObserverCard onAsk={() => void askObserver()} canAsk={!fix.request && !explanation.request && syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest} state={liveState} provider={observerProvider} available={workspaceOpen && settingsLoaded} onState={setLiveState} onReview={() => void reviewLiveSuggestion()} /><AutomaticRunCard state={automaticRunState} provider={observerProvider} available={workspaceOpen && settingsLoaded && syncedSettings.observerEnabled} onState={setAutomaticRunState} /></>}
+            liveObserverCard={<LiveObserverCard onAsk={() => void askObserver()} canAsk={!fix.request && !explanation.request && syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest} state={liveState} provider={observerProvider} available={workspaceOpen && settingsLoaded} onState={setLiveState} onReview={() => void reviewLiveSuggestion()} />}
+            automaticRunCard={<AutomaticRunCard state={automaticRunState} provider={observerProvider} available={workspaceOpen && settingsLoaded && syncedSettings.observerEnabled} onState={setAutomaticRunState} />}
             mode={activeObserverMode}
             modes={observerModes}
             provider={observerProvider}

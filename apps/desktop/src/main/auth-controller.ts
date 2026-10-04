@@ -16,6 +16,19 @@ export interface DesktopAuthProvider {
   dispose: () => void;
 }
 
+export function isDesktopAuthConfigurationValid(url: string, publishableKey: string): boolean {
+  if (publishableKey.trim().length <= 20) return false;
+  try {
+    const parsedUrl = new URL(url.trim());
+    if (parsedUrl.username || parsedUrl.password) return false;
+    if (parsedUrl.protocol === "https:") return true;
+    if (parsedUrl.protocol !== "http:") return false;
+    return ["127.0.0.1", "localhost", "[::1]", "::1"].includes(parsedUrl.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function parseSignInRequest(request: unknown): DesktopSignInRequest | null {
   if (typeof request !== "object" || request === null) return null;
   const { email, password } = request as Partial<DesktopSignInRequest>;

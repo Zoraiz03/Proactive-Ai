@@ -188,12 +188,16 @@ function searchRequest(overrides: Partial<WorkspaceSearchRequest> = {}): Workspa
 
 async function collectSearch(request: WorkspaceSearchRequest) {
   const matches: WorkspaceSearchMatch[] = [];
+  const files: Array<{ relativePath: string; matchIndices: number[] }> = [];
   const completion = await new WorkspaceSearchService().search(
     workspaceRoot,
     request,
-    (batch) => matches.push(...batch.matches)
+    (batch) => {
+      matches.push(...batch.matches);
+      files.push(...((batch as typeof batch & { files?: typeof files }).files ?? []));
+    }
   );
-  return { matches, completion };
+  return { matches, files, completion };
 }
 
 test("normalizes safe paths and rejects traversal and absolute paths", () => {
@@ -423,6 +427,15 @@ test("searches supported workspace text normally and reports accurate locations"
   assert.deepEqual(normal.map((match) => match.line), [1, 2, 3]);
   assert.equal(normal[0].column, 16);
   assert.equal(normal[0].preview.slice(normal[0].previewMatchStart, normal[0].previewMatchStart + normal[0].previewMatchLength), "Needle");
+});
+
+test("suggests fuzzy filename matches even when file contents do not match", async () => {
+  const { files, matches, completion } = await collectSearch(searchRequest({ query: "nrm" }));
+  assert.equal(files[0]?.relativePath, "search/normal.ts");
+  assert.deepEqual(files[0]?.matchIndices, [7, 9, 10]);
+  assert.equal(matches.length, 0);
+  assert.equal(completion.fileCount, files.length);
+  assert.deepEqual(completion.files, files);
 });
 
 test("supports case-sensitive, whole-word, and regular-expression workspace search", async () => {
@@ -691,6 +704,23 @@ test("validates desktop sign-in requests without logging or returning passwords"
   assert.equal(parseSignInRequest({ email: "invalid", password: "secret" }), null);
   assert.equal(parseSignInRequest({ email: "user@example.com", password: "" }), null);
   assert.equal(parseSignInRequest({ email: "user@example.com", password: "x".repeat(1_025) }), null);
+});
+
+test("accepts secure Supabase URLs and loopback HTTP URLs for desktop development", async () => {
+  const authControllerModule = await import("./auth-controller.ts") as Record<string, unknown>;
+  const isValid = authControllerModule.isDesktopAuthConfigurationValid as
+    | ((url: string, publishableKey: string) => boolean)
+    | undefined;
+  const publishableKey = "sb_publishable_local-development-key";
+
+  assert.equal(typeof isValid, "function");
+  assert.equal(isValid?.("https://project.supabase.co", publishableKey), true);
+  assert.equal(isValid?.("http://127.0.0.1:54321", publishableKey), true);
+  assert.equal(isValid?.("http://localhost:54321", publishableKey), true);
+  assert.equal(isValid?.("http://[::1]:54321", publishableKey), true);
+  assert.equal(isValid?.("http://supabase.internal:54321", publishableKey), false);
+  assert.equal(isValid?.("not a URL", publishableKey), false);
+  assert.equal(isValid?.("https://project.supabase.co", "short"), false);
 });
 
 test("persists and restores only encrypted desktop session bytes", async () => {

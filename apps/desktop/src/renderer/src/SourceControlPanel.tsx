@@ -49,13 +49,20 @@ export default function SourceControlPanel({ active, workspaceOpen, workspaceVer
   if (!workspaceOpen) return <div className="source-control-state">Open a workspace to inspect Source Control.</div>;
   return <div className="source-control-panel">
     <div className="source-control-toolbar">
-      <strong>Source Control</strong>
-      <button type="button" onClick={() => void refresh()} disabled={loading} title="Refresh Git status">{loading ? "…" : "↻"}</button>
+      <div className="sidebar-toolbar-title">
+        <span className="sidebar-toolbar-icon" aria-hidden="true">⑂</span>
+        <strong>Repository status</strong>
+      </div>
+      <button type="button" onClick={() => void refresh()} disabled={loading} title="Refresh Git status" aria-label="Refresh Git status">{loading ? "…" : "↻"}</button>
     </div>
     {error && <div className="source-control-state error" role="alert">{error}</div>}
     {!error && loading && !status && <div className="source-control-state">Loading Git status…</div>}
     {!error && status?.state === "missing_git" && <div className="source-control-state error">Git is not installed or is unavailable on PATH.</div>}
-    {!error && status?.state === "not_repository" && <div className="source-control-state">This folder is not a Git repository.</div>}
+    {!error && status?.state === "not_repository" && <div className="source-control-state sidebar-empty-state">
+      <span className="sidebar-empty-icon" aria-hidden="true">⑂</span>
+      <strong>Not a Git repository</strong>
+      <p>Open a folder containing a Git repository to review branches and changed files.</p>
+    </div>}
     {!error && status?.state === "repository" && <>
       <div className="source-control-summary">
         <strong title={status.repositoryName}>{status.repositoryName}</strong>

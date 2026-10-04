@@ -16,14 +16,14 @@ export default function AutomaticRunCard({ state, provider, available, onState }
     finally { setConfiguring(false); }
   };
   const dismissible = ["waiting", "thinking", "ready", "error", "skipped"].includes(state.status);
-  return <section className="proactive-nudge" aria-label="Automatic failed-run explanations">
+  return <section className="proactive-nudge automatic-run-card" aria-label="Automatic failed-run explanations">
     <div className="proactive-nudge-heading">
-      <strong>Auto-explain failed runs · experimental</strong>
-      <button type="button" role="switch" aria-checked={state.enabled} aria-label="Auto-explain failed runs" disabled={configuring || (!available && !state.enabled)} onClick={() => void toggle()}>{configuring ? "Please wait…" : state.enabled ? "On" : "Off"}</button>
+      <div className="automatic-run-title"><h3>Auto-explain failed runs</h3><span className="automatic-run-badge">Experimental</span></div>
+      <button className="observer-toggle" type="button" role="switch" aria-checked={state.enabled} aria-label="Auto-explain failed runs" disabled={configuring || (!available && !state.enabled)} onClick={() => void toggle()}>{configuring ? "Please wait…" : state.enabled ? "On" : "Off"}</button>
     </div>
-    <small>Python and JavaScript · session-only · {OBSERVER_PROVIDER_LABELS[state.provider ?? provider]}</small>
-    <p role="status">{state.message}</p>
-    {error && <p role="status">{error}</p>}
+    <div className="automatic-run-meta" aria-label="Automatic failed-run capabilities"><span>Python</span><span>JavaScript</span><span>Session only</span><span>{OBSERVER_PROVIDER_LABELS[state.provider ?? provider]}</span></div>
+    <div className={`automatic-run-status automatic-run-status-${state.status}`} role="status"><span aria-hidden="true" /><p>{state.message}</p></div>
+    {error && <p className="automatic-run-error" role="alert">{error}</p>}
     {state.explanation && <article className="observer-suggestion" aria-label="Automatic explanation">
       <p className="observer-explanation">{state.explanation}</p>
       <p className="observer-reason">{state.reason}</p>
@@ -31,7 +31,7 @@ export default function AutomaticRunCard({ state, provider, available, onState }
     {dismissible && <button type="button" onClick={() => {
       window.automaticRun.dismiss();
       onState({ enabled: state.enabled, provider: state.provider, status: "armed", message: "Dismissed. No repeat explanation for this unchanged failure." });
-    }}>Dismiss</button>}
-    <small>No automatic edits. Enabling permits bounded code/error requests without a per-request preview.</small>
+    }} className="automatic-run-dismiss">Dismiss</button>}
+    <div className="automatic-run-safety"><span aria-hidden="true">✓</span><p><strong>No automatic edits.</strong> Enabling permits bounded code/error requests without a per-request preview.</p></div>
   </section>;
 }
