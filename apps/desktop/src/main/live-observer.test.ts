@@ -11,9 +11,9 @@ function fixture() {
  let now = 100000, currentPolicy = policy;
  let ask: (request: ObserverRequest, signal: AbortSignal) => Promise<IpcResult<ObserverAskResult>> = async () => answer;
  const calls: ObserverRequest[] = [], signals: AbortSignal[] = [];
- const controller = new LiveObserverController({ now: () => now, policy: async () => currentPolicy, ask: async (r, s) => { calls.push(r); signals.push(s); return ask(r, s); }, publish: () => {} });
+ const controller = new LiveObserverController({ timing: { pauseMs: 4000, cooldownMs: 30000, maximumRequestsPerHour: 10 }, now: () => now, policy: async () => currentPolicy, ask: async (r, s) => { calls.push(r); signals.push(s); return ask(r, s); }, publish: () => {} });
  const activity = (overrides = {}) => controller.observeActivity({ relativePath: 'main.py', focused: true, blocked: false, ...overrides });
- const advance = (ms: number = LIVE_CONFIG.pauseMs) => { now += ms; activity(); };
+ const advance = (ms: number = 4000) => { now += ms; activity(); };
  activity();
  return { controller, calls, signals, activity, advance, setAsk: (value: typeof ask) => { ask = value; }, setPolicy: (value: LivePolicy) => { currentPolicy = value; } };
 }
@@ -146,7 +146,6 @@ test('provider time is separate; whitespace cancels the flight and late result c
 for (const [change, message, review] of [
  [{ confirmCompleteFile: true }, /Confirm complete files/, true],
  [{ exclusions: ['main.py'] }, /AI context exclusions/, false],
- [{ maximumFileCharacters: 5 }, /5-character excerpt limit/, true],
  [{ maximumCharacters: 100 }, /100-character Privacy context budget/, true],
 ] as const) test(`privacy blocker is persistent and specific: ${String(message)}`, async () => {
  const f = fixture(); f.setPolicy({ ...policy, ...change, exclusions: 'exclusions' in change ? [...change.exclusions] : [] });

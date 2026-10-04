@@ -1,0 +1,64 @@
+[
+  {
+    "stage": "model_availability",
+    "provider": "gemini",
+    "model": "gemini-3.5-flash",
+    "httpStatus": 200,
+    "elapsedMs": 566,
+    "inputTokenLimit": 1048576,
+    "outputTokenLimit": 65536
+  },
+  {
+    "fixture": "random-text",
+    "mode": "live",
+    "transport": "real_provider",
+    "contextMs": 18,
+    "providerMs": 4526,
+    "outcome": "Gemini HTTP 503"
+  },
+  {
+    "fixture": "unfinished",
+    "mode": "live",
+    "transport": "real_provider",
+    "characters": 17617,
+    "lines": 253,
+    "contextCharacters": 17986,
+    "contextMs": 4,
+    "providerMs": 22678,
+    "outcome": "correction",
+    "validEdit": true,
+    "behaviorPassed": true,
+    "replacementCharacters": 43,
+    "expected": "correction",
+    "expectationMet": true
+  },
+  {
+    "fixture": "concrete-bug",
+    "mode": "live",
+    "transport": "real_provider",
+    "contextMs": 2,
+    "providerMs": 1846,
+    "outcome": "Gemini HTTP 503"
+  },
+  {
+    "fixture": "already-correct",
+    "mode": "live",
+    "transport": "real_provider",
+    "characters": 17636,
+    "lines": 253,
+    "contextCharacters": 18005,
+    "contextMs": 4,
+    "providerMs": 17311,
+    "outcome": "no_suggestion",
+    "expected": "no_suggestion",
+    "expectationMet": true
+  },
+  {
+    "fixture": "30000-characters",
+    "mode": "live",
+    "transport": "real_provider",
+    "contextMs": 193,
+    "providerMs": 4200,
+    "outcome": "Gemini HTTP 503"
+  }
+]

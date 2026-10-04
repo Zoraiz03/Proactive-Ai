@@ -1,3 +1,4 @@
+import { OBSERVER_CONTEXT_CHARACTERS } from "./observer-budget.ts";
 import type { ObserverKind, ObserverMode } from "./observer";
 import type { ContextTrayItem, ContextTrayStaleState } from "./context-tray";
 
@@ -138,13 +139,13 @@ export function validateProjectContextPackage(value: unknown): ProjectContextPac
   if (typeof context.intent.instruction !== "string" || context.intent.instruction.length < 1 || context.intent.instruction.length > 500) return null;
   if (typeof context.activeFile.relativePath !== "string" || !context.activeFile.relativePath || context.activeFile.relativePath.length > 4096 || typeof context.activeFile.fileName !== "string" || typeof context.activeFile.language !== "string") return null;
   if (!Number.isInteger(context.cursor.line) || context.cursor.line < 1 || !Number.isInteger(context.cursor.column) || context.cursor.column < 1) return null;
-  if (!Number.isInteger(context.limits.maximumTotalCharacters) || context.limits.maximumTotalCharacters < 1_000 || context.limits.maximumTotalCharacters > 50_000) return null;
+  if (!Number.isInteger(context.limits.maximumTotalCharacters) || context.limits.maximumTotalCharacters < 1_000 || context.limits.maximumTotalCharacters > OBSERVER_CONTEXT_CHARACTERS) return null;
   if (!Number.isInteger(context.limits.maximumRelatedFiles) || context.limits.maximumRelatedFiles < 0 || context.limits.maximumRelatedFiles > 10) return null;
   if (!Number.isInteger(context.limits.maximumCharactersPerFile) || context.limits.maximumCharactersPerFile < 500 || context.limits.maximumCharactersPerFile > 20_000) return null;
   const ids = new Set<string>();
   let total = 0;
   for (const item of context.items) {
-    if (!item || typeof item !== "object" || typeof item.id !== "string" || !item.id || ids.has(item.id) || typeof item.content !== "string" || !item.content || item.content.length > 50_000) return null;
+    if (!item || typeof item !== "object" || typeof item.id !== "string" || !item.id || ids.has(item.id) || typeof item.content !== "string" || !item.content || item.content.length > OBSERVER_CONTEXT_CHARACTERS) return null;
     if (!Number.isInteger(item.priority) || item.priority < 1 || item.priority > 8 || typeof item.reason !== "string" || item.reason.length > 500) return null;
     if (item.estimatedCharacters !== item.content.length || item.estimatedTokens !== Math.ceil(item.content.length / 4)) return null;
     if (item.source.relativePath?.startsWith("/") || item.source.relativePath?.split(/[\\/]/).includes("..")) return null;

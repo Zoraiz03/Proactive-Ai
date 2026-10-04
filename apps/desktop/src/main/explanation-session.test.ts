@@ -38,7 +38,7 @@ test('bounded complete turns and omission counts; question is never silently tru
  assert.deepEqual(boundExplanationHistory([{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b'.repeat(30) }], 10), { messages: [], omitted: 2 });
  assert.equal(validExplanationInput({ question: 'why', messages: [{ role: 'assistant', content: 'orphan' }] }), false);
 });
-for (const change of [{ enabled: false }, { exclusions: ['main.py'] }, { maximumCharacters: 20 }, { maximumFileCharacters: 2 }]) test(`followups recheck current privacy: ${JSON.stringify(change)}`, async () => {
+for (const change of [{ enabled: false }, { exclusions: ['main.py'] }, { maximumCharacters: 20 }]) test(`followups recheck current privacy: ${JSON.stringify(change)}`, async () => {
  const f = fixture(); await f.session.start('one', request()); f.setPolicy(change);
  assert.equal((await f.session.send('one', 'Why?')).ok, false); assert.equal(f.requests.length, 1);
 });

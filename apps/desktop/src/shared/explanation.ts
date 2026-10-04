@@ -1,8 +1,9 @@
+import { OBSERVER_CONTEXT_CHARACTERS } from "./observer-budget.ts";
 import type { ObserverRequest, ObserverSuggestion } from './observer.ts';
 
 export const EXPLANATION_LIMITS = {
  questionCharacters: 500, messages: 8, historyCharacters: 24000,
- contextCharacters: 20000, responseCharacters: 20000, outputTokens: 6000, requestTimeoutMs: 120000,
+ contextCharacters: OBSERVER_CONTEXT_CHARACTERS, responseCharacters: 20000, outputTokens: 6000, requestTimeoutMs: 120000,
 } as const;
 export interface ExplanationMessage { role: 'user' | 'assistant'; content: string }
 export interface ExplanationInput { question: string; messages: ExplanationMessage[] }

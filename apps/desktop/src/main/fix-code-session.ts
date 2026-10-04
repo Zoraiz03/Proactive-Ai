@@ -37,8 +37,9 @@ export class FixCodeSession {
             return { ok: false, error: 'Fix Code snapshot is invalid. Build a new preview.' };
         const context = request.contextPackage;
         const fix = request.fixCode;
-        if (!context || !validFixContext(fix) || request.editBase.contentLength !== content.length || request.editBase.targetRelativePath !== context.activeFile.relativePath || context.items.some(item => !['user_instruction', 'selected_code', 'complete_file', 'nearby_code', 'diagnostic', 'terminal_error'].includes(item.type) || (item.source.relativePath && item.source.relativePath !== context.activeFile.relativePath)))
+        if (!context || !validFixContext(fix) || request.editBase.contentLength !== content.length || request.editBase.targetRelativePath !== context.activeFile.relativePath || context.items.some(item => !['user_instruction', 'selected_code', 'complete_file', 'nearby_code', 'diagnostic', 'terminal_error', 'related_file', 'project_rule', 'attached_markdown', 'selected_markdown', 'markdown_section'].includes(item.type)))
             return {ok:false,error:'Fix Code context does not match the approved active file. Build a new preview.'};
+        if (context.items.some(i => ['selected_code','complete_file','nearby_code'].includes(i.type) && i.source.relativePath !== context.activeFile.relativePath)) return {ok:false,error:'Active scope points to another file.'};
         const start = offsetForPosition(content, fix.range.start), end = offsetForPosition(content, fix.range.end);
         const supplied = context.items.filter(item => item.type === (fix.scope === 'file' ? 'complete_file' : 'selected_code'));
         if (start === null || end === null || end <= start || (fix.scope === 'file' && (start !== 0 || end !== content.length)) || supplied.length !== 1 || supplied[0].content !== content.slice(start,end) || supplied[0].optional || supplied[0].truncated || supplied[0].redacted || supplied[0].content.length > FIX_CODE_LIMITS.codeCharacters)
@@ -78,8 +79,9 @@ export class FixCodeSession {
                 throw new Error('Approved context is now excluded or contains suspected secrets. Review a new context.');
             if ((!p.includeDiagnostics && context.items.some(i => i.type === 'diagnostic')) || (!p.includeTerminalError && context.items.some(i => i.type === 'terminal_error')))
                 throw new Error('Diagnostic/run evidence permission changed. Build a new context preview.');
+            if (context.items.some(i => ['related_file','project_rule'].includes(i.type) && i.content.length > p.maximumFileCharacters)) throw new Error('Supporting context exceeds current per-related-file privacy limit.');
             const total = context.totalCharacters + clarifications.reduce((n, t) => n + t.question.length + t.answer.length, 0);
-            if (total > Math.min(p.maximumCharacters, context.limits.maximumTotalCharacters) || context.items.some(i => ['complete_file', 'selected_code', 'nearby_code'].includes(i.type) && i.content.length > p.maximumFileCharacters))
+            if (total > Math.min(p.maximumCharacters, context.limits.maximumTotalCharacters))
                 throw new Error('Approved context and clarification exceed current privacy limits. Select a smaller section.');
             if (p.confirmCompleteFile && context.containsCompleteFile && !session.consent) {
                 if (!initial)

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const ProviderSchema = z.enum(["gemini", "openai", "deepseek", "anthropic", "demo"]);
 export const ModelByProvider = {
-  gemini: ["gemini-2.5-flash"],
+  gemini: ["gemini-3.5-flash"],
   openai: ["gpt-4o-mini"],
   deepseek: ["deepseek-chat"],
   anthropic: ["claude-haiku-4-5-20251001"],
@@ -28,7 +28,7 @@ export const DesktopSettingsSchema = z.object({
 
 export const DEFAULT_DESKTOP_SETTINGS = {
   preferredProvider: "gemini",
-  preferredModel: "gemini-2.5-flash",
+  preferredModel: "gemini-3.5-flash",
   observerEnabled: true,
   defaultObserverAction: "explain",
   showContextPreview: true,

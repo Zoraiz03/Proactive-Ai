@@ -9,7 +9,7 @@ import { getProviderStructuredJson, ProviderError, type Provider } from "@/lib/s
 import { createTrustedChangeSet, createTrustedPlan, MultiFileBaseSchema, MultiFileLimitsSchema, MultiFilePlanSchema } from "@/lib/server/multi-file-change";
 
 const ProviderSchema = z.enum(["gemini", "deepseek", "openai", "anthropic", "demo"]);
-const ModelForProvider = { gemini: "gemini-2.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat", anthropic: "claude-haiku-4-5-20251001", demo: "demo-local" } as const;
+const ModelForProvider = { gemini: "gemini-3.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat", anthropic: "claude-haiku-4-5-20251001", demo: "demo-local" } as const;
 const Common = { client: z.literal("desktop"), provider: ProviderSchema, model: z.string().min(1).max(100).optional(), storeHistory: z.boolean(), userRequest: z.string().trim().min(3).max(500), context: ProjectContextSchema, limits: MultiFileLimitsSchema };
 const PlanBody = z.object({ ...Common, phase: z.literal("plan") }).strict();
 const GenerateBody = z.object({ ...Common, phase: z.literal("generate"), plan: MultiFilePlanSchema, fileBases: z.array(MultiFileBaseSchema).min(1).max(10) }).strict();

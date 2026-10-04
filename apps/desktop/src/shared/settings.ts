@@ -157,7 +157,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = Object.freeze({
 
 export const DEFAULT_SYNCED_SETTINGS: SyncedSettings = Object.freeze({
   preferredProvider: "gemini",
-  preferredModel: "gemini-2.5-flash",
+  preferredModel: "gemini-3.5-flash",
   observerEnabled: true,
   defaultObserverAction: "explain",
   showContextPreview: true,
@@ -169,7 +169,7 @@ export const DEFAULT_SYNCED_SETTINGS: SyncedSettings = Object.freeze({
 });
 
 export const PROVIDER_MODELS: Readonly<Record<ObserverProvider, readonly string[]>> = {
-  gemini: ["gemini-2.5-flash"],
+  gemini: ["gemini-3.5-flash"],
   openai: ["gpt-4o-mini"],
   deepseek: ["deepseek-chat"],
   anthropic: ["claude-haiku-4-5-20251001"],

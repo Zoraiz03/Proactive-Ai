@@ -44,11 +44,19 @@ export class SettingsApiClient {
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok) {
         const message = typeof payload === "object" && payload && typeof (payload as { error?: unknown }).error === "string"
-          ? (payload as { error: string }).error : response.status === 401 ? "Your session is no longer valid." : "Settings request failed.";
+          ? (payload as { error: string }).error : response.status === 401 ? "Your session is no longer valid. Sign in again."
+            : response.status >= 500 ? `The local/backend server returned HTTP ${response.status} while loading settings. Its settings endpoint is unavailable; check or restart the Next.js server. Privacy checks were not bypassed.`
+            : response.status === 404 ? "The settings endpoint was not found (HTTP 404). Check the desktop API URL and running backend version."
+            : `Settings request failed (HTTP ${response.status}).`;
         return { ok: false, error: message };
       }
       return { ok: true, value: payload };
-    } catch { return { ok: false, error: "Unable to reach the settings service." }; }
+    } catch (error) {
+      const timedOut = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
+      return { ok: false, error: timedOut
+        ? "The privacy-settings request timed out. Check that the Next.js server and database are reachable; no cached/default permissions were used."
+        : "Unable to reach the settings service. Check the desktop API URL and that the Next.js server is running." };
+    }
   }
 
   async getSynced(): Promise<IpcResult<SyncedSettings>> {

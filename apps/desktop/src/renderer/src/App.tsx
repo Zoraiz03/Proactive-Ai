@@ -2763,7 +2763,7 @@ export default function App({ user, onSignOut }: AppProps) {
             />
           ) : (
           <EditorWorkspace
-            onLiveEdit={(edit) => { if (liveState.enabled && edit.relativePath === activePath) window.liveObserver.edit(edit); }}
+            onLiveEdit={(edit) => { if (liveState.enabled && edit.relativePath === activePath) window.liveObserver.edit({ ...edit, trayItems: contextTrayItems }); }}
             liveState={liveState}
             onLiveReview={() => void reviewLiveSuggestion()}
             tabs={tabs}

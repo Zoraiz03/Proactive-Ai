@@ -58,14 +58,16 @@ function importSpecifiers(content: string): string[] {
   const patterns = [/(?:from\s+|import\s*\(|require\s*\()\s*["']([^"']+)["']/g, /(?:import|export)\s+[^;]*?\sfrom\s+["']([^"']+)["']/g];
   for (const pattern of patterns) {
     let match: RegExpExecArray | null;
-    while ((match = pattern.exec(content)) !== null) if (match[1].startsWith(".")) values.add(match[1]);
+    while ((match = pattern.exec(content)) !== null) values.add(match[1]);
   }
+  for (const match of Array.from(content.matchAll(/^\s*#\s*include\s*"([^"\n]+)"/gm))) values.add(`./${match[1]}`);
   return Array.from(values);
 }
 
 function candidatePathsForImport(activePath: string, specifier: string): string[] {
   const raw = posix.normalize(posix.join(dirname(activePath).replaceAll("\\", "/"), specifier));
   if (raw.startsWith("../") || raw === "..") return [];
+  if (/\.m?js$/.test(raw)) return [raw, raw.replace(/\.m?js$/, '.ts'), raw.replace(/\.m?js$/, '.tsx')];
   if (extname(raw)) return [raw];
   return [...CODE_EXTENSIONS.map((extension) => `${raw}${extension}`), ...CODE_EXTENSIONS.map((extension) => `${raw}/index${extension}`)];
 }
@@ -130,20 +132,35 @@ export class ProjectContextEngine {
     if (!this.rootPath) throw new Error("Open a workspace before building Observer context.");
     const seed = validateSeed(rawSeed);
     const focusedExplain = seed.mode === "explain" && seed.kind === "code";
-    if (focusedExplain) { seed.trayItems = []; seed.maximumTotalCharacters = Math.min(seed.maximumTotalCharacters, EXPLANATION_LIMITS.contextCharacters); }
+    if (focusedExplain) seed.maximumTotalCharacters = Math.min(seed.maximumTotalCharacters, EXPLANATION_LIMITS.contextCharacters);
 
     if (seed.mode === "plan_multi_file" && !seed.userRequest) throw new Error("Describe the requested multi-file change before continuing.");
     const gitignore = await this.gitignorePatterns();
     if (isIgnored(seed.activeRelativePath, seed.exclusions, gitignore)) throw new Error("The active file is excluded from AI context.");
     await resolveWorkspacePath(this.rootPath, seed.activeRelativePath);
-    if (seed.mode === "fix_error") return buildFixCodeContext(seed);
+    if (seed.mode === "fix_error") {
+      const context = buildFixCodeContext(seed);
+      const supporting = await this.build({...seed, mode: "improve_code", selectedCode: undefined, nearbyCode: undefined});
+      context.omitted.push(...supporting.omitted);
+      for (const item of supporting.items.filter(item => ["related_file", "project_rule", "attached_markdown", "selected_markdown", "markdown_section"].includes(item.type))) {
+        if (context.totalCharacters + item.content.length > seed.maximumTotalCharacters) {
+          context.omitted.push({type:item.type, reason:"Supporting context omitted to preserve the exact active code within the budget."}); continue;
+        }
+        context.items.push({...item, id:`support-${item.id}`, optional:true}); context.totalCharacters += item.content.length;
+      }
+      context.estimatedTokens = Math.ceil(context.totalCharacters / 4);
+      context.containsCompleteFile = context.items.some(item => item.completeFile);
+      context.omitted = context.omitted.slice(0,100);
+      return context;
+    }
     const items: ProjectContextItem[] = [];
     const omitted: OmittedProjectContextItem[] = [];
     let sequence = 0;
     const add = (type: ProjectContextItemType, priority: number, content: string | undefined, provenance: ProjectContextProvenance, reason: string, details: Partial<ProjectContextItem["source"]> = {}, optional = false, completeFile = false, relevanceScore?: number) => {
       if (!content?.trim()) return;
       const safe = redactProjectSecrets(content);
-      const bounded = safe.content.slice(0, type === "related_file" || type === "project_rule" ? seed.maximumCharactersPerFile : 20_000);
+      const bounded = type === "related_file" || type === "project_rule" ? safe.content.slice(0, seed.maximumCharactersPerFile) : safe.content;
+      if (bounded.length < safe.content.length) omitted.push({ type, reason: "Supporting file excerpt limited by the per-related-file Privacy setting." });
       const cost = projectContextCost(bounded);
       items.push({ id: `ctx-${++sequence}`, type, priority, content: bounded, source: { provenance, ...details }, reason, ...cost, optional, completeFile: completeFile && bounded.length === content.length, truncated: bounded.length < safe.content.length, redacted: safe.redacted, attachmentProvenance: "automatic", staleState: "fresh", ...(relevanceScore === undefined ? {} : { relevanceScore }) });
     };
@@ -169,19 +186,13 @@ export class ProjectContextEngine {
       }
       trayItems.push({ ...item, staleState });
     }
-    const trayCharacters = trayItems.reduce((sum, item) => sum + item.estimatedCharacters, 0);
-    const instructionCharacters = items[0]?.estimatedCharacters ?? 0;
-    if (trayCharacters + instructionCharacters > seed.maximumTotalCharacters) {
-      const overflowing = trayItems.find((_, index) => trayItems.slice(0, index + 1).reduce((sum, item) => sum + item.estimatedCharacters, instructionCharacters) > seed.maximumTotalCharacters);
-      throw new Error(`${overflowing?.title ?? "A user-attached item"} exceeds the configured context budget. Remove or truncate it, or increase the safe context limit.`);
-    }
     for (let trayIndex = 0; trayIndex < trayItems.length; trayIndex += 1) {
       const tray = trayItems[trayIndex];
       const cost = projectContextCost(tray.content);
       items.push({
         id: `tray-${tray.id}`,
         type: tray.type as ProjectContextItemType,
-        priority: highPriorityTrayType(tray) ? 2 : 3,
+        priority: highPriorityTrayType(tray) ? 3 : 4,
         content: tray.content,
         source: { provenance: tray.provenance, ...(tray.source ?? {}), ...(tray.webSource ? { sourceUrl: tray.webSource.sourceUrl, hostname: tray.webSource.hostname } : {}) },
         reason: tray.reason,
@@ -198,15 +209,14 @@ export class ProjectContextEngine {
         relevanceScore: Math.max(0, 100 - trayIndex),
       });
     }
-    const trayContains = (content: string | undefined) => Boolean(content && trayItems.some((item) => item.content === content));
-    if (seed.selectedCode && !trayContains(seed.selectedCode)) add("selected_code", 2, seed.selectedCode, "editor_selection", "The user explicitly selected this content.", { relativePath: seed.activeRelativePath, ...(seed.selectedLineStart ? { lineStart: seed.selectedLineStart } : {}), ...(seed.selectedLineEnd ? { lineEnd: seed.selectedLineEnd } : {}) });
+    if (seed.selectedCode) add("selected_code", 2, seed.selectedCode, "editor_selection", "The user explicitly selected this content.", { relativePath: seed.activeRelativePath, ...(seed.selectedLineStart ? { lineStart: seed.selectedLineStart } : {}), ...(seed.selectedLineEnd ? { lineEnd: seed.selectedLineEnd } : {}) });
     const symbol = detectCurrentSymbol(seed.content, seed.cursorLine);
     const wantsSymbol = ["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments", "plan_multi_file"].includes(seed.mode);
     if (seed.mode === "add_comments" && !seed.selectedCode) throw new Error("Select code before asking Observer to add comments or documentation.");
-    if (wantsSymbol && symbol && !(focusedExplain && seed.selectedCode) && !trayContains(symbol.content)) add("current_symbol", 4, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
-    if ((!seed.selectedCode || seed.mode === "continue_code") && !(focusedExplain && symbol)) add("nearby_code", 5, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
+    if (wantsSymbol && symbol && !(focusedExplain && seed.selectedCode)) add("current_symbol", 2, symbol.content, "editor_cursor", `Current symbol “${symbol.name}” contains the cursor.`, { relativePath: seed.activeRelativePath, lineStart: symbol.lineStart, lineEnd: symbol.lineEnd });
+    if ((!seed.selectedCode || seed.mode === "continue_code") && !(focusedExplain && symbol)) add("nearby_code", 2, seed.nearbyCode, "editor_cursor", seed.mode === "continue_code" ? "Preceding and nearby code anchors continuation at the cursor." : "Nearby lines provide bounded local context.", { relativePath: seed.activeRelativePath, lineStart: Math.max(1, seed.cursorLine - 20), lineEnd: seed.cursorLine + 20 }, Boolean(symbol));
 
-    if (seed.kind === "code" && !focusedExplain) {
+    if (seed.kind === "code") {
       const candidates = await this.discover(seed, gitignore);
       let related = 0;
       for (const candidate of candidates) {
@@ -223,7 +233,7 @@ export class ProjectContextEngine {
     if (focusedExplain) for (const item of items) {
       if (item.type !== "user_instruction") {
         // Complete selections/functions must retain the existing consent requirement.
-        item.completeFile = item.content.trim() === redactProjectSecrets(seed.content).content.trim();
+        if (item.source.relativePath === seed.activeRelativePath) item.completeFile = item.content.trim() === redactProjectSecrets(seed.content).content.trim();
         if (item.type === "nearby_code") item.source.lineEnd = Math.min(seed.content.split(/\r?\n/).length, item.source.lineEnd ?? seed.cursorLine);
       }
     }
@@ -231,6 +241,7 @@ export class ProjectContextEngine {
     const selected: ProjectContextItem[] = []; let used = 0;
     for (const item of items) {
       const remaining = seed.maximumTotalCharacters - used;
+      if (item.type === "selected_code" && item.attachmentProvenance !== "user_attached" && item.content.length > remaining) throw new Error("Blocked before sending: the full active selection exceeds your context budget. Increase the Privacy budget or explicitly select less code. Nothing was truncated.");
       if (remaining <= 0) { omitted.push({ type: item.type, source: item.source.relativePath, reason: "Total context budget exhausted by higher-priority items." }); continue; }
       if (item.content.length <= remaining) { selected.push(item); used += item.content.length; continue; }
       if (item.optional || remaining < 100) { omitted.push({ type: item.type, source: item.source.relativePath, reason: "Omitted because higher-priority context consumed the budget." }); continue; }
@@ -244,7 +255,7 @@ export class ProjectContextEngine {
       activeFile: { relativePath: seed.activeRelativePath, fileName: seed.fileName, language: seed.language, kind: seed.kind },
       cursor: { line: seed.cursorLine, column: seed.cursorColumn },
       items: selected,
-      omitted,
+      omitted: omitted.slice(0,100),
       totalCharacters: used,
       estimatedTokens: Math.ceil(used / 4),
       limits: { maximumTotalCharacters: seed.maximumTotalCharacters, maximumRelatedFiles: seed.maximumRelatedFiles, maximumCharactersPerFile: seed.maximumCharactersPerFile },
@@ -258,7 +269,43 @@ export class ProjectContextEngine {
     const cached = this.cache.get(cacheKey); if (cached?.generation === this.generation) return cached.candidates;
     const candidates = new Map<string, Candidate>();
     const offer = (candidate: Candidate) => { if (candidate.relativePath !== seed.activeRelativePath && !isIgnored(candidate.relativePath, seed.exclusions, gitignore) && (!candidates.has(candidate.relativePath) || candidates.get(candidate.relativePath)!.score < candidate.score)) candidates.set(candidate.relativePath, candidate); };
-    for (const specifier of importSpecifiers(seed.content)) for (const relativePath of candidatePathsForImport(seed.activeRelativePath, specifier)) offer({ relativePath, score: 100, reason: `Direct local import “${specifier}” from the active file.`, provenance: "local_import", type: "related_file" });
+    let aliases: Record<string, string[]> = {}; let baseUrl = ".";
+    for (const configPath of ["tsconfig.json", "jsconfig.json"]) {
+      const config = await this.safeRead(configPath, seed.exclusions, gitignore);
+      if (!config) continue;
+      try {
+        const options = JSON.parse(config.content).compilerOptions;
+        if (options?.paths && typeof options.paths === "object") aliases = options.paths;
+        if (typeof options?.baseUrl === "string") baseUrl = options.baseUrl;
+        break;
+      } catch { /* Non-JSON/extended configs need explicitly attached references. */ }
+    }
+    for (const specifier of importSpecifiers(seed.content)) {
+      const targets: string[] = specifier.startsWith(".") ? candidatePathsForImport(seed.activeRelativePath, specifier) : [];
+      for (const [alias, mappings] of Object.entries(aliases)) {
+        if (!Array.isArray(mappings)) continue;
+        const [prefix, suffix = ""] = alias.split("*");
+        const matches = alias.includes("*") ? specifier.startsWith(prefix) && specifier.endsWith(suffix) : specifier === alias;
+        if (!matches) continue;
+        const wildcard = alias.includes("*") ? specifier.slice(prefix.length, suffix ? -suffix.length : undefined) : "";
+        for (const mapping of mappings) if (typeof mapping === "string") {
+          const mapped = posix.join(baseUrl, mapping.replace("*", wildcard));
+          if (!posix.isAbsolute(mapped) && !mapped.startsWith("../")) targets.push(...candidatePathsForImport("__root__.ts", `./${mapped}`));
+        }
+      }
+      for (const relativePath of targets) offer({ relativePath, score: 100, reason: `Direct local import “${specifier}” from the active file.`, provenance: "local_import", type: "related_file" });
+    }
+    if (seed.language === "python") {
+      for (const match of Array.from(seed.content.matchAll(/^\s*(?:from\s+([.\w]+)\s+import|import\s+([\w.]+))/gm))) {
+        const module = match[1] ?? match[2];
+        const dots = module.match(/^\.+/)?.[0].length ?? 0;
+        const suffix = module.slice(dots).replaceAll('.', '/');
+        const bases = dots ? [posix.join(dirname(seed.activeRelativePath), ...Array(Math.max(0, dots - 1)).fill('..'), suffix)] : [posix.join(dirname(seed.activeRelativePath), suffix), suffix];
+        for (const base of bases) for (const relativePath of [`${base}.py`, `${base}/__init__.py`]) {
+          if (!relativePath.startsWith('../')) offer({ relativePath, score: 100, reason: `Local Python import “${module}”.`, provenance: "local_import", type: "related_file" });
+        }
+      }
+    }
     if (["generate_tests", "plan_multi_file"].includes(seed.mode)) {
       for (const relativePath of testNameCandidates(seed.activeRelativePath)) offer({ relativePath, score: 90, reason: "Nearby test naming pattern for the active implementation.", provenance: "nearby_test", type: "related_file" });
       for (const relativePath of CONFIG_FILES) offer({ relativePath, score: 70, reason: "Project configuration may identify the test framework or language conventions.", provenance: "project_configuration", type: "related_file" });

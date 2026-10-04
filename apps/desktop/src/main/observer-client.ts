@@ -1,3 +1,4 @@
+import { observerTelemetry } from "../shared/observer-budget.ts";
 import { FIX_CODE_LIMITS, validFixSuggestion } from "../shared/fix-code.ts";
 import { EXPLANATION_LIMITS } from "../shared/explanation.ts";
 import type { IpcResult } from "../shared/workspace.ts";
@@ -79,15 +80,17 @@ export class ObserverApiClient {
     const accessToken = await this.getAccessToken().catch(() => null);
     if (!accessToken) return { ok: false, error: "Sign in before asking Observer." };
     if (signal?.aborted) return { ok: false, error: "Observer request cancelled." };
+    const started = performance.now();
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
-    const timeout = setTimeout(() => controller.abort(), request.fixCode ? FIX_CODE_LIMITS.timeoutMs : request.explanation ? EXPLANATION_LIMITS.requestTimeoutMs : 45_000);
+    const timeout = setTimeout(() => controller.abort(), request.fixCode ? FIX_CODE_LIMITS.timeoutMs : request.explanation || request.liveObserver ? EXPLANATION_LIMITS.requestTimeoutMs : 45_000);
     try {
       const response = await this.fetchImplementation(`${this.baseUrl}/api/suggest`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(request.traceId ? {"X-Observer-Trace": request.traceId} : {}),
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({ ...request, client: "desktop" }),
@@ -104,17 +107,18 @@ export class ObserverApiClient {
         return { ok: false, error };
       }
       if (typeof payload !== "object" || payload === null) {
-        return { ok: false, error: "Observer returned an invalid response." };
+        return { ok: false, error: "Invalid proposed edit or response: nothing was applied." };
       }
       const provider = (payload as { provider?: unknown }).provider;
       const suggestion = validSuggestion((payload as { suggestion?: unknown }).suggestion, Boolean(request.explanation), Boolean(request.fixCode));
-      if (!OBSERVER_PROVIDERS.includes(provider as ObserverAskResult["provider"]) || !suggestion) {
-        return { ok: false, error: "Observer returned an invalid response." };
+      if (!OBSERVER_PROVIDERS.includes(provider as ObserverAskResult["provider"]) || provider !== request.provider || !suggestion) {
+        return { ok: false, error: "Invalid proposed edit or response: nothing was applied." };
       }
       return { ok: true, value: { suggestion, provider: provider as ObserverAskResult["provider"] } };
     } catch (error) {
-      return { ok: false, error: publicRequestError(error) };
+      return { ok: false, error: signal?.aborted ? "Observer request cancelled after sending was attempted." : controller.signal.aborted ? "Observer timeout after sending was attempted. Nothing was applied." : publicRequestError(error) };
     } finally {
+      observerTelemetry("backend_roundtrip", performance.now() - started, request.contextPackage, request.traceId);
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
     }

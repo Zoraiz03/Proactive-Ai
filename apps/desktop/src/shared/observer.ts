@@ -1,3 +1,4 @@
+import { OBSERVER_CONTEXT_CHARACTERS } from "./observer-budget.ts";
 import { validFixContext, type FixCodeContext, type FixCodeOutcome, type FixCodeResult } from "./fix-code.ts";
 import { validExplanationInput, type ExplanationInput, type ExplanationResult } from "./explanation.ts";
 import type { IpcResult } from "./workspace";
@@ -76,9 +77,9 @@ export const OBSERVER_PROVIDER_LABELS: Readonly<Record<ObserverProvider, string>
 };
 
 export const OBSERVER_LIMITS = {
-  selectedCode: 20_000,
+  selectedCode: OBSERVER_CONTEXT_CHARACTERS,
   nearbyCode: 20_000,
-  activeFile: 50_000,
+  activeFile: OBSERVER_CONTEXT_CHARACTERS,
   runError: 8_000,
   diagnosticMessage: 2_000,
   snippet: 50_000,
@@ -92,6 +93,7 @@ export interface ObserverDiagnosticContext {
 }
 
 export interface ObserverRequest {
+  traceId?: string;
   fixCode?: FixCodeContext;
   explanation?: ExplanationInput;
   liveObserver?: boolean;
@@ -207,7 +209,8 @@ export function createObserverRequest(input: CreateObserverRequestInput): Observ
   const cursorLine = Math.max(1, Math.trunc(input.cursorLine));
   const cursorColumn = Math.max(1, Math.trunc(input.cursorColumn));
   const requestedLimit = Math.max(1_000, Math.min(OBSERVER_LIMITS.activeFile, Math.trunc(input.maximumContextChars ?? OBSERVER_LIMITS.selectedCode)));
-  const selectedCode = bounded(input.selectedCode, Math.min(OBSERVER_LIMITS.selectedCode, requestedLimit));
+  if (input.selectedCode && input.selectedCode.length > requestedLimit) return null;
+  const selectedCode = input.selectedCode?.trim() ? input.selectedCode : undefined;
   const nearbyCode = bounded(input.nearbyCode, Math.min(OBSERVER_LIMITS.nearbyCode, requestedLimit));
   const diagnostic = input.mode === "fix_error" && input.diagnostic
     ? {
@@ -342,6 +345,7 @@ export function validateObserverPrepareRequest(value: unknown): ObserverPrepareR
 export function validateObserverRequest(value: unknown): ObserverRequest | null {
   if (typeof value !== "object" || value === null) return null;
   const request = value as Partial<ObserverRequest>;
+  if (request.traceId !== undefined && !/^[a-f0-9-]{36}$/.test(request.traceId)) return null;
   if (request.fixCode !== undefined && (!validFixContext(request.fixCode) || request.mode !== "fix_error" || request.kind !== "code" || !request.editBase || !request.contextPackage || request.explanation || request.liveObserver || request.automaticRun)) return null;
   if (request.explanation !== undefined && (!validExplanationInput(request.explanation) || request.mode !== "explain" || request.kind !== "code" || request.storeHistory !== false || request.editBase || request.liveObserver || request.automaticRun)) return null;
   const contextPackage = request.contextPackage === undefined ? undefined : validateProjectContextPackage(request.contextPackage);
@@ -383,6 +387,7 @@ export function validateObserverRequest(value: unknown): ObserverRequest | null 
     ) return null;
   }
   return {
+    ...(request.traceId ? {traceId: request.traceId} : {}),
     ...(request.fixCode ? { fixCode: request.fixCode } : {}),
     ...(request.explanation ? { explanation: request.explanation } : {}),
     provider: request.provider as ObserverProvider,

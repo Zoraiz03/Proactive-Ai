@@ -2,7 +2,9 @@
 require('@next/env').loadEnvConfig(process.cwd());
 const { createClient } = require('@supabase/supabase-js');
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Settings intentionally deny anonymous access. A server-side key permits a zero-row
+// schema probe; this does not verify authenticated ownership policies.
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const checks = [
   ['suggestions', 'id,user_id,provider,file_name,detector_metadata,score,explanation,snippet,reason', '20260820100515_add_stuck_suggestion_feedback.sql'],
   ['suggestion_outcomes', 'id,suggestion_id,user_id,outcome,detector_types,detector_metadata', '20260820100515_add_stuck_suggestion_feedback.sql'],
@@ -14,7 +16,9 @@ async function main() {
   for (const [table, columns, migration] of checks) {
     const { error } = await db.from(table).select(columns).limit(0);
     if (!error) console.log(`OK ${table}: expected columns are available.`);
-    else {
+    else if (table === 'desktop_user_settings' && error.code === '42501' && !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.log('SKIP desktop_user_settings: anonymous access is intentionally denied. A server-side schema probe or signed-in check is required.');
+    } else {
       process.exitCode = 1;
       const missing = ['PGRST205', 'PGRST204', '42P01', '42703'].includes(error.code);
       console.log(`FAIL ${table}: ${missing ? `missing schema; review existing migration supabase/migrations/${migration}` : `connection/access error (${error.code || 'network'}); check backend connectivity and database permissions`}.`);

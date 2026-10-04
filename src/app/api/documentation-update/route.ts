@@ -5,7 +5,7 @@ import { decrypt } from "@/lib/server/crypto";
 import { getProviderStructuredJson, ProviderError } from "@/lib/server/providers";
 import { buildDocumentationUpdatePrompt, demoDocumentationEdit, DocumentationDraftRequestSchema, DocumentationEditSchema } from "@/lib/server/documentation-update";
 
-const MODELS = { gemini: "gemini-2.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat", anthropic: "claude-haiku-4-5-20251001", demo: "demo-local" } as const;
+const MODELS = { gemini: "gemini-3.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat", anthropic: "claude-haiku-4-5-20251001", demo: "demo-local" } as const;
 const ENV_KEYS = { gemini: process.env.GEMINI_API_KEY, openai: process.env.OPENAI_API_KEY, deepseek: process.env.DEEPSEEK_API_KEY, anthropic: process.env.ANTHROPIC_API_KEY };
 
 export async function POST(request: Request) {

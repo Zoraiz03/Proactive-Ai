@@ -1,3 +1,4 @@
+import { OBSERVER_CONTEXT_CHARACTERS, observerInputBudget, observerTelemetry } from "../../../../apps/desktop/src/shared/observer-budget.ts";
 import { validFixContext, type FixCodeContext } from "../../../../apps/desktop/src/shared/fix-code.ts";
 import { EXPLANATION_LIMITS, validExplanationInput } from "../../../../apps/desktop/src/shared/explanation.ts";
 import { NextResponse } from "next/server";
@@ -13,7 +14,7 @@ const ProviderSchema = z.enum(["gemini", "deepseek", "openai", "anthropic", "dem
 const CodeModeSchema = z.enum(["explain", "fix_error", "improve_code", "continue_code", "generate_tests", "add_comments"]);
 const DocumentModeSchema = z.enum(["explain_document", "improve_writing", "summarize", "generate_readme_section"]);
 const ModeSchema = z.union([CodeModeSchema, DocumentModeSchema]);
-const ModelForProvider = { gemini: "gemini-2.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat", anthropic: "claude-haiku-4-5-20251001", demo: "demo-local" } as const;
+const ModelForProvider = { gemini: "gemini-3.5-flash", openai: "gpt-4o-mini", deepseek: "deepseek-chat", anthropic: "claude-haiku-4-5-20251001", demo: "demo-local" } as const;
 
 const WebBody = z.object({
   client: z.literal("web").optional(),
@@ -46,7 +47,7 @@ const DesktopBody = z.object({
   source: z.enum(["selection", "cursor", "diagnostic"]),
   cursorLine: z.number().int().positive(),
   cursorColumn: z.number().int().positive(),
-  selectedCode: z.string().min(1).max(20_000).optional(),
+  selectedCode: z.string().min(1).max(OBSERVER_CONTEXT_CHARACTERS).optional(),
   nearbyCode: z.string().min(1).max(20_000).optional(),
   diagnostic: z.object({
     fileName: z.string().min(1).max(255).regex(/^[^\\/]+$/),
@@ -59,20 +60,17 @@ const DesktopBody = z.object({
   contextPackage: ProjectContextSchema,
   editBase: EditBaseSchema.optional(),
 }).superRefine((body, context) => {
+  if (body.contextPackage.totalCharacters > observerInputBudget(body.provider, body.contextPackage.limits.maximumTotalCharacters)) context.addIssue({code: z.ZodIssueCode.custom, message: "Context exceeds the provider model budget."});
+  if (body.contextPackage.items.some(i => ['selected_code','current_symbol','nearby_code','complete_file'].includes(i.type) && i.attachmentProvenance !== 'user_attached' && i.source.relativePath !== body.contextPackage.activeFile.relativePath)) context.addIssue({code:z.ZodIssueCode.custom,message:'Active context path mismatch.'});
   if (body.explanation && (body.mode !== 'explain' || body.kind !== 'code' || body.automaticRun || body.liveObserver || body.editBase || body.storeHistory || body.contextPackage.totalCharacters > EXPLANATION_LIMITS.contextCharacters ||
     body.contextPackage.totalCharacters + body.explanation.question.length + body.explanation.messages.reduce((n, m) => n + m.content.length, 0) > body.contextPackage.limits.maximumTotalCharacters ||
-    body.contextPackage.items.some(item => !['user_instruction', 'selected_code', 'current_symbol', 'nearby_code'].includes(item.type) || (item.source.relativePath && item.source.relativePath !== body.contextPackage.activeFile.relativePath)) ||
+    body.contextPackage.items.some(item => !['user_instruction', 'selected_code', 'current_symbol', 'nearby_code', 'related_file', 'project_rule', 'attached_markdown', 'selected_markdown', 'file_excerpt', 'complete_file', 'markdown_section'].includes(item.type)) ||
     /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:api[_-]?key|password|access[_-]?token)\s*[:=]\s*["']?[A-Za-z0-9_./+\-=]{12,}/i.test(JSON.stringify(body.explanation)))) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid or unsafe explanation conversation.' });
   const liveContextInvalid = body.automaticRun || body.mode !== "improve_code" || body.kind !== "code" ||
-    !["python", "javascript"].includes(body.language) || body.storeHistory || !body.editBase ||
-    body.contextPackage.totalCharacters > 9000 || body.contextPackage.items.length > 5 ||
-    !body.contextPackage.items.some(item => item.type === "nearby_code") ||
-    body.contextPackage.items.some(item =>
-      !["nearby_code", "diagnostic", "user_instruction"].includes(item.type) ||
-      item.source.relativePath !== body.contextPackage.activeFile.relativePath ||
-      item.content.length > (item.type === "nearby_code" ? 6000 : item.type === "diagnostic" ? 1000 : 500));
+    body.storeHistory || !body.editBase || body.contextPackage.totalCharacters > 50_000 ||
+    !body.contextPackage.items.some(item => item.id === "live-code" && item.type === "nearby_code" && item.source.relativePath === body.contextPackage.activeFile.relativePath && item.content.length <= OBSERVER_CONTEXT_CHARACTERS);
   if (body.liveObserver && liveContextInvalid) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid bounded Live Observer context." });
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid Live Observer project context." });
   }
   const automaticContextInvalid = body.mode !== "explain" || body.kind !== "code" ||
     !["python", "javascript"].includes(body.language) || body.editBase || body.storeHistory ||
@@ -111,7 +109,7 @@ const DesktopBody = z.object({
   if (body.mode === 'fix_error' && !body.fixCode) context.addIssue({code:z.ZodIssueCode.custom,message:'Fix Code requires an explicit reviewed scope.'});
   if (body.fixCode && (body.mode !== 'fix_error' || body.kind !== 'code' || body.liveObserver || body.automaticRun || body.explanation || body.storeHistory || !body.editBase ||
     body.contextPackage.totalCharacters + body.fixCode.clarifications.reduce((n,t)=>n+t.question.length+t.answer.length,0) > body.contextPackage.limits.maximumTotalCharacters ||
-    body.contextPackage.items.some(i=>!['user_instruction','selected_code','complete_file','nearby_code','diagnostic','terminal_error'].includes(i.type) || (i.source.relativePath && i.source.relativePath !== body.contextPackage.activeFile.relativePath)) ||
+    body.contextPackage.items.some(i=>!['user_instruction','selected_code','complete_file','nearby_code','diagnostic','terminal_error','related_file','project_rule','attached_markdown','selected_markdown','markdown_section'].includes(i.type)) ||
     !body.contextPackage.items.some(i=> i.type === (body.fixCode!.scope==='file'?'complete_file':'selected_code') && !i.truncated && !i.redacted && !i.optional) ||
     body.fixCode.clarifications.some(t=>containsSecret(t.question)||containsSecret(t.answer)))) context.addIssue({code:z.ZodIssueCode.custom,message:'Invalid or unsafe Fix Code context.'});
   const editable = ["fix_error", "improve_code", "continue_code", "add_comments"].includes(body.mode);
@@ -139,6 +137,8 @@ const ENV_KEY: Record<Exclude<Provider, "demo">, string | undefined> = {
 
 export async function POST(req: Request) {
   const requestStartedAt = Date.now();
+  const incomingTrace = req.headers.get("X-Observer-Trace");
+  const traceId = incomingTrace && /^[a-f0-9-]{36}$/.test(incomingTrace) ? incomingTrace : crypto.randomUUID();
   const authenticated = await authenticateApiRequest(req);
   if (!authenticated) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
@@ -205,8 +205,11 @@ export async function POST(req: Request) {
     }
   }
 
+  observerTelemetry("backend_preparation", Date.now() - requestStartedAt, desktop?.contextPackage, traceId);
   try {
     const suggestion = await getSuggestion(provider, apiKey, {
+      signal: req.signal,
+      traceId,
       fileName,
       kind,
       content,
@@ -277,13 +280,13 @@ export async function POST(req: Request) {
     }, provider });
   } catch (err) {
     const pe = err as ProviderError;
-    console.error(`[suggest] ${provider}:`, pe.message);
+    console.error("[suggest] provider request failed", provider);
     return NextResponse.json(
       {
-        error: pe.userMessage ?? "The AI provider request failed. Try again.",
+        error: pe.name === "TimeoutError" ? "Provider timeout after sending was attempted. Nothing was applied." : pe.name === "AbortError" ? "Request cancelled after sending was attempted." : pe.userMessage ?? "The AI provider request failed after sending was attempted. Try again.",
         needsKey: Boolean(pe.needsKey),
       },
       { status: 502 }
     );
-  }
+  } finally { observerTelemetry("backend_total", Date.now() - requestStartedAt, undefined, traceId); }
 }

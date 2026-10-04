@@ -38,10 +38,12 @@ export class ExplanationSession {
    if (!current()) throw new Error('Explanation cancelled.');
    const context = session.request.contextPackage!;
    if (!policy.enabled) throw new Error('Observer is disabled in Privacy settings.');
-   if (context.items.some(item => !['user_instruction', 'selected_code', 'current_symbol', 'nearby_code'].includes(item.type) || (item.source.relativePath && item.source.relativePath !== context.activeFile.relativePath))) throw new Error('Explain uses only the approved active-file excerpt. Build a fresh preview.');
+   if (context.items.some(item => !['user_instruction', 'selected_code', 'current_symbol', 'nearby_code', 'related_file', 'project_rule', 'attached_markdown', 'selected_markdown', 'file_excerpt', 'complete_file', 'markdown_section'].includes(item.type))) throw new Error('Explain uses only the approved active-file excerpt. Build a fresh preview.');
+   if (context.items.some(i => ['selected_code','current_symbol','nearby_code'].includes(i.type) && i.source.relativePath !== context.activeFile.relativePath)) throw new Error('Active code context must match the approved active file.');
+   if (context.items.some(i => ['related_file','project_rule'].includes(i.type) && i.content.length > policy.maximumFileCharacters)) throw new Error('Supporting context exceeds current per-related-file privacy limit.');
    if (context.totalCharacters > Math.min(policy.maximumCharacters, EXPLANATION_LIMITS.contextCharacters)) throw new Error('Approved code exceeds the current context limit. Refresh with a smaller selection.');
    if (context.items.some(item => (item.source.relativePath && isExcludedFromAiContext(item.source.relativePath, policy.exclusions)) || redactContextSecrets(item.content).redacted)) throw new Error('Approved context is excluded or contains suspected secrets. Review a new context.');
-   if (context.items.some(item => item.type !== 'user_instruction' && item.content.length > policy.maximumFileCharacters)) throw new Error('Approved code exceeds the current per-file context limit. Review a smaller selection.');
+
    if (policy.confirmCompleteFile && context.containsCompleteFile && !session.completeConsent) {
     if (!initial) throw new Error('Confirm complete files now requires consent. Refresh through Context Preview.');
     if (!await this.deps.confirm()) throw new Error('Complete-file sending cancelled. Review context to try again.');

@@ -1,6 +1,7 @@
+import { OBSERVER_CONTEXT_CHARACTERS } from "./observer-budget.ts";
 import { offsetForPosition, parseStructuredObserverEdit, type TextRange, type StructuredObserverEdit } from './ai-edit.ts';
 import type { ObserverRequest, ObserverSuggestion } from './observer.ts';
-export const FIX_CODE_LIMITS = { question: 500, clarificationTurns: 4, clarificationCharacters: 4000, codeCharacters: 20000, surroundingCharacters: 2000, evidenceCharacters: 2000, responseCharacters: 20000, outputTokens: 8192, timeoutMs: 120000 } as const;
+export const FIX_CODE_LIMITS = { question: 500, clarificationTurns: 4, clarificationCharacters: 4000, codeCharacters: OBSERVER_CONTEXT_CHARACTERS, surroundingCharacters: 2000, evidenceCharacters: 2000, responseCharacters: 20000, outputTokens: 8192, timeoutMs: 120000 } as const;
 export interface FixCodeContext {
     scope: 'selection' | 'file';
     range: TextRange;

@@ -1,10 +1,11 @@
+import { OBSERVER_CONTEXT_CHARACTERS } from "../../../apps/desktop/src/shared/observer-budget.ts";
 import { z } from "zod";
 
 const ContextItem = z.object({
   id: z.string().min(1).max(80),
   type: z.enum(["user_instruction", "selected_code", "diagnostic", "current_symbol", "nearby_code", "related_file", "project_rule", "attached_markdown", "terminal_error", "file_excerpt", "complete_file", "controlled_run_error", "task_failure", "selected_output", "selected_markdown", "markdown_section", "web_research"]),
   priority: z.number().int().min(1).max(8),
-  content: z.string().min(1).max(50_000),
+  content: z.string().min(1).max(OBSERVER_CONTEXT_CHARACTERS),
   source: z.object({
     provenance: z.enum(["user", "editor_selection", "editor_cursor", "diagnostics", "run_output", "local_import", "nearby_test", "project_configuration", "project_instruction", "user_attached", "documentation_relationship"]),
     relativePath: z.string().min(1).max(4096).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/).optional(),
@@ -34,8 +35,8 @@ export const ProjectContextSchema = z.object({
   cursor: z.object({ line: z.number().int().positive(), column: z.number().int().positive() }),
   items: z.array(ContextItem).min(1).max(30),
   omitted: z.array(z.object({ type: z.string().max(60), source: z.string().max(4096).optional(), reason: z.string().max(500) })).max(100),
-  totalCharacters: z.number().int().min(1).max(50_000), estimatedTokens: z.number().int().positive(),
-  limits: z.object({ maximumTotalCharacters: z.number().int().min(1_000).max(50_000), maximumRelatedFiles: z.number().int().min(0).max(10), maximumCharactersPerFile: z.number().int().min(500).max(20_000) }),
+  totalCharacters: z.number().int().min(1).max(OBSERVER_CONTEXT_CHARACTERS), estimatedTokens: z.number().int().positive(),
+  limits: z.object({ maximumTotalCharacters: z.number().int().min(1_000).max(OBSERVER_CONTEXT_CHARACTERS), maximumRelatedFiles: z.number().int().min(0).max(10), maximumCharactersPerFile: z.number().int().min(500).max(20_000) }),
   containsCompleteFile: z.boolean(),
 }).superRefine((context, refinement) => {
   const ids = new Set<string>(); let total = 0;

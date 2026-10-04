@@ -1,0 +1,36 @@
+[
+  {
+    "stage": "model_availability",
+    "provider": "gemini",
+    "model": "gemini-3.5-flash",
+    "httpStatus": 200,
+    "elapsedMs": 580,
+    "inputTokenLimit": 1048576,
+    "outputTokenLimit": 65536
+  },
+  {
+    "fixture": "representative-student",
+    "mode": "explain",
+    "transport": "real_provider",
+    "characters": 17636,
+    "lines": 253,
+    "contextCharacters": 17643,
+    "contextMs": 19,
+    "providerMs": 13811,
+    "outcome": "explanation"
+  },
+  {
+    "fixture": "representative-student",
+    "mode": "fix",
+    "transport": "real_provider",
+    "characters": 17636,
+    "lines": 253,
+    "contextCharacters": 17716,
+    "contextMs": 6,
+    "providerMs": 8541,
+    "outcome": "correction",
+    "validEdit": true,
+    "behaviorPassed": true,
+    "replacementCharacters": 43
+  }
+]

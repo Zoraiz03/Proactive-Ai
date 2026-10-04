@@ -45,9 +45,9 @@ const types = (context: Awaited<ReturnType<ProjectContextEngine["build"]>>) => c
 test("selects action-specific Explain, Fix Code, Improve, Continue, and Generate Tests context", async () => {
   const service = engine();
   const explain = await service.build(seed("explain", { selectedCode: "helper(value)" }));
-  assert.deepEqual(types(explain).slice(0, 4), ["user_instruction", "selected_code"]);
+  assert.deepEqual(types(explain).slice(0, 2), ["user_instruction", "selected_code"]);
   const fix = await service.build(seed("fix_error", { diagnostic: { fileName: "calculate.ts", line: 4, column: 19, message: "helper is not a function" }, runError: "calculate.ts:4 helper is not a function" }));
-  assert.ok(types(fix).includes("diagnostic")); assert.ok(types(fix).includes("terminal_error")); assert.ok(types(fix).includes("complete_file")); assert.equal(types(fix).includes("related_file"), false);
+  assert.ok(types(fix).includes("diagnostic")); assert.ok(types(fix).includes("terminal_error")); assert.ok(types(fix).includes("complete_file")); assert.equal(types(fix).includes("related_file"), true);
   const improve = await service.build(seed("improve_code"));
   assert.ok(types(improve).includes("project_rule"));
   const continuation = await service.build(seed("continue_code"));
@@ -136,10 +136,12 @@ test("user-attached tray context has priority, structured provenance, and is nev
   const attached = await createContextTrayItem({ type: "selected_code", title: "Chosen calculation", content: "return doubled + 1;", relativePath: "src/calculate.ts", lineStart: 5, lineEnd: 5, sourceContent: activeContent, reason: "User explicitly attached this selection." });
   const context = await engine().build(seed("improve_code", { trayItems: [attached] }));
   const tray = context.items.find((item) => item.id === `tray-${attached.id}`);
-  assert.equal(tray?.priority, 2); assert.equal(tray?.source.provenance, "user_attached"); assert.equal(tray?.attachmentProvenance, "user_attached");
+  assert.equal(tray?.priority, 3); assert.equal(tray?.source.provenance, "user_attached"); assert.equal(tray?.attachmentProvenance, "user_attached");
   assert.equal(context.items.filter((item) => item.content === attached.content).length, 1);
   const oversized = await createContextTrayItem({ type: "file_excerpt", title: "Oversized user excerpt", content: "x".repeat(1_100), relativePath: "src/calculate.ts", sourceContent: activeContent, reason: "User attached it." });
-  await assert.rejects(() => engine().build(seed("improve_code", { trayItems: [oversized], maximumTotalCharacters: 1_000 })), /exceeds the configured context budget/);
+  const bounded = await engine().build(seed("improve_code", { trayItems: [oversized], maximumTotalCharacters: 1_000 }));
+  assert.ok(bounded.omitted.some(i => /budget/.test(i.reason)));
+  assert.ok(bounded.items.some(i => i.type === "current_symbol"));
 });
 
 test("documentation relationship tray provenance survives Context Preview packaging", async () => {
@@ -179,17 +181,17 @@ test("mandatory secret files and tampered tray contents are rejected before prev
   await assert.rejects(() => engine().build(seed("improve_code", { trayItems: [{ ...valid, content: "changed" }] })), /invalid|changed after it was attached/);
 });
 
-test('manual Explain uses selection, otherwise one symbol/nearby excerpt, with no automatic imported files', async () => {
+test('manual Explain uses selection, otherwise one symbol/nearby excerpt, with reviewed relevant imported files', async () => {
  const service = engine();
  const selected = await service.build(seed('explain', { selectedCode: 'helper(value)', selectedLineStart: 3, selectedLineEnd: 3, userRequest: 'Explain for a beginner' }));
- assert.deepEqual(types(selected), ['user_instruction', 'selected_code']);
+ assert.deepEqual(types(selected).slice(0,2), ['user_instruction', 'selected_code']);
  assert.equal(selected.intent.instruction, 'Explain for a beginner');
  assert.equal(selected.items[1].source.lineStart, 3);
  const current = await service.build(seed('explain'));
- assert.deepEqual(types(current), ['user_instruction', 'current_symbol']);
+ assert.deepEqual(types(current).slice(0,2), ['user_instruction', 'current_symbol']);
  const content = 'console.log(1);';
  const nearby = await service.build(seed('explain', { content, nearbyCode: content, cursorLine: 1 }));
- assert.deepEqual(types(nearby), ['user_instruction', 'nearby_code']);
+ assert.deepEqual(types(nearby).slice(0,2), ['user_instruction', 'nearby_code']);
  assert.equal(nearby.containsCompleteFile, true);
  assert.equal(requiresCompleteFileConfirmation(nearby, true), true);
  const completeSelection = await service.build(seed('explain', { content, nearbyCode: content, selectedCode: content, selectedLineStart: 1, selectedLineEnd: 1 }));

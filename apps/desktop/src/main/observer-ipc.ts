@@ -1,3 +1,4 @@
+import { observerInputBudget, observerTelemetry } from "../shared/observer-budget";
 import { FixCodeSession } from "./fix-code-session";
 import { fixSelectionRange } from "../shared/fix-code";
 import { ExplanationSession } from './explanation-session';
@@ -14,7 +15,7 @@ import { ObserverApiClient } from "./observer-client";
 import { ProjectContextEngine, redactProjectSecrets } from "./project-context";
 import type { ObserverRequest } from "../shared/observer";
 import type { ProjectContextPackage } from "../shared/project-context";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isEditableObserverMode } from "../shared/ai-edit";
 import { validateDocumentationDraftRequest } from "../shared/documentation-update";
 
@@ -152,10 +153,13 @@ export class ObserverContextController {
   invalidate() { this.prepared = null; this.fixPrepared = null; this.engine.invalidate(); }
   async prepare(webContentsId: number, request: import("../shared/observer").ObserverPrepareRequest): Promise<ObserverRequest> {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId) throw new Error("Open a workspace before asking Observer.");
-    const contextPackage = await this.engine.build(request.seed);
+    const started = performance.now(), traceId = randomUUID();
+    const contextPackage = await this.engine.build({...request.seed, maximumTotalCharacters: observerInputBudget(request.provider, request.seed.maximumTotalCharacters)});
+    observerTelemetry("context_preparation", performance.now() - started, contextPackage, traceId);
     this.prepared = contextPackage;
     const source = contextPackage.items.some((item) => item.type === "selected_code") ? "selection" : contextPackage.items.some((item) => item.type === "diagnostic") ? "diagnostic" : "cursor";
     const result: ObserverRequest = {
+      traceId,
       ...(request.seed.mode === "fix_error" ? {fixCode: {scope: request.seed.selectedCode ? "selection" : "file", range:fixSelectionRange(request.seed.content,request.seed.selectedCode,request.seed.selectionRange),clarifications:[]}} : {}),
       provider: request.provider,
       ...(request.model ? { model: request.model } : {}),

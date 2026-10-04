@@ -1,4 +1,5 @@
-import {createHash} from "node:crypto";
+import * as observerBudget from "../apps/desktop/src/shared/observer-budget.ts";
+import {createHash,randomUUID} from "node:crypto";
 import {buildFixCodeContext} from "../apps/desktop/src/main/fix-code-context.ts";
 import {isEditableObserverMode} from "../apps/desktop/src/shared/ai-edit.ts";
 import { FixCodeSession } from "../apps/desktop/src/main/fix-code-session.ts";
@@ -51,6 +52,7 @@ approved.intent = { mode: 'explain', instruction: 'Explain' };
 const compiled = ts.transpileModule(readFileSync(new URL('../apps/desktop/src/main/observer-ipc.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const moduleExports: { registerObserverIpc?: (...args: unknown[]) => { controller: { setWorkspace: (root: string, id: number) => void; invalidate: () => void }; cleanup: () => void } } = {};
 new Function('require', 'exports', compiled)((name: string) => {
+ if (name.includes('observer-budget')) return observerBudget;
  if (name === 'electron') return { BrowserWindow: { fromWebContents: () => win }, ipcMain, clipboard: { writeText: () => {} }, dialog: { showMessageBox: async () => ({ response: 1 }) } };
  if (name.endsWith('/fix-code-session')) return { FixCodeSession };
  if (name.endsWith('/fix-code')) return { fixSelectionRange };
@@ -62,7 +64,7 @@ new Function('require', 'exports', compiled)((name: string) => {
  if (name.endsWith('/project-context')) return { ProjectContextEngine: class { setWorkspace() {} clearWorkspace() {} invalidate() {} async build(seed: import("../apps/desktop/src/shared/project-context").ProjectContextSeed) { return seed.mode === "fix_error" ? buildFixCodeContext(seed) : approved; } }, redactProjectSecrets: () => ({ redacted: false }) };
  if (name.endsWith('/ai-edit')) return { isEditableObserverMode };
  if (name.endsWith('/documentation-update')) return {};
- if (name === 'node:crypto') return {createHash};
+ if (name === 'node:crypto') return {createHash,randomUUID};
  throw new Error(`Unexpected IPC dependency: ${name}`);
 }, moduleExports);
 const ipc = moduleExports.registerObserverIpc!(() => signedIn ? win : null, async () => 'fixture-token', 'http://localhost:3000', () => {}, '/tmp/mock-settings');

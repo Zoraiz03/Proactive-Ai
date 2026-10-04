@@ -1,3 +1,4 @@
+import * as observerBudget from "../apps/desktop/src/shared/observer-budget.ts";
 import { validFixContext } from "../apps/desktop/src/shared/fix-code.ts";
 import { EXPLANATION_LIMITS, validExplanationInput } from "../apps/desktop/src/shared/explanation.ts";
 import assert from "node:assert/strict";
@@ -45,6 +46,7 @@ const moduleExports: { POST?: (request: Request) => Promise<Response> } = {};
 const source = readFileSync(new URL("../src/app/api/suggest/route.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const requireStub = (name: string) => {
+  if (name.includes("observer-budget")) return observerBudget;
   if (name.endsWith("/shared/fix-code.ts")) return { validFixContext };
   if (name.endsWith("/shared/explanation.ts")) return { EXPLANATION_LIMITS, validExplanationInput };
   if (name === "next/server") return { NextResponse: { json: (body: unknown, init?: ResponseInit) => Response.json(body, init) } };

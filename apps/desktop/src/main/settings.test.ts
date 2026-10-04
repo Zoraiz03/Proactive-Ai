@@ -153,3 +153,25 @@ test("API-key save, status, and delete use bearer auth and safe metadata only", 
   assert.equal(requests[0].body.includes("write-only-value"), true);
   assert.equal(requests[1].body.includes("write-only-value"), false);
 });
+
+test('HTML backend failures identify the server problem without exposing its body or using default permissions', async () => {
+  const client = new SettingsApiClient('http://127.0.0.1:3000', async () => 'fixture-token', async () => new Response('<html>missing required error components; private-stack-marker</html>', { status: 500, headers: {'Content-Type':'text/html'} }));
+  const result = await client.getSynced();
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error, /HTTP 500/);
+    assert.match(result.error, /Next.js server/);
+    assert.doesNotMatch(result.error, /private-stack-marker/);
+  }
+});
+
+test('settings timeout and missing endpoint have distinct actionable errors', async () => {
+  const timeout = new SettingsApiClient('http://127.0.0.1:3000', async () => 'fixture-token', async () => { throw new DOMException('timeout', 'TimeoutError'); });
+  const timed = await timeout.getSynced();
+  assert.equal(timed.ok, false);
+  if (!timed.ok) assert.match(timed.error, /timed out/);
+  const missing = new SettingsApiClient('http://127.0.0.1:3000', async () => 'fixture-token', async () => new Response('', { status:404 }));
+  const result = await missing.getSynced();
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /HTTP 404/);
+});

@@ -6,7 +6,7 @@ export function buildFixCodeContext(seed: ProjectContextSeed): ProjectContextPac
     const range = fixSelectionRange(seed.content, seed.selectedCode, seed.selectionRange);
     const code = seed.selectedCode || seed.content;
     const instruction = seed.userRequest || 'Review this code for a justified correction; ask if essential intent is missing.';
-    const maximum = Math.min(FIX_CODE_LIMITS.codeCharacters, seed.maximumCharactersPerFile, seed.maximumTotalCharacters - instruction.length);
+    const maximum = Math.min(FIX_CODE_LIMITS.codeCharacters, seed.maximumTotalCharacters - instruction.length);
     if (!code.trim())
         throw new Error('Select or open non-empty code to review.');
     if (code.length > maximum)
