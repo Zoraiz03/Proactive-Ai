@@ -138,3 +138,29 @@
   --bottom-panel-height: 220px;
   --pane-handle-size: 6px;
 }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --desktop-background: #160f0a;
+  --desktop-surface: #211710;
+  --desktop-surface-subtle: #2b1e14;
+  --desktop-canvas: #18100b;
+  --desktop-input: #2a1d14;
+  --desktop-border: #4c3827;
+  --desktop-border-strong: #72583c;
+  --desktop-text: #f5ede1;
+  --desktop-text-muted: #cbbba7;
+  --desktop-text-subtle: #987e62;
+  --desktop-accent: #d7aa6f;
+  --desktop-accent-hover: #e7c38f;
+  --desktop-accent-text: #1e150d;
+  --desktop-focus: #e0b877;
+  --desktop-hover: #2d2016;
+  --desktop-hover-strong: #3b2a1c;
+  --desktop-selected: #342418;
+  --desktop-error-surface: rgb(180 85 45 / 16%);
+  --desktop-overlay: rgb(0 0 0 / 65%);
+  --desktop-terminal: #0f0a07;
+  --desktop-terminal-text: #f5ede1;
+}

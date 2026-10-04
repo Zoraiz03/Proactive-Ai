@@ -15,7 +15,8 @@
     "test:live-ui": "node scripts/live-observer-ui.mjs",
     "test:live-triggers": "node scripts/live-observer-ui.mjs --triggers",
     "test:fix-ui": "node scripts/live-observer-ui.mjs --fix",
-    "test:explain-ui": "node scripts/live-observer-ui.mjs --explain"
+    "test:explain-ui": "node scripts/live-observer-ui.mjs --explain",
+    "test:settings-ui": "node scripts/settings-ui.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

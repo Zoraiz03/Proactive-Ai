@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { OBSERVER_MODE_LABELS, OBSERVER_PROVIDER_LABELS, type ObserverProvider } from "../../shared/observer";
+import { OBSERVER_MODE_LABELS, OBSERVER_PROVIDER_LABELS, OBSERVER_PROVIDERS, type ObserverProvider } from "../../shared/observer";
 import {
   DEFAULT_LOCAL_SETTINGS,
   MANDATORY_SECRET_EXCLUSIONS,
@@ -13,6 +13,37 @@ import type { WebContextBridgeStatus } from "../../shared/web-context-bridge";
 
 const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Observer Insights", "Documentation Impact", "Browser Extension", "Privacy", "Data and History"] as const;
 type Section = typeof sections[number];
+
+const sectionGroups: ReadonlyArray<{ label: string; sections: readonly Section[] }> = [
+  { label: "Workspace", sections: ["General", "Editor"] },
+  { label: "AI", sections: ["AI Models", "API Keys"] },
+  { label: "Observer", sections: ["Observer", "Observer Insights", "Documentation Impact"] },
+  { label: "Connections", sections: ["Browser Extension"] },
+  { label: "Privacy", sections: ["Privacy", "Data and History"] },
+];
+
+const sectionDescriptions: Record<Section, string> = {
+  General: "Choose how the IDE looks, starts, and restores your workspace.",
+  Editor: "Tune the coding surface for comfortable, focused work.",
+  "AI Models": "Select the provider and model Observer uses by default.",
+  "API Keys": "Manage write-only provider credentials without exposing saved values.",
+  Observer: "Control assistance, context, proactive signals, and change safety.",
+  "Observer Insights": "Adjust local learning signals and review Observer performance.",
+  "Documentation Impact": "Configure deterministic links between code changes and documentation.",
+  "Browser Extension": "Pair the local browser extension and review its connection state.",
+  Privacy: "Control the files, context, and history that may be shared with AI providers.",
+  "Data and History": "Manage local retention, recent projects, checkpoints, and account access.",
+};
+
+function storageDescription(section: Section): string {
+  if (["General", "Editor", "Observer Insights", "Documentation Impact", "Browser Extension"].includes(section)) return "Stored on this device";
+  if (section === "Observer") return "Local controls + synced preferences";
+  return "Account settings + local exclusions";
+}
+
+function sectionSlug(section: Section): string {
+  return section.toLowerCase().replaceAll(" ", "-");
+}
 
 interface Props {
   open: boolean;
@@ -37,7 +68,18 @@ interface Props {
 }
 
 const Toggle = ({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) => (
-  <label className="setting-row toggle-row"><span>{label}</span><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /></label>
+  <div className={`setting-row toggle-row${disabled ? " disabled" : ""}`}>
+    <span>{label}</span>
+    <button
+      type="button"
+      className="setting-switch"
+      role="switch"
+      aria-label={label}
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+    ><span aria-hidden="true" /></button>
+  </div>
 );
 
 export default function SettingsPanel(props: Props) {
@@ -71,14 +113,34 @@ export default function SettingsPanel(props: Props) {
   };
   return <div className="settings-backdrop" role="presentation">
     <section className="settings-center" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <header><div><h2 id="settings-title">Settings and Privacy</h2><p>Device preferences, synced Observer choices, and secure provider access.</p></div><button type="button" aria-label="Close settings" onClick={props.onClose}>×</button></header>
+      <header className="settings-header">
+        <div className="settings-heading-mark" aria-hidden="true"><span /></div>
+        <div><span className="settings-eyebrow">Proactive-AI preferences</span><h2 id="settings-title">Settings and Privacy</h2><p>Shape your workspace, Observer, and secure provider access.</p></div>
+        <button type="button" className="settings-close" aria-label="Close settings" onClick={props.onClose}><span aria-hidden="true">×</span></button>
+      </header>
       <div className="settings-body">
-        <nav aria-label="Settings sections">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter settings" aria-label="Filter settings" autoFocus />
-          {visibleSections.map((section) => <button key={section} className={active === section ? "active" : ""} onClick={() => setActive(section)}>{section}</button>)}
+        <nav className="settings-navigation" aria-label="Settings sections">
+          <label className="settings-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search settings" aria-label="Filter settings" autoFocus /></label>
+          <div className="settings-nav-scroll">
+            {sectionGroups.map((group) => {
+              const groupSections = group.sections.filter((section) => visibleSections.includes(section));
+              if (!groupSections.length) return null;
+              return <section className="settings-nav-group" key={group.label}>
+                <h3 className="settings-nav-group-title">{group.label}</h3>
+                {groupSections.map((section) => <button type="button" key={section} className={`settings-nav-item${active === section ? " active" : ""}`} aria-current={active === section ? "page" : undefined} onClick={() => setActive(section)}><span>{section}</span><span aria-hidden="true">›</span></button>)}
+              </section>;
+            })}
+            {!visibleSections.length && <div className="settings-nav-empty"><strong>No settings found</strong><span>Try a broader search.</span></div>}
+          </div>
+          <p className="settings-nav-note"><span aria-hidden="true">●</span> Secure by default</p>
         </nav>
-        <main>
-          <div className="storage-badge">{["General", "Editor", "Observer Insights", "Documentation Impact", "Browser Extension"].includes(active) ? "Stored securely on this device" : active === "Observer" ? "Manual preferences sync; Assist controls and mutes stay on this device" : "Stored per account in Supabase, except local exclusions"}</div>
+        <main className="settings-main">
+          <div className="settings-page" data-settings-page={sectionSlug(active)}>
+          <header className="settings-page-header">
+            <div><span className="settings-page-kicker">{sectionGroups.find((group) => group.sections.includes(active))?.label}</span><h3 className="settings-page-title">{active}</h3><p className="settings-page-description">{sectionDescriptions[active]}</p></div>
+            <div className="storage-badge"><span aria-hidden="true">●</span>{storageDescription(active)}</div>
+          </header>
+          <section className="settings-content-card">
           {active === "General" && <>
             <h3>General</h3>
             <label className="setting-row"><span>Theme</span><select value={local.theme} onChange={(e) => setLocal({ ...local, theme: e.target.value as LocalSettings["theme"] })}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
@@ -100,7 +162,7 @@ export default function SettingsPanel(props: Props) {
           {active === "AI Models" && <>
             <h3>AI Models</h3><p>Availability is reported by the server. Key values never return to this app.</p>
             {props.providers.map((provider) => <div className="provider-card" key={provider.provider}><strong>{provider.label}</strong><span>{provider.systemProvided ? "System key available" : "No system key"} · {provider.userKeyConfigured ? "User key configured" : "No user key"} · {provider.available ? "Available" : "Unavailable"}</span></div>)}
-            <label className="setting-row"><span>Default provider</span><select value={synced.preferredProvider} onChange={(e) => { const provider = e.target.value as ObserverProvider; setSynced({ ...synced, preferredProvider: provider, preferredModel: PROVIDER_MODELS[provider][0] }); }}>{props.providers.map((p) => <option key={p.provider} value={p.provider} disabled={!p.available}>{OBSERVER_PROVIDER_LABELS[p.provider]}</option>)}</select></label>
+            <label className="setting-row"><span>Default provider</span><select value={synced.preferredProvider} onChange={(e) => { const provider = e.target.value as ObserverProvider; setSynced({ ...synced, preferredProvider: provider, preferredModel: PROVIDER_MODELS[provider][0] }); }}>{OBSERVER_PROVIDERS.map((provider) => { const status = props.providers.find((item) => item.provider === provider); return <option key={provider} value={provider} disabled={status ? !status.available : false}>{OBSERVER_PROVIDER_LABELS[provider]}</option>; })}</select></label>
             <label className="setting-row"><span>Default model</span><select value={synced.preferredModel} onChange={(e) => setSynced({ ...synced, preferredModel: e.target.value })}>{PROVIDER_MODELS[synced.preferredProvider].map((model) => <option key={model}>{model}</option>)}</select></label>
             <button className="primary" onClick={() => void saveSynced()}>Save model preference</button>
           </>}
@@ -194,7 +256,9 @@ export default function SettingsPanel(props: Props) {
             <button className="primary" onClick={() => void saveLocal()}>Save retention setting</button>
             <div className="danger-actions"><button onClick={() => void destructive("Reset all local settings to defaults?", props.onResetLocal, "Local settings reset.")}>Reset local settings</button><button onClick={() => void destructive("Clear recent-project history from this device?", props.onClearRecents, "Recent projects cleared.")}>Clear recent-project history</button><button onClick={() => void destructive("Clear local Observer/context history from this device? This does not delete existing Supabase suggestion records.", props.onClearHistory, "Local Observer/context history cleared.")}>Clear local Observer/context history</button><button onClick={() => void destructive("Clear all local Observer rollback checkpoints?", props.onClearCheckpoints, "Local checkpoints cleared.")}>Clear Local Checkpoints</button><button onClick={() => { if (window.confirm("Sign out of Proactive AI IDE?")) props.onSignOut(); }}>Sign out</button></div>
           </>}
-          {message && <p className="settings-message" role="status">{message}</p>}
+          </section>
+          {message && <p className="settings-message" role="status"><span aria-hidden="true">✓</span>{message}</p>}
+          </div>
         </main>
       </div>
     </section>

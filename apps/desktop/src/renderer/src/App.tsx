@@ -119,7 +119,7 @@ import type { ChangedCodeSource, DocumentationRelationship, RelationshipDecision
 import DocumentationUpdateWorkspace, { type DocumentationUpdateView } from "./DocumentationUpdateWorkspace";
 import ModalFocusManager from "./ModalFocusManager";
 import { validateDocumentationEdit, type DocumentationUpdateContext } from "../../shared/documentation-update";
-import { MONACO_CREAM_THEME } from "./theme";
+import { editorThemeForResolvedTheme } from "./theme-color";
 
 const PANE_LIMITS = {
   sidebar: { min: 180, max: 320, initial: 230 },
@@ -686,6 +686,8 @@ export default function App({ user, onSignOut }: AppProps) {
   const [observerFocusToken, setObserverFocusToken] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localSettings, setLocalSettings] = useState<LocalSettings>({ ...DEFAULT_LOCAL_SETTINGS, editor: { ...DEFAULT_LOCAL_SETTINGS.editor }, aiContextExclusions: [] });
+  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() => window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const editorTheme = editorThemeForResolvedTheme(resolvedTheme);
   const [syncedSettings, setSyncedSettings] = useState<SyncedSettings>({ ...DEFAULT_SYNCED_SETTINGS });
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -748,6 +750,7 @@ export default function App({ user, onSignOut }: AppProps) {
     const apply = () => {
       const resolved = localSettings.theme === "system" ? (media.matches ? "dark" : "light") : localSettings.theme;
       document.documentElement.dataset.theme = resolved;
+      setResolvedTheme(resolved);
     };
     apply();
     media.addEventListener("change", apply);
@@ -2732,7 +2735,7 @@ export default function App({ user, onSignOut }: AppProps) {
               changeSet={multiFileChangeSet}
               activeIndex={multiFileActiveIndex}
               settings={localSettings.editor}
-              theme={MONACO_CREAM_THEME}
+              theme={editorTheme}
               applying={multiFileBusy}
               conflict={multiFileError}
               onSelect={setMultiFileActiveIndex}
@@ -2753,7 +2756,7 @@ export default function App({ user, onSignOut }: AppProps) {
             <ObserverEditReview
               review={observerEditReview}
               settings={localSettings.editor}
-              theme={MONACO_CREAM_THEME}
+              theme={editorTheme}
               applying={applyingObserverEdit}
               onAccept={() => void acceptObserverEdit()}
               onReject={rejectObserverEdit}
@@ -2768,7 +2771,7 @@ export default function App({ user, onSignOut }: AppProps) {
             <GitDiffViewer
               diff={gitDiff.value}
               editorSettings={localSettings.editor}
-              theme={MONACO_CREAM_THEME}
+              theme={editorTheme}
               onClose={() => setGitDiff(null)}
               onOpenFile={() => {
                 const relativePath = gitDiff.value.relativePath;
@@ -2809,7 +2812,7 @@ export default function App({ user, onSignOut }: AppProps) {
               setMarkdownViewModes((current) => ({ ...current, [activePath]: mode }));
             }}
             editorSettings={localSettings.editor}
-            editorTheme={MONACO_CREAM_THEME}
+            editorTheme={editorTheme}
           />
           )}
         </main>
@@ -2935,7 +2938,7 @@ export default function App({ user, onSignOut }: AppProps) {
       />}
       {documentationUpdateView && <DocumentationUpdateWorkspace
         view={documentationUpdateView}
-        theme={MONACO_CREAM_THEME}
+        theme={editorTheme}
         fontSize={localSettings.editor.fontSize}
         onCancel={() => { if (documentationUpdateView.stage === "review" && syncedSettings.storeSuggestionHistory) void window.observer.recordOutcome({ suggestionId: documentationUpdateView.value.validated.edit.suggestionId, outcome: "dismissed" }); setDocumentationUpdateView(null); }}
         onGenerate={(request, selectedIds) => void generateDocumentationDraft(request, selectedIds)}

@@ -2,6 +2,10 @@ const MODERN_RGB = /^rgb\(\s*(\d+)\s+(\d+)\s+(\d+)(?:\s*\/\s*([\d.]+)(%?))?\s*\)
 
 const hexByte = (value: number) => Math.round(value).toString(16).padStart(2, "0");
 
+export function editorThemeForResolvedTheme(theme: "light" | "dark"): string {
+  return theme === "dark" ? "proactive-dark" : "proactive-cream";
+}
+
 export function monacoThemeColor(value: string): string {
   const match = value.trim().match(MODERN_RGB);
   if (!match) return value.trim();

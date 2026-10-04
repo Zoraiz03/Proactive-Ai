@@ -5,7 +5,7 @@ import cssWorker from "monaco-editor/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/language/json/json.worker?worker";
 import typescriptWorker from "monaco-editor/language/typescript/ts.worker?worker";
-import { MONACO_CREAM_THEME, themeColor } from "./theme";
+import { MONACO_CREAM_THEME, MONACO_DARK_THEME, themeColor } from "./theme";
 
 self.MonacoEnvironment = {
   getWorker(_moduleId: string, label: string): Worker {
@@ -73,5 +73,60 @@ monaco.editor.defineTheme(MONACO_CREAM_THEME, {
     "scrollbarSlider.background": themeColor("--ink-15"),
     "scrollbarSlider.hoverBackground": themeColor("--bronze-40"),
     "scrollbarSlider.activeBackground": themeColor("--desktop-accent-hover"),
+  },
+});
+
+monaco.editor.defineTheme(MONACO_DARK_THEME, {
+  base: "vs-dark",
+  inherit: true,
+  rules: [
+    { token: "comment", foreground: "CBBBA7", fontStyle: "italic" },
+    { token: "keyword", foreground: "E58A62" },
+    { token: "string", foreground: "D7AA6F" },
+    { token: "number", foreground: "E7C38F" },
+    { token: "type", foreground: "E7C38F" },
+    { token: "type.identifier", foreground: "E7C38F" },
+    { token: "function", foreground: "D7AA6F" },
+    { token: "variable", foreground: "F5EDE1" },
+  ],
+  colors: {
+    "editor.background": "#18100b",
+    "editor.foreground": "#f5ede1",
+    "editorCursor.foreground": "#d7aa6f",
+    "editorLineNumber.foreground": "#987e62",
+    "editorLineNumber.activeForeground": "#e7c38f",
+    "editor.lineHighlightBackground": "#2d2016",
+    "editor.selectionBackground": "#72583c80",
+    "editor.inactiveSelectionBackground": "#342418",
+    "editorIndentGuide.background1": "#4c3827",
+    "editorIndentGuide.activeBackground1": "#72583c",
+    "editorWhitespace.foreground": "#4c3827",
+    "editorGutter.background": "#18100b",
+    "editorWidget.background": "#211710",
+    "editorWidget.border": "#4c3827",
+    "editorSuggestWidget.background": "#211710",
+    "editorSuggestWidget.border": "#4c3827",
+    "editorSuggestWidget.foreground": "#f5ede1",
+    "editorSuggestWidget.selectedBackground": "#342418",
+    "editorHoverWidget.background": "#211710",
+    "editorHoverWidget.border": "#4c3827",
+    "editor.findMatchBackground": "#72583c99",
+    "editor.findMatchBorder": "#e7c38f",
+    "editor.findMatchHighlightBackground": "#72583c66",
+    "editorError.foreground": "#e5654f",
+    "editorWarning.foreground": "#e8b84f",
+    "editorInfo.foreground": "#cbbba7",
+    "editorOverviewRuler.border": "#4c3827",
+    "editorOverviewRuler.errorForeground": "#e5654f",
+    "editorOverviewRuler.warningForeground": "#e8b84f",
+    "editorOverviewRuler.infoForeground": "#cbbba7",
+    "diffEditor.insertedTextBackground": "#72583c66",
+    "diffEditor.removedTextBackground": "#b4552d33",
+    "diffEditor.insertedLineBackground": "#72583c33",
+    "diffEditor.removedLineBackground": "#b4552d1f",
+    "scrollbar.shadow": "#00000066",
+    "scrollbarSlider.background": "#987e6255",
+    "scrollbarSlider.hoverBackground": "#d7aa6f66",
+    "scrollbarSlider.activeBackground": "#e7c38f88",
   },
 });
