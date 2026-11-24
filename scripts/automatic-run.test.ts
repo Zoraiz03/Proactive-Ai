@@ -141,7 +141,7 @@ for (const mode of ["missing_table", "network", "saved"] as const) {
   historyMode = mode;
   for (const input of [{ ...body, automaticRun: undefined, storeHistory: true }, { provider: "demo", content: "print(1)", fileName: "example.py", kind: "code" }]) {
     authMethod = "client" in input ? "bearer" : "cookie";
-    const before = providerCalls;
+    const before: number = providerCalls;
     const result = await send(input);
     assert.equal(result.status, 200);
     const output = await result.json();
@@ -188,7 +188,7 @@ console.log("settings availability regression harness: all assertions passed");
  const {createHash}=await import('node:crypto');
  const content='function add(a,b) { return a + b; }';
  const contextPackage=buildFixCodeContext({mode:'fix_error',kind:'code',activeRelativePath:'main.js',fileName:'main.js',language:'javascript',content,cursorLine:1,cursorColumn:1,maximumTotalCharacters:9000,maximumCharactersPerFile:6000,maximumRelatedFiles:0,exclusions:[]});
- const input={client:'desktop',provider:'demo',mode:'fix_error',kind:'code',fileName:'main.js',language:'javascript',source:'cursor',cursorLine:1,cursorColumn:1,storeHistory:false,contextPackage,editBase:{targetRelativePath:'main.js',originalContentHash:createHash('sha256').update(content).digest('hex'),contentLength:content.length,basedOnUnsavedContent:true},fixCode:{scope:'file',range:fixSelectionRange(content),clarifications:[]}};
+ const input={client:'desktop',provider:'demo',mode:'fix_error',kind:'code',fileName:'main.js',language:'javascript',source:'cursor',cursorLine:1,cursorColumn:1,storeHistory:false,contextPackage,editBase:{targetRelativePath:'main.js',originalContentHash:createHash('sha256').update(content).digest('hex'),contentLength:content.length,basedOnUnsavedContent:true},fixCode:{scope:'file',range:fixSelectionRange(content, undefined),clarifications:[]}};
  const before=historyCalls;
  const response=await send(input);assert.equal(response.status,200,JSON.stringify(await response.clone().json()));assert.equal((await response.json()).suggestion.fixOutcome,'no_problem');
  assert.equal((await send({...input,fixCode:{...input.fixCode,clarifications:[{question:'What should this do?',answer:'Add two numbers.'}]}})).status,200);

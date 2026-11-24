@@ -359,3 +359,5 @@ breakpoints and continue to honor the current Electron minimum-window constraint
 This phase defines provenance, tokens, mappings, constraints, and QA only. It does not
 change CSS, React, Monaco configuration, Electron layout, application behavior, the
 original website, or `main`. Phase 13B may begin only after explicit approval.
+
+
