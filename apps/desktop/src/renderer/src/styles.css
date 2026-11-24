@@ -1714,7 +1714,7 @@ button.tree-row {
 .dialog-actions button.danger {
   border-color: var(--desktop-error-border);
   background: var(--desktop-error-surface);
-  color: var(--desktop-accent-text);
+  color: var(--desktop-error);
 }
 
 .dialog-actions button:disabled {
