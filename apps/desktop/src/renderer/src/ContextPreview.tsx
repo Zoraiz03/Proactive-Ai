@@ -1,3 +1,6 @@
+import { explanationBudget, estimateExplainTokens } from "../../shared/explanation-budget";
+import { explanationScope } from "../../shared/explanation";
+import {improveScopeLabel} from "../../shared/improve-code";
 import type { ObserverRequest } from "../../shared/observer";
 import { removeOptionalContextItem } from "../../shared/project-context";
 
@@ -13,6 +16,8 @@ const itemLabel = (value: string) => value.replaceAll("_", " ").replace(/^./, (l
 export default function ContextPreview({ request, onChange, onCancel, onSend }: Props) {
   const context = request.contextPackage;
   if (!context) return null;
+  const explain=request.mode === "explain" && request.kind === "code" && !request.automaticRun && !request.liveObserver;
+  const budget=explain?explanationBudget(context,undefined,request.provider,request.model):null;
   const unresolved = context.items.filter((item) => item.staleState === "stale" || item.staleState === "unavailable");
   return <div className="dialog-backdrop context-preview-backdrop" role="presentation">
     <section className="context-preview" role="dialog" aria-modal="true" aria-labelledby="context-preview-title" tabIndex={-1}>

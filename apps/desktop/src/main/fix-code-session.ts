@@ -16,6 +16,7 @@ export class FixCodeSession {
     private abort: AbortController | null = null;
     private generation = 0;
     private deps: {
+        allowImproveConfiguration?: boolean;
         policy: () => Promise<{
             enabled: boolean;
             exclusions: string[];
@@ -81,7 +82,7 @@ export class FixCodeSession {
                 throw new Error('Diagnostic/run evidence permission changed. Build a new context preview.');
             if (context.items.some(i => ['related_file','project_rule'].includes(i.type) && i.content.length > p.maximumFileCharacters)) throw new Error('Supporting context exceeds current per-related-file privacy limit.');
             const total = context.totalCharacters + clarifications.reduce((n, t) => n + t.question.length + t.answer.length, 0);
-            if (total > Math.min(p.maximumCharacters, context.limits.maximumTotalCharacters))
+            if (total > Math.min(p.maximumCharacters, context.limits.maximumTotalCharacters) || context.items.some(i => ['complete_file', 'selected_code', 'nearby_code', ...(this.deps.allowImproveConfiguration?['project_rule']:[])].includes(i.type) && i.content.length > p.maximumFileCharacters))
                 throw new Error('Approved context and clarification exceed current privacy limits. Select a smaller section.');
             if (p.confirmCompleteFile && context.containsCompleteFile && !session.consent) {
                 if (!initial)

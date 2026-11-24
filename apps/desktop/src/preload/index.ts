@@ -8,6 +8,18 @@ const liveBridge: LiveBridge = Object.freeze({
 });
 contextBridge.exposeInMainWorld("liveObserver", liveBridge);
 import { contextBridge, ipcRenderer } from "electron";
+import { createMemoryBridge } from './memory-bridge';
+import type { MemoryStatusEvent } from '../shared/observer-engine';
+contextBridge.exposeInMainWorld('engine', createMemoryBridge({
+  preview: (channel, request) => ipcRenderer.invoke(channel, request),
+  send: (channel, request) => ipcRenderer.send(channel, request),
+  invoke: (channel, request) => ipcRenderer.invoke(channel, request),
+  subscribe: (channel, listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, event: MemoryStatusEvent) => listener(event);
+    ipcRenderer.on(channel, wrapped);
+    return () => { ipcRenderer.removeListener(channel, wrapped); };
+  },
+}));
 import { AUTOMATIC_RUN_CHANNELS, type AutomaticRunBridge, type AutomaticRunActivity, type AutomaticRunState } from "../shared/automatic-run";
 import type { ObserverProvider } from "../shared/observer";
 
@@ -182,6 +194,9 @@ const authBridge: DesktopAuthBridge = Object.freeze({
 contextBridge.exposeInMainWorld("desktopAuth", authBridge);
 
 const observerBridge: ObserverBridge = Object.freeze({
+  improveStart: (id: string, request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.improveStart, id, request),
+  improveClarify: (id: string, answer: string, hash: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.improveClarify, id, answer, hash),
+  improveClear: () => ipcRenderer.invoke(OBSERVER_CHANNELS.improveClear),
   fixStart: (id: string, request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.fixStart, id, request),
   fixClarify: (id: string, answer: string, hash: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.fixClarify, id, answer, hash),
   fixClear: () => ipcRenderer.invoke(OBSERVER_CHANNELS.fixClear),
@@ -189,6 +204,7 @@ const observerBridge: ObserverBridge = Object.freeze({
   followup: (id: string, question: string) => ipcRenderer.invoke(OBSERVER_CHANNELS.followup, id, question),
   cancelExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.cancelExplanation),
   clearExplanation: () => ipcRenderer.invoke(OBSERVER_CHANNELS.clearExplanation),
+  explainScopes: (request: ObserverPrepareRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.explainScopes, request),
   prepare: (request: ObserverPrepareRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.prepare, request),
   ask: (request: ObserverRequest) => ipcRenderer.invoke(OBSERVER_CHANNELS.ask, request),
   recordOutcome: (request: ObserverOutcomeRequest) =>

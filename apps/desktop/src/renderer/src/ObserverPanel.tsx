@@ -25,12 +25,20 @@ const OBSERVER_STATUS_LABELS: Record<ObserverStatus, string> = {
 };
 
 interface ObserverPanelProps {
+  improveCard?: ReactNode;
+  improveGoal?: 'readability'|'performance';
+  improveInstruction?: string;
+  improveFullFile?: boolean;
+  onImproveGoalChange?: (value:'readability'|'performance')=>void;
+  onImproveInstructionChange?: (value:string)=>void;
+  onImproveFullFileChange?: (value:boolean)=>void;
   fixCard?: ReactNode;
   fixVerificationCard?: ReactNode;
   fixProblem?: string;
   onFixProblemChange?: (value:string)=>void;
   explanationCard?: ReactNode;
   explainQuestion?: string;
+  explainScopeControl?: ReactNode;
   onExplainQuestionChange?: (value: string) => void;
   automaticRunEnabled: boolean;
   liveObserverCard: ReactNode;
@@ -73,8 +81,9 @@ interface ObserverPanelProps {
 }
 
 export default function ObserverPanel({
+  improveCard, improveGoal="readability", improveInstruction="", improveFullFile=false, onImproveGoalChange, onImproveInstructionChange, onImproveFullFileChange,
   fixCard, fixVerificationCard, fixProblem = "", onFixProblemChange,
-  explanationCard, explainQuestion = "", onExplainQuestionChange,
+  explanationCard, explainScopeControl, explainQuestion = "", onExplainQuestionChange,
   automaticRunEnabled,
   liveObserverCard,
   automaticRunCard,
@@ -118,11 +127,11 @@ export default function ObserverPanel({
   const isExplanationMode = (value: ObserverMode) => value === "explain" || value === "explain_document";
   const explanationModeActive = isExplanationMode(mode);
   const [activeTab, setActiveTab] = useState<ObserverTab>("ask");
-  const conversationCard = activeTab === "ask" ? (explanationModeActive ? explanationCard : fixCard) : null;
+  const conversationCard = activeTab === "ask" ? (explanationModeActive ? explanationCard : (fixCard ?? improveCard)) : null;
   const workspaceRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (focusToken > 0) workspaceRef.current?.focus();
+    if (focusToken > 0) setActiveTab("ask");
   }, [focusToken]);
 
   return (
@@ -188,6 +197,7 @@ export default function ObserverPanel({
           </label>
         </div>
         {explanationModeActive && onExplainQuestionChange && <label className="observer-multi-file-request"><span>Question or instruction (optional)</span><textarea aria-label="Explanation guidance" rows={2} maxLength={500} value={explainQuestion} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e => onExplainQuestionChange(e.target.value)} placeholder="For example: Explain this for a beginner" /><small>Uses selected code, or the current function and nearby lines. You will preview the focused context before it is sent; Context Tray items and other files stay excluded.</small></label>}
+        {mode === "improve_code" && onImproveGoalChange && <div className="observer-multi-file-request"><label>Improvement goal<select aria-label="Improvement goal" value={improveGoal} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveGoalChange(e.target.value as 'readability'|'performance')}><option value="readability">Readability &amp; maintainability</option><option value="performance">Performance</option></select></label><label>Optional instruction<textarea aria-label="Improvement instruction" rows={3} maxLength={500} value={improveInstruction} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveInstructionChange?.(e.target.value)} placeholder="Reduce duplication without changing the public API."/></label><label><input type="checkbox" aria-label="Approve active file scope" checked={improveFullFile} disabled={status==="thinking"||Boolean(conversationCard)} onChange={e=>onImproveFullFileChange?.(e.target.checked)}/> Explicitly approve active-file scope when no code is selected</label><small>Selection first, otherwise the current function. If no function is found, select code or approve the file above. Exact code and optional read-only configuration are previewed; never silently truncated.</small></div>}
         {mode === "fix_error" && onFixProblemChange && <label className="observer-multi-file-request"><span>What should this code do, or what is going wrong?</span><textarea aria-label="Fix Code problem" rows={3} maxLength={500} value={fixProblem} disabled={status === "thinking" || Boolean(conversationCard)} onChange={e=>onFixProblemChange(e.target.value)} placeholder="Optional: describe the expected behavior or problem" /><small>Uses the selection and bounded surroundings, or the active file including unsaved changes. You will preview everything before it is sent.</small></label>}
         {mode === "plan_multi_file" && <label className="observer-multi-file-request">
           <span>Describe the change</span>

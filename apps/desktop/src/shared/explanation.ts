@@ -26,6 +26,10 @@ export function validExplanationInput(value: unknown): value is ExplanationInput
 }
 export function explanationScope(request: ObserverRequest) {
  const context = request.contextPackage;
- const code = context?.items.find(i => ['selected_code', 'current_symbol', 'nearby_code'].includes(i.type));
+ const code = context?.items.find(i => ['selected_code', 'current_symbol', 'nearby_code', 'complete_file'].includes(i.type));
  return `${context?.activeFile.relativePath ?? request.fileName}${code?.source.lineStart ? `:${code.source.lineStart}–${code.source.lineEnd ?? code.source.lineStart}` : ''} · ${code?.type.replaceAll('_', ' ') ?? 'approved excerpt'} · approved snapshot only`;
+}
+
+export function explanationPreviewMatches(preview: {path:string;content:string}|null, current: {path:string;content:string}) {
+ return Boolean(preview && preview.path===current.path && preview.content===current.content);
 }

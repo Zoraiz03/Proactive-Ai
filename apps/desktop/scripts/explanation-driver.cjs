@@ -47,5 +47,5 @@ module.exports = async (win, js, wait) => {
  await click('Switch project'); await wait('!document.querySelector(".explanation-conversation")');
  await js('window.fixture.release()'); await new Promise(r=>setTimeout(r,100));
  assert.equal(await js('Boolean(document.querySelector(".explanation-conversation"))'),false);
- console.log('PASS Explain renderer: guidance, preview/no early send, safe Markdown, code fences, copy, followups/original snapshot, changed-source label, explicit refresh, bounded history, cancellation, privacy errors, clear/project reset');
+ console.log('PASS Explain renderer: real Monaco selection/cursor wiring, explicit scopes/unavailable options, exact ranges, oversized errors, stale preview/no send, guidance, preview/no early send, safe Markdown, code fences, copy, followups/original snapshot, changed-source label, explicit refresh, bounded history, cancellation, privacy errors, clear/project reset');
 };

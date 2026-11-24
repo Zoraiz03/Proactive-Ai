@@ -2,6 +2,54 @@
 
 ## Document purpose
 
+**2026-10-02 amendment — Observer-Intervener Engine (Phase 0):** The owner has
+selected the Observer-Intervener Engine as the primary product feature. This is
+a dated direction change, not a claim that the engine has been implemented.
+The earlier direction below remains as history. This amendment supersedes its
+technical-event-only trigger restriction and Chrome exclusion only within the
+opt-in, bounded design in [OBSERVER_ENGINE_SPEC.md](./OBSERVER_ENGINE_SPEC.md),
+especially §§3, 7.0 and 9. Existing privacy checks remain mandatory.
+
+The engine is opt-in per user, with a visible proactive master switch and a
+separate visible memory-capture switch. Memory capture begins only after accepted
+onboarding; the specified proactive default is off. Turning the proactive timer
+off stops its timers and automatic requests while local memory capture continues.
+Turning memory off stops journaling and web ingestion and disables the proactive
+timer. Both off gives plain-editor behavior; manual requests retain their explicit
+context and consent controls. These are future implementation requirements, not
+controls added by Phase 0.
+
+"Typing pause" means strictly a debounce on **document-content change events**.
+The engine records content deltas and second-resolution timestamps only. It must
+not record inter-key timing, typing speed, keystroke dynamics, cursor-movement
+traces or window titles; make attention/productivity inferences; or infer that
+"the user is stuck". A cursor position may locate the bounded code context; it
+must not become a movement trace or behavioral trigger. Consent to the proactive
+timer permits bounded AI requests after a content-change pause, not unrestricted
+background collection or silent expansion of context.
+
+Chrome capture is separately opt-in, allowlist-based and revocable per site,
+with visible capture state and pause/revoke controls. The existing selected-text
+and review flow remains; later page-context mode must meet §9's restrictions on
+forms, editable fields, sensitive sites, incognito and secret-containing text.
+Auto-ingestion is specified off by default. Captured text is untrusted context,
+never an instruction source.
+
+Project memory stays in local main-process SQLite, outside the project folder.
+Only bounded request context may leave it; project files, journals and web
+captures must never be synchronized to Supabase. Mandatory secret exclusions,
+secret-content purging, user exclusions and Pause/Purge controls apply. Provider
+keys and tokens stay out of renderer, preload, memory and logs. Accept remains
+explicit, hash-checked, undoable and checkpointed; no automatic edit application
+or autonomous command execution is authorized.
+
+Supervisor approval remains pending before Phase E4 ships to others and before
+any official Scope/SRS/SDD revision. The proposed 2–300-second timer (default 5 s)
+widens SRS FR-06's 2–15-second range and requires supervisor review. Onboarding
+defaults, web auto-ingestion/deny-list policy, optional history sync, retention
+and encryption decisions remain tracked in the plan; this amendment does not
+silently resolve them. Official `.docx` files are unchanged.
+
 **2026-09-04 amendment:** Experiment A1 permits automatic failed-run explanations
 after explicit session-level consent. Its narrow scope and verification status
 are recorded in `AUTOMATIC_RUN_EXPLANATIONS.md`. This supersedes only the earlier

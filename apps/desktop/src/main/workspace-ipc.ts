@@ -125,11 +125,14 @@ export function registerWorkspaceIpc(
     onWorkspaceOpened: (rootPath: string, webContentsId: number) => void;
     onWorkspaceClosed: (webContentsId?: number) => void;
     onWorkspaceChanged?: () => void;
+    onFileSaved?: (path: string, root: string) => Promise<void>;
+    onMemoryFilesChanged?: (paths: string[], root: string) => void;
   },
   userDataPath: string
 ): { clearWorkspace: () => Promise<void>; cleanup: () => Promise<void> } {
   let cleanupBoundWebContentsId: number | null = null;
   const watcher = new WorkspaceWatcher((batch) => {
+    if (workspaceAuthorization) lifecycle.onMemoryFilesChanged?.(batch.changes.map(change => change.relativePath), workspaceAuthorization.rootPath);
     lifecycle.onWorkspaceChanged?.();
     const mainWindow = getMainWindow();
     if (
@@ -372,6 +375,7 @@ export function registerWorkspaceIpc(
           typeof request.relativePath === "string"
         ) {
           watcher.suppress([request.relativePath]);
+          await lifecycle.onFileSaved?.(request.relativePath, rootPath);
           lifecycle.onWorkspaceChanged?.();
         }
         return {
@@ -411,6 +415,7 @@ export function registerWorkspaceIpc(
       try {
         const value = await createWorkspaceEntry(rootPath, request);
         watcher.suppress([value.relativePath]);
+        lifecycle.onMemoryFilesChanged?.([value.relativePath], rootPath);
         lifecycle.onWorkspaceChanged?.();
         return { ok: true, value };
       } catch (error) {
@@ -439,6 +444,7 @@ export function registerWorkspaceIpc(
             ? request.relativePath
             : "";
         watcher.suppress([oldRelativePath, value.relativePath]);
+        lifecycle.onMemoryFilesChanged?.([oldRelativePath, value.relativePath], rootPath);
         lifecycle.onWorkspaceChanged?.();
         return { ok: true, value };
       } catch (error) {
@@ -463,6 +469,7 @@ export function registerWorkspaceIpc(
       try {
         const value = await deleteWorkspaceEntry(rootPath, relativePath);
         watcher.suppress([value.relativePath]);
+        lifecycle.onMemoryFilesChanged?.([value.relativePath], rootPath);
         lifecycle.onWorkspaceChanged?.();
         return { ok: true, value };
       } catch (error) {

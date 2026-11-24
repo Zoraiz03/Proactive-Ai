@@ -84,6 +84,9 @@ export interface ProjectContextPackage {
 }
 
 export interface ProjectContextSeed {
+  explainScope?: "selection" | "function" | "file";
+  improveGoal?: import("./improve-code").ImprovementGoal;
+  improveFullFile?: boolean;
   mode: ObserverMode;
   kind: ObserverKind;
   activeRelativePath: string;

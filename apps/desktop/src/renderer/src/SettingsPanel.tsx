@@ -9,6 +9,9 @@ import {
   type SyncedSettings,
 } from "../../shared/settings";
 import ObserverInsightsSettings from "./ObserverInsightsSettings";
+import MemoryPanel from './engine/MemoryPanel';
+import MemoryContextPreview from './engine/ManifestView';
+import type { ContextSeed } from '../../shared/engine-context';
 import type { WebContextBridgeStatus } from "../../shared/web-context-bridge";
 
 const sections = ["General", "Editor", "AI Models", "API Keys", "Observer", "Observer Insights", "Documentation Impact", "Browser Extension", "Privacy", "Data and History"] as const;
@@ -46,6 +49,8 @@ function sectionSlug(section: Section): string {
 }
 
 interface Props {
+  memoryWorkspaceId?: string;
+  memoryContextSeed?: ContextSeed;
   open: boolean;
   local: LocalSettings;
   synced: SyncedSettings;
@@ -238,14 +243,18 @@ export default function SettingsPanel(props: Props) {
             </div>
           </>}
           {active === "Privacy" && <>
+            <MemoryPanel workspaceId={props.memoryWorkspaceId} />
+            <MemoryContextPreview key={`${props.memoryContextSeed?.workspaceId}:${props.memoryContextSeed?.path}`} seed={props.memoryContextSeed} />
             <h3>Privacy</h3><p>Manual Observer requests show focused context before sending. The separate, session-only Auto-explain switch in Observer can send bounded failed-run code and errors automatically after explicit consent. It never includes Context Tray items or edits files.</p>
             <Toggle label="Never send .env files" checked disabled onChange={() => undefined} />
             <Toggle label="Never send credentials, private keys, tokens, or secret files" checked disabled onChange={() => undefined} />
             <div className="mandatory-exclusions"><strong>Permanent secret exclusions</strong><code>{MANDATORY_SECRET_EXCLUSIONS.join(", ")}</code></div>
             <label className="setting-column"><span>Additional files/folders excluded from AI context (one per line)</span><textarea value={local.aiContextExclusions.join("\n")} onChange={(e) => setLocal({ ...local, aiContextExclusions: e.target.value.split(/\r?\n/).filter(Boolean) })} /></label>
-            <label className="setting-row"><span>Maximum context size (characters)</span><input type="number" min="1000" max="50000" value={synced.maximumContextChars} onChange={(e) => setSynced({ ...synced, maximumContextChars: Number(e.target.value) })} /></label>
+            <label className="setting-row"><span>Total AI context (characters)</span><input type="number" min="1000" max="50000" value={synced.maximumContextChars} onChange={(e) => setSynced({ ...synced, maximumContextChars: Number(e.target.value) })} /></label>
             <label className="setting-row"><span>Maximum related files</span><input type="number" min="1" max="10" value={local.contextMaximumRelatedFiles} onChange={(e) => setLocal({ ...local, contextMaximumRelatedFiles: Number(e.target.value) })} /></label>
-            <label className="setting-row"><span>Maximum content per related file</span><input type="number" min="500" max="20000" value={local.contextMaximumFileCharacters} onChange={(e) => setLocal({ ...local, contextMaximumFileCharacters: Number(e.target.value) })} /></label>
+            <label className="setting-row"><span>Other actions / related-file limit (characters)</span><input type="number" min="500" max="20000" value={local.contextMaximumFileCharacters} onChange={(e) => setLocal({ ...local, contextMaximumFileCharacters: Number(e.target.value) })} /></label>
+            <label className="setting-row"><span>Manual Explain code limit (characters)</span><input type="number" min="500" max="20000" value={local.explainMaximumCodeCharacters} onChange={e=>setLocal({...local,explainMaximumCodeCharacters:Number(e.target.value)})} /></label>
+            <p className="settings-description">Manual Explain uses its own code ceiling for selections, complete functions and explicitly approved files. Total AI context also includes the instruction, question and retained history. Conservative model/token and response reserves may lower the effective budget. Other actions and related files retain their existing limits; Live Observer remains separately bounded. Settings never raise limits automatically.</p>
             <Toggle label="Require confirmation before attaching a complete file" checked={synced.confirmCompleteFile} onChange={(value) => setSynced({ ...synced, confirmCompleteFile: value })} />
             <Toggle label="Store suggestion history" checked={synced.storeSuggestionHistory} onChange={(value) => setSynced({ ...synced, storeSuggestionHistory: value })} />
             <div className="settings-actions"><button className="primary" onClick={() => void saveSynced()}>Save privacy settings</button><button onClick={() => void saveLocal()}>Save local context settings</button></div>

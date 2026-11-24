@@ -6,7 +6,7 @@ import type { ObserverStatus } from './ObserverPanel';
 
 type Source = { file: { relativePath: string }; draft: string; availability: string; externalConflict: unknown };
 
-export function useFixCode(workspaceId: string | undefined, tabs: readonly Source[], onStatus: (s: ObserverStatus) => void) {
+export function useFixCode(workspaceId: string | undefined, tabs: readonly Source[], onStatus: (s: ObserverStatus) => void, action: "Fix Code" | "Improve Code" = "Fix Code") {
   const latest = useRef(tabs);
   latest.current = tabs;
   const [request, setRequest] = useState<ObserverRequest | null>(null);
@@ -25,13 +25,13 @@ export function useFixCode(workspaceId: string | undefined, tabs: readonly Sourc
     setError('');
     setSnapshot('');
     onStatus('idle');
-    void window.observer.fixClear();
-  }, [onStatus]);
+    void (action === "Improve Code" ? window.observer.improveClear() : window.observer.fixClear());
+  }, [onStatus, action]);
   useEffect(() => {
     const generation = epoch;
     clear();
-    return () => { generation.current++; void window.observer.fixClear(); };
-  }, [workspaceId, clear]);
+    return () => { generation.current++; void (action === "Improve Code" ? window.observer.improveClear() : window.observer.fixClear()); };
+  }, [workspaceId, clear, action]);
 
   const source = tabs.find(t => t.file.relativePath === request?.editBase?.targetRelativePath);
   const stale = Boolean(request && (!source || source.draft !== snapshot || source.availability !== 'available' || source.externalConflict));
@@ -39,10 +39,10 @@ export function useFixCode(workspaceId: string | undefined, tabs: readonly Sourc
     epoch.current++;
     running.current = false;
     setBusy(false);
-    setError('Fix Code cancelled. Start a new review through Context Preview.');
+    setError(`${action} cancelled. Start a new review through Context Preview.`);
     onStatus('error');
-    void window.observer.fixClear();
-  }, [onStatus]);
+    void (action === "Improve Code" ? window.observer.improveClear() : window.observer.fixClear());
+  }, [onStatus, action]);
   useEffect(() => { if (stale && busy) cancel(); }, [stale, busy, cancel]);
 
   const run = async (approved: ObserverRequest, invoke: () => ReturnType<typeof window.observer.fixClarify>) => {
@@ -83,7 +83,7 @@ export function useFixCode(workspaceId: string | undefined, tabs: readonly Sourc
       }
     } catch {
       if (token === epoch.current) {
-        setError('Fix Code could not complete. Check the backend and start a new review.');
+        setError(`${action} could not complete. Check the backend and start a new review.`);
         onStatus('error');
       }
     } finally {
@@ -102,7 +102,7 @@ export function useFixCode(workspaceId: string | undefined, tabs: readonly Sourc
       setRequest(approved);
       setSnapshot(content);
       setResult(null);
-      await run(approved, () => window.observer.fixStart(id.current, approved));
+      await run(approved, () => (action === "Improve Code" ? window.observer.improveStart(id.current, approved) : window.observer.fixStart(id.current, approved)));
     },
     clarify: async (answer: string) => {
       if (!request || stale || running.current) return;
@@ -112,7 +112,7 @@ export function useFixCode(workspaceId: string | undefined, tabs: readonly Sourc
       const hash = await sha256Text(current.draft);
       const newest = latest.current.find(t => t.file.relativePath === request.editBase?.targetRelativePath);
       if (token !== epoch.current || !newest || newest.draft !== current.draft || newest.availability !== 'available' || newest.externalConflict) return;
-      await run(request, () => window.observer.fixClarify(sessionId, answer, hash));
+      await run(request, () => (action === "Improve Code" ? window.observer.improveClarify(sessionId, answer, hash) : window.observer.fixClarify(sessionId, answer, hash)));
     },
   };
 }

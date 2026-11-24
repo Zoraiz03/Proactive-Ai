@@ -50,6 +50,59 @@ implementation and its verification evidence in the changelog.
 | Phase 13D | Complete | Final desktop UI polish, responsive containment, accessibility, and verification |
 | Experiment A1 | In Progress | Automatic failed-run explanations implemented; 183 desktop tests and backend/build checks pass; interactive/provider acceptance pending |
 
+## Observer-Intervener Engine
+
+The [implementation spec](./OBSERVER_ENGINE_SPEC.md) is being followed one phase
+at a time. Phase 0 began on 2026-10-02 as a documentation-only audit; no engine
+runtime work is authorized in this task. Existing phase statuses above retain
+their original meaning.
+
+| Phase | Status | Goal |
+|---|---|---|
+| Phase 0 (P0-T1–T3) | In Progress | Documentation delivered; desktop baseline gate fails on Python availability and Windows symlink permissions |
+| Phase E1 | In Progress | E1a and E1b implementation complete; Electron runtime and packaged-launch acceptance pending |
+| Phase E1b (P1-T4, P1-T5) | In Progress | Chunks/symbols, validated memory IPC, typed preload and read-only Privacy MemoryPanel implemented; typecheck passed; desktop tests 312 passed, 0 failed, 1 existing skip; native/runtime verification pending |
+| Phase E2 (P2-T1 through P2-T5) | Implementation complete; runtime acceptance pending | Validated delta replay, Monaco capture with origin/flush rules, private transactional journals and 20-file LRU, save drift recovery, external-change rebaselines, compaction and retention implemented |
+| Phase E3 (P3-T1 through P3-T5) | Implementation complete; runtime acceptance pending | A-J context builders and exact manifests, FTS/fallback retrieval, verified edit bursts, local feedback and a typed local ManifestView preview implemented |
+| Phase E4 | Not Started | Independent switches, engine governance, backend and outcomes; optional real streaming |
+| Phase E5 | Not Started | Opt-in Chrome page context v2 and bridge integration |
+| Phase E6 | Not Started | New-project wizard, brief, plan and phase-aware help |
+| Phase E7 | Not Started | History, local evaluation, accessibility, documentation and release checks |
+| Phase E8 | Not Started | Unspecified: §14 requests E1–E8 rows but defines tasks only through E7; owner clarification required before scoping E8 |
+
+E3 implementation (2026-10-03): P3-T1 builds A-J with per-block caps, a 16,000-character default/24,000 hard ceiling, cursor-centered truncation, ordered budget removal and hashes derived from the final request. P3-T2 reuses import/test/rule discovery and screens current files, user exclusions and Git ignores; FTS5/token fallback retrieval ranks fresh web captures with recency, pins and hostname diversity. P3-T3 reconstructs versioned journal positions and merges whole-second edit bursts without typing analytics. P3-T4 stores bounded local explanations/observed style plus content-free manifests, selecting the latest five dismissals and last accepted style. P3-T5 exposes a consent- and workspace-checked, metadata-only `memory:context` preview in Settings > Privacy; ManifestView shows sources, ranges, hashes, sizes, flags and omissions. No preview makes an AI request or increments web-use counters; E4 dispatch/outcome wiring and E5 web ingestion remain unstarted.
+E3 validation: desktop typecheck passed; full desktop suite: 341 tests, 340 passed, 0 failed, 1 existing skip (14 additional passing tests over the E2 baseline). Real SQLite integration covers all ten blocks, manifest/request equality, secret screening, workspace/sender rejection, exclusions, URL safety, FTS fallback, retention-compatible burst replay and feedback minimization. Root backend and both root lockfiles are unchanged; root build was not required.
+E3 limitations: Electron native rebuild is still blocked by missing Visual Studio C++ Build Tools. Interactive ManifestView/Monaco behavior, performance acceptance and packaged launch remain unverified; Node SQLite/unit/IPC results do not claim runtime success. Edit-trail retrieval bounds replay to 20,000 rows per file and omits a larger or unverifiable trail with a category-only warning; retrieval candidates and feedback history reads are also bounded. Existing brief and web data are readable, but creation/ingestion and provider transmission belong to later phases.
+
+E2 validation (2026-10-03): desktop typecheck passed; `npm test`: 327 tests, 326 passed, 0 failed, 1 existing skip (baseline: 312 passed). Tests cover randomized replay, capture batches, trusted IPC, privacy purges, unsaved/reopen/save drift, watcher changes, LRU eviction, emoji paste boundaries, compaction, retention and purge recovery. Root backend and root lockfiles unchanged; root build not required.
+E2 wiring and limitations: typed `memory:buffer` bootstraps a validated unsaved snapshot before fire-and-forget `memory:edits`; existing LiveEdit behavior remains. Journal compaction runs after 30 seconds idle and on close, with daily expiry and journal/web-first size eviction. Consent now explicitly describes unsaved capture. Electron native rebuild, interactive Monaco/save/close acceptance and packaged launch remain unverified: Visual Studio C++ Build Tools are missing. Node SQLite tests passed; E3 was not started.
+
+E1a verification: desktop typecheck passed; 305 tests = 300 passed, four known Python/symlink environment failures, one existing skip; all 17 new tests passed. No backend changes, so root build not run.
+E1a limits: generated directories are metadata-only (not traversed); Node SQLite verified, Electron native rebuild/packaged launch unverified; no packaging/asar-unpack config exists. Chunks/symbols, journaling, retention, IPC/UI remain later tasks; this update supersedes the Phase 0 unstarted/native-dependency notes below.
+
+E1b (2026-10-02) supersedes the E1a chunks/symbols/IPC/UI deferral: scans now atomically index 40-line chunks with five-line overlap and heuristic JS/TS/Python declarations, backfill E1a databases, and purge derived data on exclusion, secret detection or deletion. The existing symbol detector is reused through a pure shared helper. Memory open/status/pause/purge enforce authenticated main-frame sender, current workspace, exact payloads and native consent; workspace changes, sign-out and shutdown cancel/close the service. Settings changes immediately reapply exclusions. The Privacy panel subscribes to real counts, journal text bytes, database size, scan state and last-scan time; it has no mutation controls and receives no file content, keys or database paths.
+Validation: 313 desktop tests total (312 passed, 0 failed, 1 pre-existing POSIX-fixture skip), including eight added indexing/IPC/preload/read-only-view tests; typecheck and diff checks passed. The separately committed Windows Python fixture fix passed all 24 Fix Code tests. Node SQLite works in this checkout; Electron native rebuild remains blocked by missing Visual Studio C++ Build Tools. No Electron runtime, interactive native-dialog, rendered-panel or packaged-launch verification is claimed. No backend files changed, so root build was not run. Both root package-lock.json copies retained their original hashes. Journaling, web ingestion and later engine phases remain unstarted.
+
+Phase 0 deliverables are finished; the phase is not marked Complete because this
+plan requires every check to pass. E1–E7 remain unstarted. The baseline and
+remaining environment prerequisites are recorded in the 2026-10-02 changelog.
+
+Open decisions carried forward from spec §16, without changing the specified
+defaults: supervisor approval of the amendment before E4 ships to others;
+proactive default off versus opt-in onboarding behavior; widening SRS FR-06's
+2–15-second range to 2–300 seconds; web auto-ingestion default off and initial
+deny list; history sync default off; retention defaults and future at-rest
+encryption; genuine streaming support per provider. No official `.docx` is edited.
+The missing E8 task definition is a specification discrepancy, not a new phase
+designed here. The §7.2 `useWebContext` default and §9 auto-ingestion switch must
+remain distinct; §16's wording does not authorize silently enabling ingestion.
+
+Native packaging audit: `apps/desktop/package.json` currently rebuilds only
+`node-pty`; `electron.vite.config.ts` externalizes dependencies. No electron-builder,
+Forge or asar-unpack configuration was found in the desktop package. E1 must
+address `better-sqlite3` rebuild/packaging requirements (§4.1); no dependency or
+packaging configuration is added in Phase 0.
+
 ## Recommended folder structure
 
 ```text
@@ -1589,6 +1642,87 @@ headers return 401, and authorization data is not logged.
 - Do not mark a roadmap task Complete until its listed verification has passed.
 
 ## Changelog
+
+### 2026-10-02 — Observer Engine architecture skeleton and stop (P0-T3)
+
+- Created `OBSERVER_ENGINE.md` with a Mermaid renderer → narrow preload → main
+  (memory, engine, assembler, bridge) → Next.js → provider diagram and Chrome →
+  bridge path. Clearly distinguished existing infrastructure from future nodes.
+- Documented reuse, trust boundaries, independent switches, privacy, explicit
+  review/apply and phase-scoped documentation TODOs; no simulated behavior.
+- Verification: `git -C .push-checkout diff --stat d2a9bbc` and `diff --name-only`
+  show only `docs/DESKTOP_IDE_PLAN.md`, `docs/PRODUCT_DIRECTION.md` and the new
+  `docs/OBSERVER_ENGINE.md`. `git diff --check d2a9bbc` passes. Compared all
+  tracked non-document files in the working project with the clean baseline
+  checkout (normalizing CRLF/LF only): zero source differences. Generated build
+  artifacts are ignored; package files, migrations, tests and official documents
+  are unchanged.
+- Saved separate local P0-T1, P0-T2 and P0-T3 commits in `.push-checkout`, with
+  matching documentation in the workspace root. No push is part of this phase.
+- Stopped for review as requested. Documentation is delivered; the phase retains
+  In Progress solely because the desktop baseline gate is not green. No E1 work
+  was started and no later-phase runtime behavior was introduced.
+
+### 2026-10-02 — Observer Engine direction and roadmap (P0-T2)
+
+- Added a dated PRODUCT_DIRECTION amendment while preserving the earlier text:
+  primary opt-in engine, visible independent switches, content-change debounce,
+  second-resolution delta timestamps, prohibited behavioral surveillance,
+  revocable allowlisted Chrome capture and unchanged consent/privacy boundaries.
+- Added E1–E7 roadmap rows and an explicitly unspecified E8 row. Recorded owner
+  and supervisor decisions, timer-range deviation and native-packaging gap.
+- The amendment does not claim supervisor approval or change official documents.
+  Later phases remain Not Started; Phase 0 retains In Progress until the failed
+  baseline test gate is resolved.
+
+### 2026-10-02 — Observer Engine Phase 0 baseline audit (P0-T1)
+
+- Read all of `OBSERVER_ENGINE_SPEC.md` v1.1, including §0, the independent
+  switches in §7.0 and the stop-after-each-phase requirement.
+- Baseline is commit `d2a9bbc` on `desktop-ide-foundation`. The workspace root
+  is an extracted folder without `.git`; the existing `.push-checkout` holds
+  the branch history. Commands below ran against the working project in the
+  workspace root, on Windows/PowerShell, Node `v24.13.0`, npm `11.6.2`.
+- Audit commands completed; the required desktop test gate remains failed.
+  No source changes, test skips, privacy relaxations or machine configuration
+  changes were introduced to make the baseline appear green.
+
+| Working directory | Command (PowerShell uses `npm.cmd`) | Result |
+|---|---|---|
+| `apps/desktop` | `npm run typecheck` | PASS, exit 0 |
+| `apps/desktop` | `npm test` | FAIL, exit 1: 255 tests, 250 pass, 4 fail, 1 existing skip |
+| repository root | `npm run lint` | PASS, exit 0; no ESLint warnings/errors |
+| repository root | `npm run build` | PASS, exit 0; all 14 static pages generated; warnings below |
+| `apps/chrome-extension` | `npm test` | PASS, exit 0; 11/11 tests |
+| `apps/chrome-extension` | `npm run build` | PASS, exit 0; Manifest V3 validation passed |
+
+Initial sandbox desktop/extension tests and root build failed with `spawn EPERM`.
+Approved retries outside that sandbox allowed subprocesses to run. The desktop
+retry still failed these existing tests:
+
+- `main/fix-code.test.ts:78`: guarded `main.py` runner assertion failed because
+  the Windows Python command resolves to the Microsoft Store alias, not an
+  available Python runtime.
+- `main/multi-file-change.test.ts:52`: secret/binary/symbolic-link test could not
+  create its symlink (`EPERM`).
+- `main/project-context.test.ts:97` and `:161`: escaping-symlink and stale-tray
+  tests likewise failed at symlink creation (`EPERM`).
+- Existing skipped test: Git process timeout/cancellation fixture uses a POSIX
+  shebang. This task did not add that skip.
+
+Full baseline logs are local `%TEMP%/proactive-phase0-*.log`; authoritative retry
+logs are `proactive-phase0-desktop-tests-retry.log`,
+`proactive-phase0-extension-tests-retry.log` and
+`proactive-phase0-root-build-retry.log`. Other successful logs are
+`proactive-phase0-desktop-typecheck.log`, `proactive-phase0-root-lint.log` and
+`proactive-phase0-extension-build.log`. Logs are not committed.
+
+Build warnings: webpack large-string cache serialization and Supabase's
+`process.version` use in the Edge Runtime. Desktop tests also emit Node's
+existing module-type warnings. These do not explain away the four test failures.
+Before claiming a green baseline, provide an actual Python runtime and Windows
+symlink creation privileges (Developer Mode or an appropriately privileged test
+environment), then rerun the desktop suite without weakening its assertions.
 
 ### 2026-09-04 — Phase 13D final UI/UX polish complete
 
@@ -3292,7 +3426,135 @@ execution. The earlier backend schema availability issue remains outside scope.
 The user explicitly requested a local commit for this iteration. No push is part
 of this task.
 
+## Manual Improve Code — implemented, provider acceptance pending (2026-09-29)
+
+The previous Fix Code iteration was rechecked, not assumed complete. Its unit,
+privacy, IPC, route, checkpoint and runner regressions pass. The Fix UI fixture
+initially exposed Monaco's “no diff result available” teardown race. Waiting for
+its computed diff before Apply made the fixture pass without hiding renderer
+errors. Signed-in/native and live-provider acceptance remain outstanding.
+
+Improve Code now offers Readability & maintainability (default) or Performance,
+plus optional instructions. Selection takes priority; otherwise the exact current
+function is previewed. No function means selection or explicit file approval is
+required. No mandatory code is silently truncated. Function resolution is isolated
+from other actions; conservative unsupported/ambiguous forms require selection.
+Optional bounded project conventions/test configuration is read-only, removable
+and privacy-screened in Context Preview. Context Tray/imported code is not added
+automatically for this action.
+
+A dedicated prompt and outcome contract distinguish one justified improvement,
+clarification, no worthwhile improvement, and a correctness issue requiring an
+explicit Fix Code handoff. Results explain rationale, assumptions/trade-offs and
+existing verification options. Performance claims must distinguish reasoning from
+measurements; no tests, benchmark results or behavior preservation are invented.
+Clarifications are bounded/session-only and recheck approved context, source and
+privacy. Authenticated backend/server keys, exclusions and complete-file consent
+remain intact; no transcripts or database changes were added.
+
+The existing cancellable session checks, structured edit validation, diff preview,
+explicit Accept Change, checkpoint/Undo and source-aware Run again controls are
+reused. Apply stays in memory, preserves unrelated unsaved code and is unverified.
+There is no automatic save, execution, installation or multi-file editing. The
+coffee/cream theme and other Observer/proactive contracts remain intact.
+
+Verification:
+
+- **279/279 desktop tests passed**, including 24 new Improve tests for exact
+  selection/function/file approval, long/oversized functions, goal/outcome handling,
+  clarification limits, secrets/consent/privacy, readonly configuration, stale or
+  invalid edits, cancellation/project isolation and checkpoint Undo.
+- Root tests passed: dedicated prompts, four outcomes, strict parsing/output-limit
+  errors, provider budgets with mocked fetch, authenticated route/no-history and
+  IPC preview/goal authorization, plus other-action regressions.
+- `test:improve-ui` passed with real Monaco selection events, preview, controls,
+  card/hook and diff; it covers goals/instructions, fallback approval, clarification,
+  no-change, explicit bug handoff/no send, Apply/Undo/no save, stale/invalid edits,
+  privacy, duplicate prevention and cancellation/project isolation. Main context,
+  session and checkpoint logic are real; provider/policy/consent/application and
+  handoff callbacks are controlled doubles. This is not full signed-in App testing.
+- `test:fix-ui`, `test:explain-ui` and `test:live-triggers` passed. Strict desktop
+  type checks, Electron and Next builds, root lint and focused module lint passed.
+  Broader desktop lint retains the same four unused-variable errors and three hook
+  warnings; unrelated lint cleanup is not included.
+
+[`IMPROVE_CODE.md`](./IMPROVE_CODE.md) records exact manual steps, scope/grammar
+limits, configuration/privacy behavior, and evaluations for duplication, nested
+conditions, already-clear code and a potentially behavior-changing performance
+proposal. Live-provider quality/cost/latency, native consent/save/run acceptance,
+backend settings availability, Windows and packaged startup footprint remain
+unverified. The existing TypeScript parser is bundled into main for exact JS/TS
+function ranges; no new dependency was installed. Mocked correctness tests are not
+AI accuracy or behavior-preservation evidence. No paid API calls or migrations
+were made. The user's final instruction authorizes a local commit; no push.
+
+## Shared Project Context — planning only (2026-09-29)
+
+- [x] Inspected current Context Tray, Chrome research handoff, context builders,
+  manual/Live Observer, privacy controls and local storage; recorded reuse and gaps.
+- [x] Added [Project Context implementation plan](./PROJECT_CONTEXT_PLAN.md) with
+  proposed workspace-local notes, compatibility boundaries and phased acceptance tests.
+- [ ] Implement and verify Conversation/Project Context tabs over existing state first.
+- [ ] Add explicit local goals/tasks/confirmed requirements, then opt-in request inclusion.
+- [ ] Address workspace binding of pending browser transfers before durable research.
+
+This pass changes documentation only; no tests/builds were rerun and no new feature
+is marked implemented or tested. Earlier verification records remain historical.
+No application/settings/database changes, dependency installation, commit or push.
+
+## Shared Project Context — Phase 1 tabs (2026-09-29)
+
+- [x] Implemented Conversation/Project Context tabs around existing mounted state,
+  with one tray, attachment count, eligibility copy, keyboard/ARIA navigation,
+  visible focus, independent scrolling and explicit return to request controls.
+- [x] Tested real mouse/keyboard interaction in the mocked Electron fixture, including
+  draft/attachment/request preservation, zero additional requests, cancellation,
+  project isolation, diff review, explicit Apply and checkpoint Undo across switches.
+- [x] 279 desktop tests, root tests, strict desktop type checks, root/focused lint,
+  Electron/Next builds and Improve/Fix/Explain/Live-trigger UI fixtures passed.
+- [ ] Full signed-in App/native dialogs, screen-reader and Windows acceptance remain
+  unverified; provider quality is not inferred from mocked tests.
+
+See [Project Context plan](./PROJECT_CONTEXT_PLAN.md#phase-1-delivery-evidence-2026-09-29)
+for exact evidence and remaining phases. No new persistence, notes, payload/consent
+changes or browser-transfer changes. Workspace binding remains a later-phase concern.
+No commit or push; unrelated prior planning edits are preserved.
+
+## Context pipeline Phase A — manual Explain scopes/budgets (2026-09-30)
+
+- [x] Explicit selected code/current function/entire active file controls with exact
+  unsaved scope and honest unavailable/oversized messages. Replaced Explain's 80-line
+  function fallback; synthetic cursor at line 400 in a 453-line function regression passes.
+- [x] Shared preparation/preview/desktop/backend/provider budget calculation, conservative
+  UTF-8 token estimate and response reserve. Separate local manual Explain ceiling
+  inherits existing limits; no automatic increases. Full-file consent/privacy retained.
+- [x] Exact snapshot validation, history budgeting, workspace cancellation, no truncation
+  and read-only Explain contracts. Model capacities documented; retired configured
+  `deepseek-chat` is specifically blocked for manual Explain, without model migration.
+- [x] 288 desktop tests, root tests, mocked Explain/Fix/Improve/Live/trigger UI suites,
+  desktop typecheck, focused/root lint and Electron/Next builds pass. App/Settings lint
+  retains pre-existing issues; standalone root tsc includes incompatible test targets.
+- [ ]Full signed-in/native dialogs and real-provider quality/token calibration remain
+  unverified. Unsupported/ambiguous Python function syntax requires explicit selection
+  or file scope. Shared project notes/research and Live context are still pending.
+
+See [Phase A evidence and manual steps](./CONTEXT_PIPELINE_AUDIT.md#phase-a-delivery--2026-09-30)
+for limits, provider sources, actual boundary results and remaining acceptance checks.
+No paid calls, migrations, commits or pushes. Earlier unrelated changes are preserved.
+
+## Functional documentation baseline — 2026-10-02
+
+- [x] Added [current modules and functional inventory](./CURRENT_PRODUCT_FUNCTIONAL_INVENTORY.md) for revising scope, SRS, SDD, and diagrams.
+- [x] Inspected current desktop, retained web, and extension sources; separated implemented, experimental, partial, and planned capabilities. Recorded functional boundaries without implementation mechanics.
+- [ ] Formal SRS/SDD/scope rewrites and revised diagrams remain separate deliverables. This inventory is not new live-provider or packaged-product acceptance evidence.
+
 ## Recommended next task
+
+**2026-10-02 update:** Stop after Observer Engine Phase 0 for review. Resolve the
+recorded Python/symlink baseline prerequisites and rerun the desktop suite before
+claiming all gates pass. Phase E1 requires an explicit follow-up instruction.
+The earlier recommendation below is retained as history and its outstanding
+acceptance items are not discharged by this documentation audit.
 
 Phase 13D is complete. Experiment A1 — automatic failed-run explanations — was
 authorized on 2026-09-04 and implemented after that phase. Automated verification

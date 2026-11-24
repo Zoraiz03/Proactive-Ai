@@ -1,3 +1,7 @@
+import { attachEditorMemory } from './engine/editor-memory';
+import { flushMemoryCapture, markMemoryOrigin } from './engine/edit-capture';
+import ImproveCodeCard from "./ImproveCodeCard";
+import {improveScopeLabel} from "../../shared/improve-code";
 import { useFixCode } from "./useFixCode";
 import FixCodeCard from "./FixCodeCard";
 import { editWithinFixScope, fixScopeLabel, fixRunVersionMessage } from "../../shared/fix-code";
@@ -61,6 +65,8 @@ import SettingsPanel from "./SettingsPanel";
 import SourceControlPanel from "./SourceControlPanel";
 import GitDiffViewer from "./GitDiffViewer";
 import ContextPreview from "./ContextPreview";
+import { explanationPreviewMatches } from "../../shared/explanation";
+import ExplainScopePicker from "./ExplainScopePicker";
 import ObserverEditReview, { type ObserverEditReviewState } from "./ObserverEditReview";
 import { MultiFileAppliedSummary, MultiFileChangeReview, MultiFilePlanReview } from "./MultiFileChangeWorkspace";
 import { sha256Text, validateAndBuildProposedEdit } from "../../shared/ai-edit";
@@ -252,6 +258,7 @@ function Placeholder({ icon, children }: { icon: string; children: React.ReactNo
 }
 
 interface EditorWorkspaceProps {
+  memoryWorkspaceId?: string;
   onLiveEdit?: (edit: LiveEdit) => void;
   liveState: LiveState;
   onLiveReview: () => void;
@@ -278,7 +285,7 @@ interface EditorWorkspaceProps {
 }
 
 export function EditorWorkspace({
-  liveState, onLiveReview, onLiveEdit,
+  liveState, onLiveReview, onLiveEdit, memoryWorkspaceId,
   tabs,
   activePath,
   surface,
@@ -300,6 +307,8 @@ export function EditorWorkspace({
   editorSettings,
   editorTheme,
 }: EditorWorkspaceProps) {
+  const memoryWorkspaceRef = useRef(memoryWorkspaceId);
+  memoryWorkspaceRef.current = memoryWorkspaceId;
   const activeTab = tabs.find((tab) => tab.file.relativePath === activePath) ?? null;
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const liveDiagnostics = useRef<DiagnosticSignal[]>([]);
@@ -566,6 +575,7 @@ export function EditorWorkspace({
                   });
                 };
                 editorDisposablesRef.current = [
+                  attachEditorMemory(instance, () => memoryWorkspaceRef.current, () => activePathRef.current),
                   instance.onDidChangeCursorSelection(emitObserverContext),
                   instance.onDidChangeModelContent(emitObserverContext),
                   instance.onDidChangeModel(() => { liveReporter.current?.cancel(); lastEditorContent.current = instance.getValue(); liveDiagnostics.current = []; emitObserverContext(); }),
@@ -649,13 +659,23 @@ export default function App({ user, onSignOut }: AppProps) {
   const [observerProvider, setObserverProvider] = useState<ObserverProvider>("gemini");
   const [observerStatus, setObserverStatus] = useState<ObserverStatus>("idle");
   const [explainQuestion, setExplainQuestion] = useState("");
+  const [explainScope, setExplainScope] = useState<"selection" | "function" | "file">("function");
+  useEffect(() => {
+    if (openedWorkspace?.workspaceId) void window.engine.openMemory({ workspaceId: openedWorkspace.workspaceId });
+  }, [openedWorkspace?.workspaceId]);
   const explanation = useExplanation(openedWorkspace?.workspaceId, setObserverStatus);
   const clearExplanation = explanation.clear;
   const fix = useFixCode(openedWorkspace?.workspaceId,tabs,setObserverStatus);
   const clearFix = fix.clear;
+  const improve=useFixCode(openedWorkspace?.workspaceId,tabs,setObserverStatus,"Improve Code");
+  const clearImprove=improve.clear;
+  const [improveGoal,setImproveGoal]=useState<'readability'|'performance'>('readability');
+  const [improveInstruction,setImproveInstruction]=useState('');
+  const [improveFullFile,setImproveFullFile]=useState(false);
+  useEffect(()=>setImproveFullFile(false),[activePath,openedWorkspace?.workspaceId]);
   const [fixProblem,setFixProblem] = useState("");
   const [fixDiagnostics,setFixDiagnostics] = useState<{path:string;diagnostics:DiagnosticSignal[]}|null>(null);
-  const [fixApplied,setFixApplied] = useState<{path:string;hash:string}|null>(null);
+  const [fixApplied,setFixApplied] = useState<{path:string;hash:string;action?:"Fix Code"|"Improve Code"}|null>(null);
   const [fixVerification,setFixVerification] = useState("Unverified: no run performed for this applied change.");
   const explanationPreparing = useRef(false);
   const explanationPreviewSource = useRef<{ path: string; content: string } | null>(null);
@@ -938,8 +958,9 @@ export default function App({ user, onSignOut }: AppProps) {
     return {
       provider: observerProvider,
       ...(observerProvider === syncedSettings.preferredProvider ? { model: syncedSettings.preferredModel } : {}),
-      storeHistory: ["explain","fix_error"].includes(activeObserverMode) ? false : syncedSettings.storeSuggestionHistory,
+      storeHistory: ["explain","fix_error","improve_code"].includes(activeObserverMode) ? false : syncedSettings.storeSuggestionHistory,
       seed: {
+        ...(activeObserverMode==="improve_code"?{improveGoal,improveFullFile,...(improveInstruction.trim()?{userRequest:improveInstruction.trim()}:{})}:{}),
         mode: activeObserverMode,
         kind: activeIsMarkdown ? "doc" : "code",
         activeRelativePath: activeTab.file.relativePath,
@@ -962,14 +983,15 @@ export default function App({ user, onSignOut }: AppProps) {
         exclusions: localSettings.aiContextExclusions,
         maximumTotalCharacters: syncedSettings.maximumContextChars,
         maximumRelatedFiles: localSettings.contextMaximumRelatedFiles,
-        maximumCharactersPerFile: localSettings.contextMaximumFileCharacters,
+        maximumCharactersPerFile: activeObserverMode === "explain" ? localSettings.explainMaximumCodeCharacters : localSettings.contextMaximumFileCharacters,
+        ...(activeObserverMode === "explain" ? {explainScope} : {}),
         ...(activeObserverMode === "explain" && explainQuestion.trim() ? { userRequest: explainQuestion.trim() } : {}),
         ...(activeObserverMode === "plan_multi_file" ? { userRequest: multiFileDescription.trim() } : {}),
-        ...(contextTrayItems.length && !["explain","fix_error"].includes(activeObserverMode) ? { trayItems: contextTrayItems } : {}),
+        ...(contextTrayItems.length && !["explain","fix_error","improve_code"].includes(activeObserverMode) ? { trayItems: contextTrayItems } : {}),
       },
     };
-  }, [fixProblem, fixDiagnostics, explainQuestion, activeIsMarkdown, activeObserverMode, activeTab, contextTrayItems, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
-  const currentContextSummary = observerRequest ? activeObserverMode === "fix_error" ? observerRequest.seed.selectedCode ? "Fix Code: selected code with bounded surrounding context; edits stay inside the selection." : `Fix Code: entire active file (${activeTab?.draft.length.toLocaleString()} characters), including unsaved content. No silent truncation.` : "A focused project context package will be previewed before sending." : null;
+  }, [explainScope, localSettings.explainMaximumCodeCharacters, improveGoal,improveInstruction,improveFullFile,fixProblem, fixDiagnostics, explainQuestion, activeIsMarkdown, activeObserverMode, activeTab, contextTrayItems, localSettings.aiContextExclusions, localSettings.contextMaximumFileCharacters, localSettings.contextMaximumRelatedFiles, multiFileDescription, observerProvider, observerSnapshot, runOutput, syncedSettings.includeDiagnostics, syncedSettings.includeTerminalError, syncedSettings.maximumContextChars, syncedSettings.observerEnabled, syncedSettings.preferredModel, syncedSettings.preferredProvider, syncedSettings.storeSuggestionHistory]);
+  const currentContextSummary = observerRequest ? activeObserverMode === "improve_code" ? "Improve Code: selection, otherwise current function; file scope only with explicit approval. Exact scope appears in Context Preview." : activeObserverMode === "fix_error" ? observerRequest.seed.selectedCode ? "Fix Code: selected code with bounded surrounding context; edits stay inside the selection." : `Fix Code: entire active file (${activeTab?.draft.length.toLocaleString()} characters), including unsaved content. No silent truncation.` : "A focused project context package will be previewed before sending." : null;
 
   const attachTrayItem = useCallback(async (input: CreateContextTrayItemInput) => {
     try {
@@ -1056,6 +1078,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [appendOutput, contextTrayItems]);
 
   const saveTab = useCallback(async (relativePath: string): Promise<boolean> => {
+    flushMemoryCapture();
     const tab = tabsRef.current.find((candidate) => candidate.file.relativePath === relativePath);
     if (!tab || !isDirty(tab)) return true;
     if (tab.saving) return false;
@@ -1242,7 +1265,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [askAboutUnsavedChanges, saveTab]);
 
   const clearWorkspaceTabs = useCallback((workspace: OpenWorkspace) => {
-    clearExplanation(); clearFix(); setFixProblem("");setFixApplied(null);setFixDiagnostics(null); setExplainQuestion(""); explanationPreviewSource.current = null;
+    clearExplanation(); clearFix(); clearImprove();setImproveInstruction("");setImproveFullFile(false); setFixProblem("");setFixApplied(null);setFixDiagnostics(null); setExplainQuestion(""); explanationPreviewSource.current = null;
     requestSequence.current += 1;
     proactiveEngineRef.current = new ProactiveObserverEngine();
     proactiveDiagnosticsRef.current.clear();
@@ -1291,7 +1314,7 @@ export default function App({ user, onSignOut }: AppProps) {
         }
       });
     }
-  }, [appendOutput, clearFix, clearExplanation, localSettings.restoreOpenTabs, selectFile]);
+  }, [appendOutput, clearImprove, clearFix, clearExplanation, localSettings.restoreOpenTabs, selectFile]);
 
   useEffect(() => {
     if (localSettings.proactiveObserverMode === "assist") return;
@@ -1576,7 +1599,8 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [appendOutput, consumeProactiveObservation, openedWorkspace, proactiveSettings]);
 
   const runCurrentFile = useCallback(async (expectedContentHash?:string) => {
-    const verificationEpoch=fix.epoch.current;
+    const verificationSession=fixApplied?.action==="Improve Code"?improve:fix;
+    const verificationEpoch=verificationSession.epoch.current;
     if (runOutputRef.current?.status === "running") {
       appendOutput("A file is already running. Stop it before starting another.", "error");
       setOutputFocusToken((current) => current + 1);
@@ -1608,10 +1632,10 @@ export default function App({ user, onSignOut }: AppProps) {
         saveLabel: "Save and Run",
         allowDiscard: false,
       });
-      if (choice !== "save" || (expectedContentHash && verificationEpoch!==fix.epoch.current) || !(await saveTab(tab.file.relativePath))) return;
+      if (choice !== "save" || (expectedContentHash && verificationEpoch!==verificationSession.epoch.current) || !(await saveTab(tab.file.relativePath))) return;
     }
 
-    if(expectedContentHash && verificationEpoch!==fix.epoch.current)return;
+    if(expectedContentHash && verificationEpoch!==verificationSession.epoch.current)return;
     setOutputFocusToken((current) => current + 1);
     const runId = crypto.randomUUID();
     const nextRun: RunOutputState = {
@@ -1636,7 +1660,7 @@ export default function App({ user, onSignOut }: AppProps) {
     }
     setRunOutput(current=>current?.runId===runId?{...current,sourceHash:result.value.sourceHash}:current);
     appendOutput(`Running ${result.value.relativePath}…`);
-  }, [activePath, appendOutput, askAboutUnsavedChanges, saveTab, fix.epoch]);
+  }, [activePath, appendOutput, askAboutUnsavedChanges, saveTab, fix, improve, fixApplied]);
 
   const stopCurrentRun = useCallback(async () => {
     const current = runOutputRef.current;
@@ -1735,6 +1759,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setMultiFileBusy(false);
     if (!result.ok) { setMultiFileError(result.error); appendOutput(`Multi-file apply: ${result.error}`, "error"); recordMultiFileOutcome({ storeHistory: syncedSettings.storeSuggestionHistory, phase: "apply", outcome: "failed", provider: observerProvider, planId: multiFilePlan.planId, changeSetId: multiFileChangeSet.changeSetId, fileCount: multiFileChangeSet.changes.length, updateCount: multiFileChangeSet.changes.filter((item) => item.operation === "update").length, createCount: multiFileChangeSet.changes.filter((item) => item.operation === "create").length, changedLines: 0, durationMs: Date.now() - started }); return; }
     const snapshots = new Map(result.value.files.map((file) => [file.relativePath, file]));
+    for (const path of snapshots.keys()) markMemoryOrigin(path, "ai_apply");
     setTabs((current) => current.map((tab) => { const file = snapshots.get(tab.file.relativePath); return file ? { ...tab, file: { ...tab.file, content: file.content, modifiedAtMs: file.modifiedAtMs }, draft: file.content, saveStatus: null, externalConflict: null, externalNotice: null } : tab; }));
     const first = result.value.files[0];
     if (first) await selectFile({ name: first.relativePath.split("/").at(-1) ?? first.relativePath, relativePath: first.relativePath, kind: "file", isSymbolicLink: false });
@@ -1749,6 +1774,7 @@ export default function App({ user, onSignOut }: AppProps) {
     const result = await window.multiFileObserver.undo({ workspaceId: openedWorkspace.workspaceId, dirtyPaths: tabsRef.current.filter(isDirty).map((tab) => tab.file.relativePath) }); setMultiFileBusy(false);
     if (!result.ok) { setMultiFileError(result.error); appendOutput(`Multi-file rollback: ${result.error}`, "error"); return; }
     const restored = new Map(result.value.restoredFiles.map((file) => [file.relativePath, file])); const removed = new Set(result.value.removedPaths);
+    for (const path of restored.keys()) markMemoryOrigin(path, "undo_redo");
     setTabs((current) => current.filter((tab) => !removed.has(tab.file.relativePath)).map((tab) => { const file = restored.get(tab.file.relativePath); return file ? { ...tab, file: { ...tab.file, content: file.content, modifiedAtMs: file.modifiedAtMs }, draft: file.content, saveStatus: null, externalConflict: null, externalNotice: null } : tab; }));
     if (activePath && removed.has(activePath)) setActivePath(null);
     setMultiFileApplied(null); setMultiFilePlan(null); setMultiFileBases(null); setRunOutput(null); setGitRefreshToken((value) => value + 1);
@@ -1758,11 +1784,16 @@ export default function App({ user, onSignOut }: AppProps) {
 
   const sendObserverRequest = useCallback(async (request: ObserverRequest) => {
     if (!activeTab || observerRequestInFlight.current || observerSuggestion || observerEditReview) return;
+    if(request.improveCode){setContextPreviewRequest(null);setFixApplied(null);await improve.start(request,explanationPreviewSource.current?.content ?? activeTab.draft);return;}
     if (request.fixCode) {
       setContextPreviewRequest(null);setFixApplied(null);
       await fix.start(request,explanationPreviewSource.current?.content ?? activeTab.draft);return;
     }
     if (request.mode === "explain" && request.kind === "code") {
+      const source=explanationPreviewSource.current;
+      if(!explanationPreviewMatches(source,{path:activeTab.file.relativePath,content:activeTab.draft})) {
+        setContextPreviewRequest(null);setObserverStatus("error");setObserverError("Source changed after preview. Ask Observer again to review the current buffer; nothing was sent.");return;
+      }
       setContextPreviewRequest(null);
       await explanation.start(request, explanationPreviewSource.current ?? { path: activeTab.file.relativePath, content: activeTab.draft });
       return;
@@ -1814,7 +1845,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setObserverSuggestion(result.value.suggestion);
     setObserverStatus("ready");
     appendOutput(`Observer returned a ${OBSERVER_MODE_LABELS[request.mode].toLowerCase()} suggestion.`, "success");
-  }, [activeTab, appendOutput, fix, explanation, observerEditReview, observerSuggestion, queueUsefulnessPrompt, syncedSettings.confirmCompleteFile]);
+  }, [activeTab, appendOutput, improve, fix, explanation, observerEditReview, observerSuggestion, queueUsefulnessPrompt, syncedSettings.confirmCompleteFile]);
 
   const reviewLiveSuggestion = useCallback(async () => {
     const { request, suggestion } = liveState;
@@ -1829,10 +1860,10 @@ export default function App({ user, onSignOut }: AppProps) {
   const askObserver = useCallback(async (refreshExplanation = false) => {
     window.liveObserver.cancel();
     if (!observerRequest || !activeTab || observerRequestInFlight.current || observerSuggestion || observerEditReview) return;
-    if (explanationPreparing.current || ((explanation.request || fix.request) && !refreshExplanation)) return;
-    if (refreshExplanation) { explanation.clear(); fix.clear(); }
+    if (explanationPreparing.current || ((explanation.request || fix.request || improve.request) && !refreshExplanation)) return;
+    if (refreshExplanation) { explanation.clear(); fix.clear(); improve.clear(); }
     const token = explanation.epoch.current;
-    const fixToken = fix.epoch.current;
+    const fixToken = fix.epoch.current, improveToken=improve.epoch.current;
     explanationPreviewSource.current = { path: activeTab.file.relativePath, content: activeTab.draft };
     setObserverStatus("thinking"); setObserverError(null);
     explanationPreparing.current = true;
@@ -1840,12 +1871,12 @@ export default function App({ user, onSignOut }: AppProps) {
     try { prepared = await window.observer.prepare(observerRequest); }
     catch { prepared = { ok: false as const, error: "Context preview failed. Try again." }; }
     finally { explanationPreparing.current = false; }
-    if (token !== explanation.epoch.current || fixToken !== fix.epoch.current) return;
+    if (token !== explanation.epoch.current || fixToken !== fix.epoch.current || improveToken!==improve.epoch.current) return;
     if (!prepared.ok) { setObserverStatus("error"); setObserverError(prepared.error); appendOutput(`Observer: ${prepared.error}`, "error"); return; }
     setObserverStatus("idle");
     setMultiFilePreviewPhase(prepared.value.mode === "plan_multi_file" ? "plan" : null);
     setContextPreviewRequest(prepared.value);
-  }, [activeTab, appendOutput, fix, explanation, observerEditReview, observerRequest, observerSuggestion]);
+  }, [activeTab, appendOutput, improve, fix, explanation, observerEditReview, observerRequest, observerSuggestion]);
 
   const reviewFixCorrection = useCallback(async () => {
     const result=fix.result;if(!result?.suggestion.edit||!result.request.editBase||fix.stale)return;
@@ -1855,6 +1886,14 @@ export default function App({ user, onSignOut }: AppProps) {
     if(generation!==fix.epoch.current || tabsRef.current.find(t=>t.file.relativePath===result.request.editBase!.targetRelativePath)?.draft!==tab.draft)return;
     setObserverEditReview({request:result.request,suggestion:result.suggestion,originalContent:tab.draft,proposedContent:validated.ok?validated.value.proposedContent:tab.draft,contextSummary:fixScopeLabel(result.request),...(!validated.ok?{staleMessage:validated.message}:{})});
   },[fix]);
+  const reviewImprovement = useCallback(async () => {
+    const result=improve.result;if(!result?.suggestion.edit||!result.request.editBase||improve.stale)return;
+    const generation=improve.epoch.current;
+    const tab=tabsRef.current.find(t=>t.file.relativePath===result.request.editBase!.targetRelativePath);if(!tab)return;
+    const validated=validateAndBuildProposedEdit(result.suggestion.edit,result.request.editBase,tab.draft,await sha256Text(tab.draft));
+    if(generation!==improve.epoch.current || tabsRef.current.find(t=>t.file.relativePath===result.request.editBase!.targetRelativePath)?.draft!==tab.draft)return;
+    setObserverEditReview({request:result.request,suggestion:result.suggestion,originalContent:tab.draft,proposedContent:validated.ok?validated.value.proposedContent:tab.draft,contextSummary:improveScopeLabel(result.request),...(!validated.ok?{staleMessage:validated.message}:{})});
+  },[improve]);
   useEffect(()=>{
     if(!fixApplied)return;let active=true;
     const tab=tabs.find(t=>t.file.relativePath===fixApplied.path);
@@ -1960,6 +1999,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [localSettings.proactiveMetricsCollection, localSettings.proactiveRetentionDays, usefulnessPrompt]);
 
   const rejectObserverEdit = useCallback(() => {
+    if(observerEditReview?.request.improveCode) improve.clear();
     if(observerEditReview?.request.fixCode) fix.clear();
     const suggestionId = observerEditReview?.suggestion.id;
     setObserverEditReview(null);
@@ -1968,15 +2008,16 @@ export default function App({ user, onSignOut }: AppProps) {
     setSentContextSummary(null);
     appendOutput("Observer change rejected; the editor was not modified.");
     if (suggestionId) void window.observer.recordOutcome({ suggestionId, outcome: "dismissed" });
-  }, [appendOutput, fix, observerEditReview]);
+  }, [appendOutput, improve, fix, observerEditReview]);
 
   const regenerateObserverEdit = useCallback(() => {
     const suggestionId = observerEditReview?.suggestion.id;
+    if(observerEditReview?.request.improveCode) {setObserverEditReview(null);improve.clear();return;}
     if(observerEditReview?.request.fixCode) { setObserverEditReview(null);fix.clear();return; }
     setObserverEditReview(null);
     if (suggestionId) void window.observer.recordOutcome({ suggestionId, outcome: "dismissed" });
     window.setTimeout(() => void askObserver(), 0);
-  }, [askObserver, fix, observerEditReview]);
+  }, [askObserver, improve, fix, observerEditReview]);
 
   const acceptObserverEdit = useCallback(async () => {
     const review = observerEditReview;
@@ -1984,12 +2025,14 @@ export default function App({ user, onSignOut }: AppProps) {
     const editBase = review?.request.editBase;
     const edit = review?.suggestion.edit;
     if (!review || !workspaceId || !editBase || !edit || applyingObserverEdit) return;
-    const fixGeneration=fix.epoch.current;
+    const editSession=review.request.improveCode?improve:fix;
+    const fixGeneration=editSession.epoch.current;
+    const approvedScope=review.request.fixCode ?? (review.request.improveCode?{...review.request.improveCode,scope:review.request.improveCode.scope==='file'?'file' as const:'selection' as const}:undefined);
     setApplyingObserverEdit(true);
     const currentTab = tabsRef.current.find((tab) => tab.file.relativePath === editBase.targetRelativePath);
     const currentHash = currentTab ? await sha256Text(currentTab.draft) : "";
     const validated = currentTab ? validateAndBuildProposedEdit(edit, editBase, currentTab.draft, currentHash) : null;
-    if (!currentTab || !validated?.ok || (review.request.fixCode && (currentTab.externalConflict || currentTab.availability !== "available" || !editWithinFixScope(edit,review.request.fixCode)))) {
+    if (!currentTab || !validated?.ok || (approvedScope && (currentTab.externalConflict || currentTab.availability !== "available" || !editWithinFixScope(edit,approvedScope!)))) {
       const message = validated && !validated.ok ? validated.message : "The target file is no longer open.";
       setObserverEditReview((current) => current ? { ...current, staleMessage: message } : current);
       setApplyingObserverEdit(false);
@@ -2012,12 +2055,13 @@ export default function App({ user, onSignOut }: AppProps) {
       return;
     }
     const latest = tabsRef.current.find((tab) => tab.file.relativePath === editBase.targetRelativePath);
-    if (!latest || await sha256Text(latest.draft) !== currentHash || (review.request.fixCode && (fixGeneration!==fix.epoch.current || latest.externalConflict || latest.availability !== "available" || tabsRef.current.find(tab=>tab.file.relativePath===editBase.targetRelativePath)?.draft!==latest.draft))) {
+    if (!latest || await sha256Text(latest.draft) !== currentHash || (approvedScope && (fixGeneration!==editSession.epoch.current || latest.externalConflict || latest.availability !== "available" || tabsRef.current.find(tab=>tab.file.relativePath===editBase.targetRelativePath)?.draft!==latest.draft))) {
       setApplyingObserverEdit(false);
       setObserverEditReview((current) => current ? { ...current, staleMessage: "The file changed after this suggestion was generated." } : current);
       return;
     }
-    if(review.request.fixCode) { fix.clear();setFixApplied({path:editBase.targetRelativePath,hash:appliedContentHash});setFixVerification("Applied in memory — unverified. No save or execution performed."); }
+    if(approvedScope) { editSession.clear();setFixApplied({path:editBase.targetRelativePath,hash:appliedContentHash,action:review.request.improveCode?"Improve Code":"Fix Code"});setFixVerification("Applied in memory — unverified. No save or execution performed."); }
+    markMemoryOrigin(editBase.targetRelativePath, "ai_apply");
     setTabs((current) => current.map((tab) => tab.file.relativePath === editBase.targetRelativePath
       ? { ...tab, draft: validated.value.proposedContent, saveStatus: null, autoSaveBlocked: true }
       : tab));
@@ -2027,7 +2071,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setSentContextSummary(null);
     appendOutput("Observer change applied in memory. The file remains unsaved; use Undo Observer Change to restore the checkpoint.", "success");
     if (review.suggestion.id) void window.observer.recordOutcome({ suggestionId: review.suggestion.id, outcome: "accepted" });
-  }, [fix, applyingObserverEdit, appendOutput, localSettings.checkpointRetentionLimit, observerEditReview, openedWorkspace?.workspaceId]);
+  }, [improve, fix, applyingObserverEdit, appendOutput, localSettings.checkpointRetentionLimit, observerEditReview, openedWorkspace?.workspaceId]);
 
   const undoObserverChange = useCallback(async () => {
     if (!activeTab || !openedWorkspace) { appendOutput("Open the edited file before undoing an Observer change.", "error"); return; }
@@ -2035,6 +2079,7 @@ export default function App({ user, onSignOut }: AppProps) {
     const currentContentHash = await sha256Text(activeTab.draft);
     const restored = await window.checkpoints.restore({ workspaceId: openedWorkspace.workspaceId, relativePath: activeTab.file.relativePath, currentContentHash });
     if (!restored.ok) { appendOutput(restored.error, "error"); return; }
+    markMemoryOrigin(activeTab.file.relativePath, "undo_redo");
     setTabs((current) => current.map((tab) => tab.file.relativePath === activeTab.file.relativePath
       ? { ...tab, draft: restored.value.previousContent, saveStatus: null, autoSaveBlocked: true }
       : tab));
@@ -2043,6 +2088,7 @@ export default function App({ user, onSignOut }: AppProps) {
   }, [activeTab, appendOutput, fixApplied, openedWorkspace]);
 
   const dismissObserver = useCallback(() => {
+    if (improve.request) { improve.clear(); return; }
     if (fix.request) { fix.clear(); return; }
     if (explanation.request) { explanation.clear(); return; }
     const suggestionId = observerSuggestion?.id;
@@ -2056,7 +2102,7 @@ export default function App({ user, onSignOut }: AppProps) {
     if (suggestionId) {
       void window.observer.recordOutcome({ suggestionId, outcome: "dismissed" });
     }
-  }, [fix, explanation, observerSuggestion]);
+  }, [improve, fix, explanation, observerSuggestion]);
 
   const copySnippet = useCallback(async () => {
     const snippet = observerSuggestion?.snippet;
@@ -2125,7 +2171,7 @@ export default function App({ user, onSignOut }: AppProps) {
 
   const signOut = useCallback(async () => {
     if (!(await canOpenWorkspace())) return;
-    clearExplanation(); clearFix(); setFixProblem("");setFixApplied(null);setExplainQuestion("");
+    clearExplanation(); clearFix(); clearImprove();setImproveInstruction("");setImproveFullFile(false); setFixProblem("");setFixApplied(null);setExplainQuestion("");
     setSigningOut(true);
     setAccountError(null);
     const error = await onSignOut();
@@ -2133,7 +2179,7 @@ export default function App({ user, onSignOut }: AppProps) {
       setAccountError(error);
       setSigningOut(false);
     }
-  }, [canOpenWorkspace, clearFix, clearExplanation, onSignOut]);
+  }, [canOpenWorkspace, clearImprove, clearFix, clearExplanation, onSignOut]);
 
   const saveAll = useCallback(async () => {
     for (const tab of tabsRef.current.filter(isDirty)) {
@@ -2161,7 +2207,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setSurface({ status: "idle" });
     setExternalChanges(null);
     externalReadSequence.current.clear();
-    clearExplanation(); clearFix(); setFixProblem("");setFixApplied(null);setFixDiagnostics(null); setExplainQuestion(""); explanationPreviewSource.current = null;
+    clearExplanation(); clearFix(); clearImprove();setImproveInstruction("");setImproveFullFile(false); setFixProblem("");setFixApplied(null);setFixDiagnostics(null); setExplainQuestion(""); explanationPreviewSource.current = null;
     setWorkspaceOpen(false);
     setOpenedWorkspace(null);
     setWorkspaceVersion((current) => current + 1);
@@ -2188,7 +2234,7 @@ export default function App({ user, onSignOut }: AppProps) {
     setMarkdownViewModes({});
     setSidebarView("explorer");
     appendOutput("Workspace closed. Welcome screen opened.");
-  }, [appendOutput, canOpenWorkspace, clearFix, clearExplanation, workspaceOpen]);
+  }, [appendOutput, canOpenWorkspace, clearImprove, clearFix, clearExplanation, workspaceOpen]);
 
   const saveLocalSettings = useCallback(async (settings: LocalSettings) => {
     const result = await window.settings.updateLocal(settings);
@@ -2296,6 +2342,7 @@ export default function App({ user, onSignOut }: AppProps) {
     if (!latest.ok || await sha256Text(latest.value.content) !== documentHash) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: "Markdown changed after checkpoint creation; nothing was applied." } }); return; }
     const written = await window.workspace.writeFile({ relativePath: context.documentationPath, content: validated.value.proposedContent, expectedModifiedAtMs: latest.value.modifiedAtMs });
     if (!written.ok) { setDocumentationUpdateView({ stage: "review", value: { ...review, staleMessage: written.error } }); return; }
+    markMemoryOrigin(context.documentationPath, "ai_apply");
     setTabs((current) => current.map((tab) => tab.file.relativePath === context.documentationPath ? { ...tab, file: { ...tab.file, content: validated.value.proposedContent, modifiedAtMs: written.value.modifiedAtMs }, draft: validated.value.proposedContent, saveStatus: null, autoSaveBlocked: false } : tab));
     setWorkspaceVersion((value) => value + 1); setGitRefreshToken((value) => value + 1); setDocumentationUpdateView({ stage: "applied", path: context.documentationPath, relationshipId: context.relationshipId });
     await openDocumentationLocation(context.documentationPath, context.sectionRange.start.line);
@@ -2310,6 +2357,7 @@ export default function App({ user, onSignOut }: AppProps) {
     if (!restored.ok) { appendOutput(restored.error, "error"); return; }
     const written = await window.workspace.writeFile({ relativePath: documentationUpdateView.path, content: restored.value.previousContent, expectedModifiedAtMs: current.value.modifiedAtMs });
     if (!written.ok) { appendOutput(written.error, "error"); return; }
+    markMemoryOrigin(documentationUpdateView.path, "undo_redo");
     setTabs((tabs) => tabs.map((tab) => tab.file.relativePath === documentationUpdateView.path ? { ...tab, file: { ...tab.file, content: restored.value.previousContent, modifiedAtMs: written.value.modifiedAtMs }, draft: restored.value.previousContent, saveStatus: null } : tab)); setWorkspaceVersion((value) => value + 1); setGitRefreshToken((value) => value + 1); setDocumentationUpdateView(null); appendOutput("Documentation update rolled back without overwriting newer edits.", "success");
   }, [appendOutput, documentationUpdateView, openedWorkspace]);
   const saveSyncedSettings = useCallback(async (settings: SyncedSettings) => {
@@ -2781,6 +2829,7 @@ export default function App({ user, onSignOut }: AppProps) {
             />
           ) : (
           <EditorWorkspace
+            memoryWorkspaceId={openedWorkspace?.workspaceId}
             onLiveEdit={(edit) => { if (liveState.enabled && edit.relativePath === activePath) window.liveObserver.edit({ ...edit, trayItems: contextTrayItems }); }}
             liveState={liveState}
             onLiveReview={() => void reviewLiveSuggestion()}
@@ -2821,11 +2870,16 @@ export default function App({ user, onSignOut }: AppProps) {
 
         <aside className="panel observer-panel">
           <ObserverPanel
+            improveGoal={improveGoal} improveInstruction={improveInstruction} improveFullFile={improveFullFile} onImproveGoalChange={value=>{setImproveGoal(value);if(!improve.request){setObserverError(null);setObserverStatus("idle");}}} onImproveInstructionChange={value=>{setImproveInstruction(value);if(!improve.request){setObserverError(null);setObserverStatus("idle");}}} onImproveFullFileChange={value=>{setImproveFullFile(value);if(!improve.request){setObserverError(null);setObserverStatus("idle");}}}
+            improveCard={improve.request && <ImproveCodeCard request={improve.request} result={improve.result} busy={improve.busy} error={improve.error} stale={improve.stale} onClarify={improve.clarify} onClear={()=>{improve.clear();setObserverEditReview(current=>current?.request.improveCode?null:current);}} onCancel={improve.cancel} onReview={()=>void reviewImprovement()}
+              onRefresh={!observerEditReview && activeObserverMode==='improve_code' && activePath===improve.request.editBase?.targetRelativePath?()=>void askObserver(true):undefined}
+              onFix={()=>{improve.clear();setObserverMode('fix_error');setFixProblem('');setObserverError(null);appendOutput('Fix Code selected. Use Ask Observer to review its current scope before sending; no context was sent automatically.');}} />}
             fixProblem={fixProblem} onFixProblemChange={setFixProblem}
             fixCard={fix.request && <FixCodeCard request={fix.request} result={fix.result} busy={fix.busy} error={fix.error} stale={fix.stale} onClarify={fix.clarify} onClear={()=>{fix.clear();setObserverEditReview(current=>current?.request.fixCode?null:current);}} onCancel={fix.cancel}
               onRefresh={!observerEditReview && activeObserverMode==='fix_error' && activePath===fix.request.editBase?.targetRelativePath ? ()=>void askObserver(true):undefined}
               onReview={()=>void reviewFixCorrection()} />}
-            fixVerificationCard={fixApplied && <section className="observer-suggestion explanation-conversation" aria-label="Fix Code verification"><strong>Applied Fix Code change · unverified</strong><p>{fixVerification}</p><small>Only this source version is associated with a run; dependencies and other behavior are not proven correct.</small><div className="observer-actions">{activePath===fixApplied.path && activeTab && runSupport(activeTab.file.name)==='supported' && <button disabled={runOutput?.status==='running'} onClick={()=>void runCurrentFile(fixApplied.hash)}>Run again</button>}<button disabled={activePath!==fixApplied.path} onClick={()=>void undoObserverChange()}>Undo Fix Code change</button><button onClick={()=>setFixApplied(null)}>Dismiss verification</button></div></section>}
+            fixVerificationCard={fixApplied && <section className="observer-suggestion explanation-conversation" aria-label="Fix Code verification"><strong>Applied {fixApplied.action ?? "Fix Code"} change · unverified</strong><p>{fixVerification}</p><small>Only this source version is associated with a run; dependencies and other behavior are not proven correct.</small><div className="observer-actions">{activePath===fixApplied.path && activeTab && runSupport(activeTab.file.name)==='supported' && <button disabled={runOutput?.status==='running'} onClick={()=>void runCurrentFile(fixApplied.hash)}>Run again</button>}<button disabled={activePath!==fixApplied.path} onClick={()=>void undoObserverChange()}>Undo {fixApplied.action ?? "Fix Code"} change</button><button onClick={()=>setFixApplied(null)}>Dismiss verification</button></div></section>}
+            explainScopeControl={<ExplainScopePicker request={observerRequest} value={explainScope} onChange={setExplainScope} disabled={observerStatus === "thinking" || Boolean(explanation.request || contextPreviewRequest)} />}
             explainQuestion={explainQuestion}
             onExplainQuestionChange={setExplainQuestion}
             explanationCard={explanation.request && <ExplanationConversation request={explanation.request} result={explanation.result} busy={explanation.busy} error={explanation.error}
@@ -2834,7 +2888,7 @@ export default function App({ user, onSignOut }: AppProps) {
               onRefresh={activePath === explanation.snapshot?.path && activeObserverMode === "explain" && observerRequest ? () => void askObserver(true) : undefined} />}
 
             automaticRunEnabled={automaticRunState.enabled}
-            liveObserverCard={<LiveObserverCard onAsk={() => void askObserver()} canAsk={!fix.request && !explanation.request && syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest} state={liveState} provider={observerProvider} available={workspaceOpen && settingsLoaded} onState={setLiveState} onReview={() => void reviewLiveSuggestion()} />}
+            liveObserverCard={<LiveObserverCard onAsk={() => void askObserver()} canAsk={!improve.request && !fix.request && !explanation.request && syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest} state={liveState} provider={observerProvider} available={workspaceOpen && settingsLoaded} onState={setLiveState} onReview={() => void reviewLiveSuggestion()} />}
             automaticRunCard={<AutomaticRunCard state={automaticRunState} provider={observerProvider} available={workspaceOpen && settingsLoaded && syncedSettings.observerEnabled} onState={setAutomaticRunState} />}
             mode={activeObserverMode}
             modes={observerModes}
@@ -2844,7 +2898,7 @@ export default function App({ user, onSignOut }: AppProps) {
             suggestion={observerSuggestion}
             error={observerError}
             copyStatus={copyStatus}
-            canAsk={!fix.request && !explanation.request && syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest}
+            canAsk={!improve.request && !fix.request && !explanation.request && syncedSettings.observerEnabled && Boolean(observerRequest) && observerStatus === "idle" && !observerSuggestion && !observerEditReview && !contextPreviewRequest}
             onModeChange={(mode) => {
               setObserverMode(mode);
               if (observerStatus === "error") dismissObserver();
@@ -2955,7 +3009,14 @@ export default function App({ user, onSignOut }: AppProps) {
         onGitDiff={() => { if (documentationUpdateView.stage === "applied") void window.git.status().then((status) => { if (status.ok && status.value.state === "repository") { const file = status.value.files.find((item) => item.relativePath === documentationUpdateView.path); if (file) void openGitDiff(file); } }); setDocumentationUpdateView(null); }}
         onAddContext={() => { if (documentationUpdateRelationship) void addDocumentationRelationshipContext(documentationUpdateRelationship); }}
       />}
-      <SettingsPanel
+      <SettingsPanel memoryWorkspaceId={openedWorkspace?.workspaceId}
+        memoryContextSeed={openedWorkspace && activeTab ? { workspaceId:openedWorkspace.workspaceId,
+          path:activeTab.file.relativePath,content:activeTab.draft,
+          cursorLine:observerSnapshot?.relativePath===activeTab.file.relativePath?observerSnapshot.cursorLine:1,
+          cursorColumn:observerSnapshot?.relativePath===activeTab.file.relativePath?observerSnapshot.cursorColumn:1,
+          maximumCharacters:Math.min(16000,syncedSettings.maximumContextChars),
+          diagnostics:syncedSettings.includeDiagnostics ? (fixDiagnostics?.path===activeTab.file.relativePath ? fixDiagnostics.diagnostics.slice(0,100).map(d=>({line:d.line??1,message:d.message.slice(0,2000)})) : []) : [],
+        } : undefined}
         open={settingsOpen}
         local={localSettings}
         synced={syncedSettings}

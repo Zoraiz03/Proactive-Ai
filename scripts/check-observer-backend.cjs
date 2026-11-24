@@ -11,7 +11,11 @@ const checks = [
   ['desktop_user_settings', 'user_id,preferred_provider,preferred_model,observer_enabled,default_observer_action,show_context_preview,include_diagnostics,include_terminal_error,maximum_context_chars,confirm_complete_file,store_suggestion_history', '20260831061842_add_desktop_user_settings.sql'],
 ];
 async function main() {
-  if (!url || !key) throw new Error('Public Supabase configuration is missing.');
+  if (!url || !key) {
+    console.error('Schema check requires NEXT_PUBLIC_SUPABASE_URL and server-only SUPABASE_SERVICE_ROLE_KEY in local configuration. Do not expose the service-role key through NEXT_PUBLIC_ variables.');
+    process.exitCode = 1;
+    return;
+  }
   const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10000) }) } });
   for (const [table, columns, migration] of checks) {
     const { error } = await db.from(table).select(columns).limit(0);
@@ -24,6 +28,6 @@ async function main() {
       console.log(`FAIL ${table}: ${missing ? `missing schema; review existing migration supabase/migrations/${migration}` : `connection/access error (${error.code || 'network'}); check backend connectivity and database permissions`}.`);
     }
   }
-  console.log('This checks schema availability only, not signed-in ownership policies or provider quality.');
+  console.log('This uses server credentials for a zero-row schema check only; it does not verify signed-in ownership policies or provider quality.');
 }
 main().catch(() => { console.error('Backend readiness check failed. Check configuration and connectivity.'); process.exitCode = 1; });

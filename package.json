@@ -11,6 +11,7 @@
     "test:project-context": "node --experimental-strip-types scripts/project-context.test.ts",
     "test": "npm run test:manual-suggestion && npm run test:project-context && npm run test:explanation && npm run test:fix-code && npm run test:live-observer && npm run test:observer-reliability",
     "check:observer-backend": "node scripts/check-observer-backend.cjs",
+    "test:improve-code": "node --experimental-strip-types scripts/improve-code.test.ts",
     "test:fix-code": "node --experimental-strip-types scripts/fix-code.test.ts",
     "test:explanation": "node --experimental-strip-types scripts/explanation.test.ts",
     "test:observer-reliability": "node --test scripts/observer-reliability.test.ts",
