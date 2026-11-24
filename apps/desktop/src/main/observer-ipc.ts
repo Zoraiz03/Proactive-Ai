@@ -1,5 +1,6 @@
 import { observerInputBudget, observerTelemetry } from "../shared/observer-budget";
 import { explainFunction } from "./explain-context";
+import { explanationBudget } from "../shared/explanation-budget";
 import {ImproveCodeSession} from "./improve-code-session";
 import {resolveImproveScope} from "./improve-scope";
 import { FixCodeSession } from "./fix-code-session";
@@ -183,7 +184,10 @@ export class ObserverContextController {
   async prepare(webContentsId: number, request: import("../shared/observer").ObserverPrepareRequest): Promise<ObserverRequest> {
     if (!this.workspace || this.workspace.webContentsId !== webContentsId) throw new Error("Open a workspace before asking Observer.");
     const started = performance.now(), traceId = randomUUID();
+    const generation = this.generation;
     const contextPackage = await this.engine.build({...request.seed, maximumTotalCharacters: observerInputBudget(request.provider, request.seed.maximumTotalCharacters)});
+    if (["explain", "improve_code"].includes(request.seed.mode) && generation !== this.generation) throw new Error(`${request.seed.mode === "explain" ? "Explain" : "Improve Code"} context changed while preparing. Preview the current project again.`);
+    if (request.seed.mode === "explain" && request.seed.kind === "code") { const budget = explanationBudget(contextPackage, undefined, request.provider, request.model); if (budget.error) throw new Error(budget.error); }
     observerTelemetry("context_preparation", performance.now() - started, contextPackage, traceId);
     this.prepared = contextPackage;
     const source = contextPackage.items.some((item) => item.type === "selected_code") ? "selection" : contextPackage.items.some((item) => item.type === "diagnostic") ? "diagnostic" : "cursor";

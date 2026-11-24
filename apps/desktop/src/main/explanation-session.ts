@@ -42,6 +42,7 @@ export class ExplanationSession {
    if (context.items.some(i => ['selected_code','current_symbol','nearby_code'].includes(i.type) && i.source.relativePath !== context.activeFile.relativePath)) throw new Error('Active code context must match the approved active file.');
    if (context.items.some(i => ['related_file','project_rule'].includes(i.type) && i.content.length > policy.maximumFileCharacters)) throw new Error('Supporting context exceeds current per-related-file privacy limit.');
    if (context.totalCharacters > Math.min(policy.maximumCharacters, EXPLANATION_LIMITS.contextCharacters)) throw new Error('Approved code exceeds the current context limit. Refresh with a smaller selection.');
+   if (context.items.some(i => ['selected_code','current_symbol','nearby_code','complete_file'].includes(i.type) && i.content.length > (policy.explainMaximumCodeCharacters ?? policy.maximumFileCharacters))) throw new Error('Approved code exceeds the current Explain code limit. Refresh with a smaller selection.');
    if (context.items.some(item => (item.source.relativePath && isExcludedFromAiContext(item.source.relativePath, policy.exclusions)) || redactContextSecrets(item.content).redacted)) throw new Error('Approved context is excluded or contains suspected secrets. Review a new context.');
 
    if (policy.confirmCompleteFile && context.containsCompleteFile && !session.completeConsent) {

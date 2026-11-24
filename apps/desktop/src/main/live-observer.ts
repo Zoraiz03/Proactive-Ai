@@ -60,7 +60,7 @@ export async function buildLiveProjectRequest(edit: LiveEdit, provider: Observer
  const started = performance.now();
  const request = buildLiveRequest(edit, provider, policy);
  const context = request.contextPackage!;
- const related = await engine.build({ mode: 'improve_code', kind: 'code', activeRelativePath: edit.relativePath, fileName: request.fileName, language: request.language, content: edit.content, cursorLine: edit.line, cursorColumn: edit.column, exclusions: policy.exclusions, maximumTotalCharacters: context.limits.maximumTotalCharacters, maximumRelatedFiles: policy.maximumRelatedFiles ?? 4, maximumCharactersPerFile: policy.maximumFileCharacters, trayItems: edit.trayItems });
+ const related = await engine.build({ mode: 'improve_code', kind: 'code', activeRelativePath: edit.relativePath, fileName: request.fileName, language: request.language, content: edit.content, cursorLine: edit.line, cursorColumn: edit.column, exclusions: policy.exclusions, maximumTotalCharacters: context.limits.maximumTotalCharacters, maximumRelatedFiles: policy.maximumRelatedFiles ?? 4, maximumCharactersPerFile: policy.maximumFileCharacters, trayItems: edit.trayItems }, { supporting: true });
  context.omitted.push(...related.omitted);
  for (const item of related.items) {
   if (item.type === 'user_instruction' || (item.source.relativePath === edit.relativePath && item.attachmentProvenance !== 'user_attached')) continue;

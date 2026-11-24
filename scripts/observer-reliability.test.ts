@@ -22,7 +22,7 @@ test('full active selection survives Explain and Fix with smaller related-file b
   const content='from helpers import normalize\n'+student253;
   const engine=new ProjectContextEngine(); engine.setWorkspace(root);
   const requirement=await createContextTrayItem({type:'selected_markdown',title:'Requirement',content:'Calculate the arithmetic mean of all subject marks.',reason:'Explicit requirement.'});
-  for(const mode of ['explain','fix_error'] as const){
+  for(const mode of ['fix_error'] as const){ // Explain is scoped to the exact selection/function; related files apply to Fix Code.
    const seed={mode,kind:'code' as const,activeRelativePath:'main.py',fileName:'main.py',language:'python',content,selectedCode:content,cursorLine:7,cursorColumn:1,exclusions:[],maximumTotalCharacters:50000,maximumRelatedFiles:4,maximumCharactersPerFile:500,trayItems:[requirement]};
    assert.ok(validateObserverPrepareRequest({provider:'gemini',seed}));
    const context=await engine.build(seed);
@@ -33,7 +33,7 @@ test('full active selection survives Explain and Fix with smaller related-file b
    await assert.rejects(engine.build({...seed,maximumTotalCharacters:1000}),/exceeds|budget/);
   }
   const large=student253.padEnd(30000,'\n');
-  const ctx=await engine.build({mode:'explain',kind:'code',activeRelativePath:'main.py',fileName:'main.py',language:'python',content:large,selectedCode:large,cursorLine:7,cursorColumn:1,exclusions:[],maximumTotalCharacters:50000,maximumRelatedFiles:4,maximumCharactersPerFile:500});
+  const ctx=await engine.build({mode:'fix_error',kind:'code',activeRelativePath:'main.py',fileName:'main.py',language:'python',content:large,selectedCode:large,cursorLine:7,cursorColumn:1,exclusions:[],maximumTotalCharacters:50000,maximumRelatedFiles:4,maximumCharactersPerFile:500});
   assert.equal(ctx.items.find(i=>i.type==='selected_code')?.content.length,30000);
   const base={mode:'explain' as const,provider:'gemini' as const,kind:'code' as const,fileName:'main.py',language:'python',content:large,selectedCode:large,cursorLine:1,cursorColumn:1,maximumContextChars:50000};
   assert.equal(createObserverRequest(base)?.selectedCode,large);

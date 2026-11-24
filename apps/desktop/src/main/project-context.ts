@@ -125,6 +125,7 @@ export class ProjectContextEngine {
     const gitignore = await this.gitignorePatterns();
     if (isIgnored(seed.activeRelativePath, seed.exclusions, gitignore)) throw new Error("The active file is excluded from AI context.");
     await resolveWorkspacePath(this.rootPath, seed.activeRelativePath);
+    if (focusedExplain) return buildExplainContext(seed);
     if (seed.mode === "fix_error") {
       const context = buildFixCodeContext(seed);
       const supporting = await this.build({...seed, mode: "improve_code", selectedCode: undefined, nearbyCode: undefined}, { supporting: true });
